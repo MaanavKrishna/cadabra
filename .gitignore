@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.superpowers/
+.playwright-mcp/
+cdk.out/
+*.apk
+apps/android/build/
+apps/android/app/build/
+apps/android/.gradle/
+apps/backend/outputs.json
+.DS_Store
+video/
+shots/
