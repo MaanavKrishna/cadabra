@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { BlockCtx, BlockDef } from '../block';
 import {
   AVATAR_R, type BotMem, type Vec, boostOf, botMem, clamp, ensureAvatars, inputDir, isStunned, keepInArena, len,
-  markRam, pressed, stateOf, steer,
+  markRam, pressed, speedMulOf, stateOf, steer,
 } from './util';
 
 export const arenaMoveSchema = z.object({
@@ -156,7 +156,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
       e.props.accel = P.accel;
       e.props.dashKey = P.dashButton;
       const stunned = isStunned(ctx as BlockCtx<unknown>, e);
-      const top = P.speed * boostOf(e);
+      const top = P.speed * boostOf(e) * speedMulOf(e);
 
       if (p.dashQueued && !stunned && ctx.time >= p.dashReadyAt) {
         e.vx = p.face.x * top * P.dashPower;

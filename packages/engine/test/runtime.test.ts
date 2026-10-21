@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { GameSpec } from '@cadabra/spec';
-import { BlockRegistry, GameRuntime, type BlockDef, type Player } from '../src/index';
+import { BlockRegistry, GameRuntime, stubJudgement, type BlockDef, type Player } from '../src/index';
 
 const DT_STEPS = 60; // steps per second
 
@@ -260,5 +260,104 @@ describe('GameRuntime', () => {
     const n = ev.length;
     ev.push({});
     expect(rt.events).toHaveLength(n);
+  });
+});
+
+// ---------- async judgements (draw scores / trivia generation) ----------
+
+interface JudgeParams { kind: 'draw' | 'trivia-gen' }
+const judgeLog: { id: string; result: unknown; t: number }[] = [];
+const judgeBlock: BlockDef<JudgeParams> = {
+  id: 'judge-probe',
+  name: 'Judge Probe',
+  summary: 'requests two judgements at setup',
+  paramsSchema: z.object({ kind: z.enum(['draw', 'trivia-gen']) }),
+  defaults: { kind: 'draw' },
+  controls: ['button'],
+  arenaKinds: ['topdown'],
+  setup(ctx) {
+    ctx.requestJudgement(ctx.params.kind, { n: 1 });
+    ctx.requestJudgement(ctx.params.kind, { n: 2 });
+  },
+  update() {},
+  onInput() {},
+  bot() {
+    return { t: 0 };
+  },
+  onJudgement(ctx, id, result) {
+    judgeLog.push({ id, result, t: ctx.time });
+    ctx.score(ctx.players[0]!.id, 1, 'judged');
+  },
+};
+
+function judgeRuntime() {
+  judgeLog.length = 0;
+  const reg = new BlockRegistry();
+  reg.register(judgeBlock);
+  return new GameRuntime(makeSpec({ blocks: [{ block: 'judge-probe', params: {} }] }), makePlayers(), reg, 7);
+}
+
+describe('judgements', () => {
+  test('requests are visible as pendingJudgements right after setup, in request order', () => {
+    const rt = judgeRuntime();
+    const pj = rt.pendingJudgements();
+    expect(pj.map((j) => j.kind)).toEqual(['draw', 'draw']);
+    expect(pj.map((j) => j.payload)).toEqual([{ n: 1 }, { n: 2 }]);
+    expect(new Set(pj.map((j) => j.id)).size).toBe(2);
+  });
+
+  test('results are applied at the next step boundary, in request order', () => {
+    const rt = judgeRuntime();
+    const [a, b] = rt.pendingJudgements();
+    rt.step();
+    expect(rt.resolveJudgement(b!.id, 'second')).toBe(true);
+    expect(rt.resolveJudgement(a!.id, 'first')).toBe(true);
+    // nothing applied until a step
+    expect(judgeLog).toHaveLength(0);
+    expect(rt.pendingJudgements()).toHaveLength(0);
+    rt.step();
+    expect(judgeLog.map((j) => j.result)).toEqual(['first', 'second']);
+    expect(judgeLog.every((j) => j.t === judgeLog[0]!.t)).toBe(true);
+  });
+
+  test('unknown or duplicate resolutions are ignored', () => {
+    const rt = judgeRuntime();
+    const [a] = rt.pendingJudgements();
+    expect(rt.resolveJudgement('nope', 1)).toBe(false);
+    expect(rt.resolveJudgement(a!.id, 1)).toBe(true);
+    expect(rt.resolveJudgement(a!.id, 2)).toBe(false);
+    rt.step();
+    expect(rt.resolveJudgement(a!.id, 3)).toBe(false);
+    rt.step();
+    expect(judgeLog.map((j) => j.result)).toEqual([1]);
+  });
+
+  test('replays identically when resolved at the same step', () => {
+    const run = () => {
+      const rt = judgeRuntime();
+      for (let i = 0; i < 120; i++) {
+        if (i === 30) for (const j of rt.pendingJudgements()) rt.resolveJudgement(j.id, j.payload);
+        rt.step();
+      }
+      return { events: rt.events, log: judgeLog.slice() };
+    };
+    expect(run()).toEqual(run());
+  });
+
+  test('stubJudgement resolves draw and trivia-gen deterministically', () => {
+    const draw = stubJudgement({ id: 'x', kind: 'draw', payload: { round: 1, entries: [{ playerId: 'p0' }, { playerId: 'p1' }] } }) as {
+      playerId: string; score: number; roast: string;
+    }[];
+    expect(draw.map((d) => d.playerId)).toEqual(['p0', 'p1']);
+    for (const d of draw) {
+      expect(d.score).toBeGreaterThanOrEqual(0);
+      expect(d.score).toBeLessThanOrEqual(10);
+      expect(d.roast.length).toBeGreaterThan(0);
+    }
+    expect(stubJudgement({ id: 'x', kind: 'draw', payload: { round: 1, entries: [{ playerId: 'p0' }] } })).toEqual(
+      stubJudgement({ id: 'y', kind: 'draw', payload: { round: 1, entries: [{ playerId: 'p0' }] } }),
+    );
+    const qs = stubJudgement({ id: 'z', kind: 'trivia-gen', payload: { n: 5 } }) as unknown[];
+    expect(qs).toHaveLength(5);
   });
 });

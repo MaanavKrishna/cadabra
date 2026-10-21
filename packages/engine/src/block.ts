@@ -14,8 +14,13 @@ export interface Player {
   score: number;
 }
 
+/** Async AI work the host resolves out-of-band (TV via backend; playtest via stubJudgement). */
+export type JudgementKind = 'draw' | 'trivia-gen';
+
 export interface BlockCtx<P> {
   params: P;
+  /** The spec being played (read-only: title/ingredients/teams for blocks that need them). */
+  readonly spec: Readonly<GameSpec>;
   world: World;
   players: Player[];
   rng: Rng;
@@ -30,6 +35,14 @@ export interface BlockCtx<P> {
    * `owner: playerId`; anything else is invisible to entityOf and to comeback boosts.
    */
   entityOf(playerId: string): Entity | undefined;
+  /**
+   * Ask the host for an async judgement (AI scoring / generation). Returns a deterministic
+   * id. The result arrives through BlockDef.onJudgement at a step boundary, in request
+   * order. Blocks own their timeouts (sim time) and must play on without a result.
+   */
+  requestJudgement(kind: JudgementKind, payload: unknown): string;
+  /** Withdraw a judgement (e.g. after a timeout); a late result for it is then ignored. */
+  cancelJudgement(id: string): void;
 }
 
 export interface BlockDef<P = any> {
@@ -51,4 +64,6 @@ export interface BlockDef<P = any> {
    */
   bot(ctx: BlockCtx<P>, playerId: string, skill: number): InputFrame;
   onTimeline?(ctx: BlockCtx<P>, ev: TimelineEvent): void;
+  /** Result of a judgement this block requested (shape per kind; validate it, it is untrusted). */
+  onJudgement?(ctx: BlockCtx<P>, id: string, result: unknown): void;
 }

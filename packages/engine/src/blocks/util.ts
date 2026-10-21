@@ -14,6 +14,8 @@ import type { Entity } from '../world';
  * - `rammedBy` / `rammedAt`: last ram on this avatar, recorded by the mover before it
  *   exchanges velocities (see markRam / rammer).
  * - `invulnUntil`: sim seconds; hazards can't hurt the avatar until then.
+ * - `speedMul`: per-step top-speed multiplier set by a non-mover block (sneak's tiptoe);
+ *   movers multiply their top speed by it. Absent = 1.
  */
 
 /** Base avatar radius in px at avatarScale 1. */
@@ -79,6 +81,12 @@ export function pressed(prev: Map<string, boolean>, key: string, down: boolean):
 export function boostOf(e: Entity): number {
   const b = e.props.boost;
   return typeof b === 'number' ? b : 1;
+}
+
+/** Top-speed multiplier another block requests for this avatar (e.g. tiptoe). */
+export function speedMulOf(e: Entity): number {
+  const m = e.props.speedMul;
+  return typeof m === 'number' ? m : 1;
 }
 
 /** Stun contract shared by all blocks: props.stunUntil holds sim time in seconds. */
@@ -190,7 +198,7 @@ export function fallbackMove(ctx: BlockCtx<unknown>, blockId: string, intents: M
     e.props.topSpeed = FALLBACK_SPEED;
     e.props.accel = INSTANT_ACCEL;
     const d = intents.get(p.id);
-    const s = isStunned(ctx, e) || !d ? 0 : FALLBACK_SPEED * boostOf(e);
+    const s = isStunned(ctx, e) || !d ? 0 : FALLBACK_SPEED * boostOf(e) * speedMulOf(e);
     e.vx = (d?.x ?? 0) * s;
     e.vy = (d?.y ?? 0) * s;
     // pre-clamp the coming integration so the avatar never leaves the arena

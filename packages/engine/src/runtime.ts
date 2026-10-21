@@ -1,5 +1,5 @@
 import type { BlockUse, GameSpec, InputFrame } from '@cadabra/spec';
-import type { BlockCtx, BlockDef, Player } from './block';
+import type { BlockCtx, BlockDef, JudgementKind, Player } from './block';
 import { FxQueue, type FxEvent, type GameEvent } from './fx';
 import type { BlockRegistry } from './registry';
 import { Rng } from './rng';
@@ -28,6 +28,12 @@ export interface GameResult {
   ranking: Player[];
   winnerTeam?: 0 | 1;
   events: GameEvent[];
+}
+
+export interface Judgement {
+  id: string;
+  kind: JudgementKind;
+  payload: unknown;
 }
 
 type OneShot = Pick<InputFrame, 'swipe' | 'vote' | 'text' | 'draw'>;
@@ -69,6 +75,9 @@ export class GameRuntime {
   private steps = 0;
   private _state: RuntimeState = 'intro';
   private banner?: { text: string; until: number };
+  /** Open judgements in request order (Map preserves insertion order). */
+  private readonly judgements = new Map<string, { kind: JudgementKind; payload: unknown; block: ActiveBlock; result?: { v: unknown } }>();
+  private judgementSeq = 0;
 
   constructor(spec: GameSpec, players: Player[], registry: BlockRegistry, seed: number) {
     this.spec = spec;
@@ -88,7 +97,9 @@ export class GameRuntime {
       const def = registry.get(use.block);
       if (!def) throw new Error(`unknown block: ${use.block}`);
       const params = parseParams(def, { ...(def.defaults as object), ...use.params });
-      this.blocks.push({ def, ctx: this.makeCtx(params) });
+      const ab = { def, ctx: undefined as unknown as BlockCtx<unknown> };
+      ab.ctx = this.makeCtx(params, ab);
+      this.blocks.push(ab);
     }
 
     for (const b of this.blocks) {
@@ -164,12 +175,34 @@ export class GameRuntime {
     return out;
   }
 
+  /** Judgements awaiting a result, in request order. The host resolves them asynchronously. */
+  pendingJudgements(): Judgement[] {
+    const out: Judgement[] = [];
+    for (const [id, j] of this.judgements) if (!j.result) out.push({ id, kind: j.kind, payload: j.payload });
+    return out;
+  }
+
+  /**
+   * Hand in a judgement result. It is buffered and applied at the start of the next step,
+   * in request order, so replays that resolve at the same step are identical. Returns false
+   * for unknown, cancelled or already-resolved ids (late results are dropped).
+   */
+  resolveJudgement(id: string, result: unknown): boolean {
+    const j = this.judgements.get(id);
+    if (!j || j.result || this._state === 'over') return false;
+    j.result = { v: result };
+    return true;
+  }
+
   step(): void {
     if (this._state === 'over') return;
     if (this._state === 'intro') {
       this._state = 'playing';
       this.emit({ type: 'start' });
     }
+
+    // 0. apply judgement results received since the last step, in request order
+    this.deliverJudgements();
 
     // 1. deliver latest inputs (stale/missing/disconnected => empty frame)
     this.world.invalidate();
@@ -249,10 +282,11 @@ export class GameRuntime {
 
   // ---------- internals ----------
 
-  private makeCtx(params: unknown): BlockCtx<unknown> {
+  private makeCtx(params: unknown, block: ActiveBlock): BlockCtx<unknown> {
     const rt = this;
     return {
       params,
+      spec: this.spec,
       world: this.world,
       players: this.players,
       rng: this.rng,
@@ -267,7 +301,28 @@ export class GameRuntime {
       fx: (e) => this.fxq.push(e),
       eliminate: (playerId) => this.eliminate(playerId),
       entityOf: (playerId) => this.entityOf(playerId),
+      requestJudgement: (kind, payload) => {
+        const id = `${kind}-${++this.judgementSeq}`;
+        this.judgements.set(id, { kind, payload, block });
+        this.emit({ type: 'judgement.requested', data: { id, kind } });
+        return id;
+      },
+      cancelJudgement: (id) => {
+        if (this.judgements.delete(id)) this.emit({ type: 'judgement.cancelled', data: { id } });
+      },
     };
+  }
+
+  private deliverJudgements(): void {
+    if (this.judgements.size === 0) return;
+    const ready: [string, { block: ActiveBlock; result?: { v: unknown } }][] = [];
+    for (const e of this.judgements) if (e[1].result) ready.push(e);
+    for (const [id, j] of ready) {
+      this.judgements.delete(id);
+      this.emit({ type: 'judgement.resolved', data: { id } });
+      this.world.invalidate();
+      j.block.def.onJudgement?.(j.block.ctx, id, j.result!.v);
+    }
   }
 
   private simMs(): number {
