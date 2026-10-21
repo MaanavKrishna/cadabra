@@ -4,3 +4,4 @@ export * from './world';
 export * from './block';
 export * from './registry';
 export * from './runtime';
+export * from './blocks/index';
