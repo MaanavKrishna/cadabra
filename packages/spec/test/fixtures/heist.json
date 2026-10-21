@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "ladoo-heist",
+  "title": "Ladoo Heist",
+  "hook": "Tiptoe past a sleeping bear and sneak every ladoo out of Grandma's kitchen.",
+  "theme": {
+    "palette": { "bg": "#2b1a12", "primary": "#ff9f1c", "accent": "#e63946", "glow": "#ffd166", "text": "#fff6e5" },
+    "artStyle": "warm storybook cartoon",
+    "keyArtPrompt": "A huge sleeping brown bear snoring in a cozy Indian grandma's kitchen, plates of golden ladoos on every counter, warm lamplight",
+    "sprites": {
+      "player": "tiny sneaky kid in socks, top-down cartoon",
+      "ladoo": "golden round ladoo sweet, top-down cartoon",
+      "bear": "sleeping brown bear in an apron, top-down cartoon"
+    },
+    "sfxSet": "cartoon"
+  },
+  "arena": { "kind": "topdown", "width": 1280, "height": 720 },
+  "teams": 0,
+  "durationSec": 90,
+  "blocks": [
+    { "block": "sneak", "params": { "watcher": "bear", "noiseRadius": 220, "sleepCycleSec": 12, "tiptoeSpeedMul": 0.4 } },
+    { "block": "collect", "params": { "item": "ladoo", "count": 24, "respawnSec": 5, "points": 1 } }
+  ],
+  "modifiers": [],
+  "win": { "type": "highScore" },
+  "timeline": [
+    { "atSec": 45, "kind": "bear-sleepwalk", "params": { "durationSec": 10, "speedMul": 0.6 }, "hostLine": "The bear is sleepwalking! Hide behind the fridge!" },
+    { "atSec": 80, "kind": "double-ladoo", "params": { "multiplier": 2 }, "hostLine": "Final stretch: every ladoo counts double!" }
+  ],
+  "comeback": { "enabled": true, "strength": 0.5 },
+  "controller": [
+    { "kind": "joystick", "id": "move" },
+    { "kind": "hold", "id": "tiptoe", "label": "Tiptoe" },
+    { "kind": "button", "id": "grab", "label": "Grab" }
+  ],
+  "host": {
+    "intro": "Grandma's ladoos are out and the bear is snoring. Steal them all.",
+    "finale": "The bear wakes up to an empty kitchen. Who is the ladoo legend?",
+    "tutorial": "Move with the stick, hold Tiptoe to stay quiet, tap Grab to snatch a ladoo."
+  },
+  "origin": { "ingredients": ["ladoo", "sleeping bear", "grandma's kitchen"], "wild": false }
+}
