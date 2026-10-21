@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
@@ -22,6 +23,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -50,6 +53,18 @@ class MainActivity : Activity() {
         webView.loadUrl(START_URL)
     }
 
+    override fun onPause() {
+        webView.onPause()
+        webView.pauseTimers()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        webView.resumeTimers()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemUi()
@@ -66,22 +81,25 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_HOME) return super.dispatchKeyEvent(event)
+        if (shouldPassToSystem(event.keyCode)) return super.dispatchKeyEvent(event)
         // Only act on key-down; swallow key-up so the system never sees it either.
         if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0 && event.keyCode == KeyEvent.KEYCODE_BACK) {
             return true
         }
         val name = keyName(event.keyCode) ?: return true
         webView.evaluateJavascript(
-            "(typeof window.cadabraKey==='function')?String(window.cadabraKey('$name')):''",
+            "(typeof window.cadabraKey==='function')?String(window.cadabraKey('$name')):'missing'",
         ) { result ->
-            // JS returns "exit" on Back when the app should leave to the system.
-            if (name == "back" && result?.trim('"') == "exit") finish()
+            // JS returns "exit" on Back to leave the app. If the bridge is missing or threw,
+            // finish natively so the user is never stuck.
+            val r = result?.trim('"')
+            if (name == "back" && (r == "exit" || r == null || r == "null" || r == "missing")) finish()
         }
         return true
     }
 
     override fun onDestroy() {
+        (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()
         super.onDestroy()
     }

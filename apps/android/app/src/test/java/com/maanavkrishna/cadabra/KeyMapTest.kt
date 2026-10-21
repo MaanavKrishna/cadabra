@@ -2,7 +2,9 @@ package com.maanavkrishna.cadabra
 
 import android.view.KeyEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KeyMapTest {
@@ -23,5 +25,15 @@ class KeyMapTest {
     fun unmappedKeysAreNull() {
         assertNull(keyName(KeyEvent.KEYCODE_A))
         assertNull(keyName(KeyEvent.KEYCODE_VOLUME_UP))
+    }
+
+    @Test
+    fun systemKeysPassThrough() {
+        assertTrue(shouldPassToSystem(KeyEvent.KEYCODE_HOME))
+        assertTrue(shouldPassToSystem(KeyEvent.KEYCODE_VOLUME_UP))
+        assertTrue(shouldPassToSystem(KeyEvent.KEYCODE_VOLUME_DOWN))
+        assertTrue(shouldPassToSystem(KeyEvent.KEYCODE_VOLUME_MUTE))
+        assertFalse(shouldPassToSystem(KeyEvent.KEYCODE_DPAD_UP))
+        assertFalse(shouldPassToSystem(KeyEvent.KEYCODE_BACK))
     }
 }

@@ -14,3 +14,12 @@ fun keyName(keyCode: Int): String? = when (keyCode) {
     KeyEvent.KEYCODE_MENU -> "menu"
     else -> null
 }
+
+/** Keys the system must handle itself (Home and volume); everything else is swallowed by the app. */
+fun shouldPassToSystem(keyCode: Int): Boolean = when (keyCode) {
+    KeyEvent.KEYCODE_HOME,
+    KeyEvent.KEYCODE_VOLUME_UP,
+    KeyEvent.KEYCODE_VOLUME_DOWN,
+    KeyEvent.KEYCODE_VOLUME_MUTE -> true
+    else -> false
+}
