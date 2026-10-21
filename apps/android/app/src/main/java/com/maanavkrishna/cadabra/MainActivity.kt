@@ -87,13 +87,13 @@ class MainActivity : Activity() {
             return true
         }
         val name = keyName(event.keyCode) ?: return true
-        webView.evaluateJavascript(
-            "(typeof window.cadabraKey==='function')?String(window.cadabraKey('$name')):'missing'",
-        ) { result ->
-            // JS returns "exit" on Back to leave the app. If the bridge is missing or threw,
-            // finish natively so the user is never stuck.
-            val r = result?.trim('"')
-            if (name == "back" && (r == "exit" || r == null || r == "null" || r == "missing")) finish()
+        val js = "(function(){try{if(typeof window.cadabraKey!=='function')return 'missing';" +
+            "var r=window.cadabraKey('$name');return r==='exit'?'exit':'handled';}" +
+            "catch(e){return 'error';}})()"
+        webView.evaluateJavascript(js) { result ->
+            // Back contract: JS returns "exit" to leave; a missing bridge, a throw or a WebView
+            // failure also finish so the user is never stuck. Anything else stays.
+            if (name == "back" && backShouldExit(result)) finish()
         }
         return true
     }

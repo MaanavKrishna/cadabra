@@ -36,4 +36,15 @@ class KeyMapTest {
         assertFalse(shouldPassToSystem(KeyEvent.KEYCODE_DPAD_UP))
         assertFalse(shouldPassToSystem(KeyEvent.KEYCODE_BACK))
     }
+
+    @Test
+    fun backContract() {
+        assertTrue(backShouldExit("\"exit\""))
+        assertTrue(backShouldExit("exit"))
+        assertTrue(backShouldExit("\"missing\""))
+        assertTrue(backShouldExit("\"error\""))
+        assertTrue(backShouldExit(null))
+        assertFalse(backShouldExit("\"handled\""))
+        assertFalse(backShouldExit("null"))
+    }
 }

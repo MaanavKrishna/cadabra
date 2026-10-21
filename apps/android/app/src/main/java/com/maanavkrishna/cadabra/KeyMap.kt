@@ -23,3 +23,9 @@ fun shouldPassToSystem(keyCode: Int): Boolean = when (keyCode) {
     KeyEvent.KEYCODE_VOLUME_MUTE -> true
     else -> false
 }
+
+/** Decides whether Back should close the app, from evaluateJavascript's (JSON-quoted) result. */
+fun backShouldExit(result: String?): Boolean = when (result?.trim('"')) {
+    null, "exit", "missing", "error" -> true
+    else -> false
+}
