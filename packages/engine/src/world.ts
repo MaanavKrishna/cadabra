@@ -16,6 +16,9 @@ export interface Entity {
 export type SpawnOpts = Partial<Omit<Entity, 'id' | 'kind' | 'x' | 'y' | 'tags'>> & { tags?: Iterable<string> };
 
 const CELL = 128;
+// numeric cell key; supports |cell index| < 2^15 (±4M px), far beyond any arena
+const OFF = 1 << 15;
+const cellKey = (cx: number, cy: number) => (cx + OFF) * (OFF * 2) + (cy + OFF);
 
 /**
  * Entity store with a uniform-grid spatial hash. The grid is rebuilt lazily on the
@@ -27,7 +30,9 @@ export class World {
   readonly height: number;
   private entities = new Map<number, Entity>();
   private nextId = 1;
-  private grid = new Map<string, Entity[]>();
+  private grid = new Map<number, Entity[]>();
+  /** owner -> avatar (kind 'player'); first spawned wins. */
+  private avatars = new Map<string, Entity>();
   private dirty = true;
 
   constructor(width: number, height: number) {
@@ -44,14 +49,31 @@ export class World {
       tags: new Set(tags ?? []),
     };
     this.entities.set(e.id, e);
+    if (e.kind === 'player' && e.owner !== undefined && !this.avatars.has(e.owner)) this.avatars.set(e.owner, e);
     this.dirty = true;
     return e;
   }
 
   remove(id: number): boolean {
-    const ok = this.entities.delete(id);
-    if (ok) this.dirty = true;
-    return ok;
+    const e = this.entities.get(id);
+    if (!e) return false;
+    this.entities.delete(id);
+    if (e.owner !== undefined && this.avatars.get(e.owner) === e) {
+      this.avatars.delete(e.owner);
+      for (const o of this.entities.values()) {
+        if (o.kind === 'player' && o.owner === e.owner) {
+          this.avatars.set(e.owner, o);
+          break;
+        }
+      }
+    }
+    this.dirty = true;
+    return true;
+  }
+
+  /** The avatar (kind 'player') owned by `owner`, O(1). */
+  playerEntity(owner: string): Entity | undefined {
+    return this.avatars.get(owner);
   }
 
   get(id: number): Entity | undefined {
@@ -81,7 +103,7 @@ export class World {
     const out: Entity[] = [];
     for (let cx = x0; cx <= x1; cx++) {
       for (let cy = y0; cy <= y1; cy++) {
-        const cell = this.grid.get(`${cx},${cy}`);
+        const cell = this.grid.get(cellKey(cx, cy));
         if (!cell) continue;
         for (const e of cell) {
           if (!this.entities.has(e.id)) continue;
@@ -111,7 +133,7 @@ export class World {
     this.maxR = 0;
     for (const e of this.entities.values()) {
       if (e.r > this.maxR) this.maxR = e.r;
-      const key = `${Math.floor(e.x / CELL)},${Math.floor(e.y / CELL)}`;
+      const key = cellKey(Math.floor(e.x / CELL), Math.floor(e.y / CELL));
       const cell = this.grid.get(key);
       if (cell) cell.push(e);
       else this.grid.set(key, [e]);

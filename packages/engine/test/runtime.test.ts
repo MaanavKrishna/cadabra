@@ -27,6 +27,8 @@ const testScorer: BlockDef<{ points: number }> = {
   },
   onInput(ctx, playerId, input) {
     if (input.buttons?.a) ctx.score(playerId, ctx.params.points, 'held a');
+    if (input.swipe) ctx.emit({ type: 'swipe', player: playerId, data: { dir: input.swipe } });
+    if (input.vote !== undefined) ctx.emit({ type: 'vote', player: playerId, data: { vote: input.vote } });
   },
   bot(_ctx, _id, _skill) {
     return { t: 0, buttons: { a: true } };
@@ -203,5 +205,60 @@ describe('GameRuntime', () => {
     expect(res.ranking[0]!.id).toBe('p1');
     expect(res.ranking.map((p) => p.team)).toEqual([1, 0]);
     expect(res.winnerTeam).toBe(1);
+  });
+
+  test('one swipe is delivered exactly once', () => {
+    const rt = makeRuntime();
+    rt.input('p0', { t: 0, swipe: 'up' });
+    stepN(rt, 40);
+    expect(rt.events.filter((e) => e.type === 'swipe')).toHaveLength(1);
+  });
+
+  test('swipe followed by joystick frame before step is not lost', () => {
+    const rt = makeRuntime();
+    rt.input('p0', { t: 0, swipe: 'left' });
+    rt.input('p0', { t: 1, axes: { x: 1, y: 0 } });
+    stepN(rt, 5);
+    const sw = rt.events.filter((e) => e.type === 'swipe');
+    expect(sw).toHaveLength(1);
+    expect(sw[0]!.data).toEqual({ dir: 'left' });
+  });
+
+  test('one vote is delivered exactly once, even if followed by a held frame', () => {
+    const rt = makeRuntime();
+    rt.input('p1', { t: 0, vote: 2 });
+    rt.input('p1', { t: 1, buttons: { a: true } });
+    stepN(rt, 40);
+    const v = rt.events.filter((e) => e.type === 'vote');
+    expect(v).toHaveLength(1);
+    expect(v[0]!.data).toEqual({ vote: 2 });
+    // held state from the later frame still applies (until stale)
+    expect(rt.snapshot().players[1]!.score).toBe(31);
+  });
+
+  test('runtime does not mutate caller players', () => {
+    const players = makePlayers(2);
+    players[0]!.score = 5;
+    const before = JSON.parse(JSON.stringify(players));
+    const rt = makeRuntime(makeSpec({ teams: 2 }), players);
+    stepN(rt, 10, (r, i) => r.input('p0', { t: i, buttons: { a: true } }));
+    rt.setConnected('p1', false);
+    expect(players).toEqual(before);
+    const snap = rt.snapshot().players;
+    expect(snap[0]!.score).toBe(10); // clones start from 0
+    expect(snap[1]!.connected).toBe(false);
+    expect(snap.map((p) => p.team)).toEqual([0, 1]);
+  });
+
+  test('events getter is a copy and player entities default boost to 1', () => {
+    const reg = new BlockRegistry();
+    reg.register({ ...testScorer, id: 'bare', setup(ctx) { ctx.world.spawn('player', 0, 0, { owner: 'p0' }); } });
+    const rt = new GameRuntime(makeSpec({ blocks: [{ block: 'bare', params: {} }] }), makePlayers(), reg, 1);
+    expect(rt.snapshot().entities[0]!.props.boost).toBe(1);
+    stepN(rt, 1);
+    const ev = rt.events as unknown[];
+    const n = ev.length;
+    ev.push({});
+    expect(rt.events).toHaveLength(n);
   });
 });

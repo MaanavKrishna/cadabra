@@ -25,6 +25,10 @@ export interface BlockCtx<P> {
   emit(e: Omit<GameEvent, 't'>): void;
   fx(e: FxEvent): void;
   eliminate(playerId: string): void;
+  /**
+   * The player's avatar entity. Avatars MUST be spawned with `kind: 'player'` and
+   * `owner: playerId`; anything else is invisible to entityOf and to comeback boosts.
+   */
   entityOf(playerId: string): Entity | undefined;
 }
 

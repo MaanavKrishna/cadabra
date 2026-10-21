@@ -30,6 +30,10 @@ export interface GameResult {
   events: GameEvent[];
 }
 
+type OneShot = Pick<InputFrame, 'swipe' | 'vote' | 'text' | 'draw'>;
+const ONE_SHOT_KEYS = ['swipe', 'vote', 'text', 'draw'] as const;
+const HELD_KEYS = ['axes', 'buttons', 'tilt'] as const;
+
 interface ActiveBlock {
   def: BlockDef;
   ctx: BlockCtx<unknown>;
@@ -56,7 +60,10 @@ export class GameRuntime {
   private readonly fxq = new FxQueue();
   private readonly log: GameEvent[] = [];
   private readonly blocks: ActiveBlock[] = [];
-  private readonly latest = new Map<string, { frame: InputFrame; step: number }>();
+  /** Latest held state (axes/buttons/tilt) per player, with the step it arrived on. */
+  private readonly held = new Map<string, { frame: InputFrame; step: number }>();
+  /** One-shot fields (swipe/vote/text/draw) received since the last step; delivered exactly once. */
+  private readonly pending = new Map<string, OneShot>();
   private readonly eliminated: string[] = [];
   private readonly fired = new Set<number>();
   private steps = 0;
@@ -65,7 +72,8 @@ export class GameRuntime {
 
   constructor(spec: GameSpec, players: Player[], registry: BlockRegistry, seed: number) {
     this.spec = spec;
-    this.players = [...players];
+    // own copies: the runtime never mutates the caller's objects
+    this.players = players.map((p) => ({ ...p, score: 0 }));
     this.world = new World(spec.arena.width, spec.arena.height);
     this.rng = new Rng(seed);
 
@@ -87,6 +95,9 @@ export class GameRuntime {
       this.world.invalidate();
       b.def.setup(b.ctx);
     }
+    for (const e of this.world.all()) {
+      if (e.kind === 'player' && e.props.boost === undefined) e.props.boost = 1;
+    }
   }
 
   // ---------- public API ----------
@@ -103,12 +114,35 @@ export class GameRuntime {
     return Math.max(0, this.spec.durationSec - this.time);
   }
 
-  get events(): GameEvent[] {
-    return this.log;
+  /** Append-only event log (copy). */
+  get events(): readonly GameEvent[] {
+    return [...this.log];
   }
 
+  /**
+   * Buffer a phone frame. Held fields (axes/buttons/tilt) replace the previous held state
+   * and go stale after 500 ms; one-shot fields (swipe/vote/text/draw) are merged into a
+   * queue and delivered on the next step only. A frame carrying only one-shot fields does
+   * not touch held state.
+   */
   input(playerId: string, frame: InputFrame): void {
-    this.latest.set(playerId, { frame, step: this.steps });
+    let hasOneShot = false;
+    let shot = this.pending.get(playerId);
+    for (const k of ONE_SHOT_KEYS) {
+      if (frame[k] === undefined) continue;
+      shot ??= {};
+      (shot as Record<string, unknown>)[k] = frame[k];
+      hasOneShot = true;
+    }
+    if (shot) this.pending.set(playerId, shot);
+    const hasHeld = HELD_KEYS.some((k) => frame[k] !== undefined);
+    if (hasHeld || !hasOneShot) {
+      const h: InputFrame = { t: frame.t };
+      if (frame.axes) h.axes = frame.axes;
+      if (frame.buttons) h.buttons = frame.buttons;
+      if (frame.tilt) h.tilt = frame.tilt;
+      this.held.set(playerId, { frame: h, step: this.steps });
+    }
   }
 
   setConnected(playerId: string, connected: boolean): void {
@@ -134,13 +168,14 @@ export class GameRuntime {
     }
 
     // 1. deliver latest inputs (stale/missing/disconnected => empty frame)
+    this.world.invalidate();
     for (const p of this.players) {
-      if (this.isEliminated(p.id)) continue;
-      const frame = this.frameFor(p);
-      for (const b of this.blocks) {
-        this.world.invalidate();
-        b.def.onInput(b.ctx, p.id, frame);
+      if (this.isEliminated(p.id)) {
+        this.pending.delete(p.id);
+        continue;
       }
+      const frame = this.frameFor(p);
+      for (const b of this.blocks) b.def.onInput(b.ctx, p.id, frame);
     }
 
     // 2. update blocks then integrate velocities
@@ -162,6 +197,10 @@ export class GameRuntime {
     if (this.remaining <= 0 || this.winReached()) this.end();
   }
 
+  /**
+   * Render-safe copies of the current state. Renderers draw `banner` from here; the
+   * FxEvent 'banner' (via drainFx) is a one-off cue for the host / voice layer.
+   */
   snapshot(): Snapshot {
     const s: Snapshot = {
       entities: this.world.all().map(cloneEntity),
@@ -191,7 +230,7 @@ export class GameRuntime {
         }
         return b.score - a.score || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
       });
-    const res: GameResult = { ranking, events: [...this.log] };
+    const res: GameResult = { ranking, events: this.events as GameEvent[] };
     const wt = this.winnerTeam();
     if (wt !== undefined) res.winnerTeam = wt;
     return res;
@@ -232,9 +271,12 @@ export class GameRuntime {
   }
 
   private frameFor(p: Player): InputFrame {
-    const l = this.latest.get(p.id);
-    if (!p.connected || !l || this.steps - l.step > STALE_STEPS) return { t: this.simMs() };
-    return l.frame;
+    const shot = this.pending.get(p.id);
+    this.pending.delete(p.id);
+    if (!p.connected) return { t: this.simMs() };
+    const h = this.held.get(p.id);
+    const base = h && this.steps - h.step <= STALE_STEPS ? h.frame : { t: this.simMs() };
+    return shot ? { ...base, ...shot } : base;
   }
 
   private emit(e: Omit<GameEvent, 't'>): void {
@@ -256,12 +298,12 @@ export class GameRuntime {
   private eliminate(playerId: string): void {
     if (this.isEliminated(playerId) || !this.players.some((p) => p.id === playerId)) return;
     this.eliminated.push(playerId);
-    for (const e of this.world.all()) if (e.owner === playerId && e.kind === 'player') this.world.remove(e.id);
+    for (let e = this.world.playerEntity(playerId); e; e = this.world.playerEntity(playerId)) this.world.remove(e.id);
     this.emit({ type: 'eliminated', player: playerId });
   }
 
   private entityOf(playerId: string): Entity | undefined {
-    return this.world.all().find((e) => e.owner === playerId && e.kind === 'player');
+    return this.world.playerEntity(playerId);
   }
 
   private showBanner(text: string): void {
