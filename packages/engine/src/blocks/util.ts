@@ -87,11 +87,6 @@ export function isStunned(ctx: BlockCtx<unknown>, e: Entity): boolean {
   return typeof s === 'number' && ctx.time < s;
 }
 
-/**
- * Spawn an avatar for every player that has none yet (block used without arena-move).
- * Avatars this call spawns are claimed with props.mover = blockId so that block moves
- * them; arena-move overrides the claim on any avatar regardless of setup order.
- */
 /** Movement limits of the slowest / largest live avatar (used for fairness maths). */
 export interface MoveCaps {
   speed: number;
@@ -125,6 +120,11 @@ export function escapeTime(dist: number, caps: MoveCaps): number {
   return REACTION_SEC + caps.speed / (2 * caps.accel) + dist / caps.speed;
 }
 
+/**
+ * Spawn an avatar for every player that has none yet (block used without arena-move).
+ * Avatars this call spawns are claimed with props.mover = blockId so that block moves
+ * them; arena-move overrides the claim on any avatar regardless of setup order.
+ */
 export function ensureAvatars(ctx: BlockCtx<unknown>, blockId: string, r = AVATAR_R): void {
   const { width: w, height: h } = ctx.world;
   const n = ctx.players.length;

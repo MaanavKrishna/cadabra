@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { BlockUse, GameSpec, InputFrame } from '@cadabra/spec';
-import { BlockRegistry, GameRuntime, type BlockCtx, type BlockDef, type Player } from '../src/index';
+import { BlockRegistry, GameRuntime, type BlockCtx, type BlockDef, type Entity, type Player } from '../src/index';
 import { arenaMove, collect, dodge, race, registerBuiltins } from '../src/blocks/index';
 
 const SPS = 60;
@@ -619,5 +619,121 @@ describe('race live tweaks', () => {
     expect(me().props.lap).toBe(0);
     expect((me().props.progress as number) / 1000).toBeGreaterThanOrEqual(frac);
     expect((me().props.progress as number) / 1000).toBeLessThan(frac + 0.02);
+  });
+});
+
+// ---------- ring + chase fairness (fix round 2) ----------
+
+function segDist(px: number, py: number, sx: number, sy: number, ux: number, uy: number): number {
+  const t = Math.max(0, (px - sx) * ux + (py - sy) * uy);
+  return Math.hypot(px - (sx + ux * t), py - (sy + uy * t));
+}
+
+/**
+ * Every ring, as it appears: each avatar has a radial route (straight out along its bearing
+ * from the ring centre, possibly zero length) to a point no bullet ray ever touches, and
+ * can walk it before the ring arms. Avatars that needed no move are never hit by that ring.
+ */
+function checkRingFairness(dodgeParams: Record<string, unknown>, moveParams: Record<string, unknown>, nPlayers: number, seed: number) {
+  const probe = makeProbe();
+  const rt = runtime(
+    makeSpec([
+      { block: 'arena-move', params: moveParams },
+      { block: 'dodge', params: { pattern: 'ring', startRate: 6, rampPerSec: 0.2, ...dodgeParams } },
+      { block: 'probe', params: {} },
+    ]),
+    makePlayers(nPlayers), seed, [probe.def],
+  );
+  const ctx = probe.ctx();
+  const v = (moveParams.speed as number | undefined) ?? arenaMove.defaults.speed;
+  const acc = (moveParams.accel as number | undefined) ?? arenaMove.defaults.accel;
+  const seen = new Set<number>();
+  const groupOf = new Map<number, number>();
+  const safeIn = new Map<number, Set<string>>(); // ring group -> players needing no move
+  let rings = 0, moved = 0;
+  for (let i = 0; i < 40 * SPS && rt.state !== 'over'; i++) {
+    rt.step();
+    const groups = new Map<number, Entity[]>();
+    for (const h of ctx.world.byKind('hazard')) {
+      if (h.props.pattern !== 'ring') continue;
+      groupOf.set(h.id, h.props.group as number);
+      const g = h.props.group as number;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(h);
+    }
+    for (const [g, hs] of groups) {
+      if (seen.has(g)) continue;
+      seen.add(g);
+      rings++;
+      const r = hs[0]!.r;
+      const tele = (hs[0]!.props.armAt as number) - (rt.time - 1 / SPS);
+      const rays = hs.map((h) => {
+        const sp = Math.hypot(h.props.ax as number, h.props.ay as number);
+        return { sx: h.x, sy: h.y, ux: (h.props.ax as number) / sp, uy: (h.props.ay as number) / sp };
+      });
+      const cx = rays[0]!.sx - rays[0]!.ux * 26, cy = rays[0]!.sy - rays[0]!.uy * 26;
+      const safe = new Set<string>();
+      for (const p of ctx.players) {
+        const a = ctx.entityOf(p.id)!;
+        const rho = Math.hypot(a.x - cx, a.y - cy);
+        const bx = rho > 1e-6 ? (a.x - cx) / rho : 1, by = rho > 1e-6 ? (a.y - cy) / rho : 0;
+        let d = 0;
+        for (; d <= 1500; d += 2) {
+          const qx = a.x + bx * d, qy = a.y + by * d;
+          if (rays.every((ry) => segDist(qx, qy, ry.sx, ry.sy, ry.ux, ry.uy) >= r + a.r + 1)) break;
+        }
+        expect(d).toBeLessThanOrEqual(1500);
+        expect(reach(d, v, acc)).toBeLessThanOrEqual(tele + 1e-6);
+        if (d === 0) safe.add(p.id);
+        else moved++;
+      }
+      safeIn.set(g, safe);
+    }
+  }
+  for (const ev of rt.events.filter((e) => e.type === 'dodge.hit' && e.data!.pattern === 'ring')) {
+    const g = groupOf.get(ev.data!.hazard as number)!;
+    expect(safeIn.get(g)!.has(ev.player!)).toBe(false);
+  }
+  return { rings, moved };
+}
+
+describe('dodge ring + chase fairness', () => {
+  test('ring at defaults: every avatar can reach a never-hit spot before arming', () => {
+    const a = checkRingFairness({}, {}, 4, 7);
+    const b = checkRingFairness({}, {}, 8, 3);
+    expect(a.rings + b.rings).toBeGreaterThan(10);
+  });
+
+  test('ring at extreme params (hazardRadius/hazardSpeed max, avatarScale max, speed/accel min) stays escapable', () => {
+    const res = checkRingFairness(
+      { hazardRadius: 80, hazardSpeed: 900 },
+      { avatarScale: 2.5, speed: 60, accel: 200 },
+      6, 5,
+    );
+    expect(res.rings).toBeGreaterThan(3);
+  });
+
+  test('chasers at extreme params stay slower than the slowest avatar', () => {
+    const probe = makeProbe();
+    const speed = 60;
+    const rt = runtime(
+      makeSpec([
+        { block: 'arena-move', params: { speed, avatarScale: 2.5 } },
+        { block: 'dodge', params: { pattern: 'chase', hazardSpeed: 900, startRate: 5 } },
+        { block: 'probe', params: {} },
+      ]),
+      makePlayers(3), 2, [probe.def],
+    );
+    const ctx = probe.ctx();
+    let armed = 0;
+    for (let i = 0; i < 20 * SPS; i++) {
+      rt.step();
+      for (const h of ctx.world.byKind('hazard')) {
+        if (!h.props.armed) continue;
+        armed++;
+        expect(Math.hypot(h.vx, h.vy)).toBeLessThan(speed);
+      }
+    }
+    expect(armed).toBeGreaterThan(0);
   });
 });

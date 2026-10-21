@@ -102,6 +102,8 @@ const CHASE_TURN = 2.5; // rad/s
 const RING_COUNT = 12;
 const RING_START_R = 26;
 const RING_SPAWN_CLEAR = 220;
+/** Widest per-avatar ring gap (half-angle): keeps a ring a ring. */
+const RING_MAX_GAP_HALF = Math.PI / 4;
 const NEAR_MISS_PX = 30;
 const MAX_HAZARDS = 150;
 const MAX_WALLS = 2;
@@ -130,7 +132,8 @@ function addHazard(
   const e = ctx.world.spawn('hazard', x, y, {
     sprite: ctx.params.hazardSprite,
     r,
-    props: { armed: false, pattern, warnMs: Math.round(teleSec * 1000), armAt, group: h.group },
+    // ax/ay: velocity once armed, so the renderer can draw the telegraph's direction
+    props: { armed: false, pattern, warnMs: Math.round(teleSec * 1000), armAt, group: h.group, ax: h.avx, ay: h.avy },
   });
   s.hz.set(e.id, {
     pattern, bornAt: ctx.time, armAt, expireAt: armAt + h.life, avx: h.avx, avy: h.avy, speed: h.speed ?? 0, group: h.group,
@@ -266,13 +269,29 @@ function spawnWave(ctx: BlockCtx<DodgeParams>, s: State, pattern: Pattern): bool
         cy = rng.range(Math.min(150, h / 2), Math.max(h / 2, h - 150));
         if (!av.some((a) => len(a.x - cx, a.y - cy) < RING_SPAWN_CLEAR)) break;
       }
+      // Fairness: every avatar gets a gap centred on its own bearing from the ring centre,
+      // wide enough that at its distance (or at RING_SAFE_FLOOR, if it is closer) the nearest
+      // bullet ray passes at least r + R + 2 + slack away. Avatars inside the floor must walk
+      // out along their bearing before the ring arms; the telegraph is sized for that.
+      const slack = Math.max(caps.r, MIN_GAP_PLAY);
+      const need = r + caps.r + 2 + slack;
+      const floor = need / Math.sin(RING_MAX_GAP_HALF);
+      const gaps: { phi: number; alpha: number }[] = [];
+      let escape = 0;
+      for (const a of av) {
+        const rho = len(a.x - cx, a.y - cy);
+        gaps.push({ phi: Math.atan2(a.y - cy, a.x - cx), alpha: Math.asin(Math.min(1, need / Math.max(rho, floor))) });
+        escape = Math.max(escape, floor - rho);
+      }
+      const rot = rng.range(0, (Math.PI * 2) / RING_COUNT);
       const skip = rng.int(0, RING_COUNT - 1);
       const sp = P.hazardSpeed * 0.8;
-      const teleSec = tele(ctx, RING_START_R + r + caps.r + 2, caps);
+      const teleSec = tele(ctx, escape, caps);
       const group = s.nextGroup++;
       for (let k = 0; k < RING_COUNT; k++) {
-        if (k === skip || k === (skip + 1) % RING_COUNT) continue; // escape gap
-        const a = (k / RING_COUNT) * Math.PI * 2;
+        if (k === skip || k === (skip + 1) % RING_COUNT) continue; // a general escape gap
+        const a = rot + (k / RING_COUNT) * Math.PI * 2;
+        if (gaps.some((g) => Math.abs(Math.atan2(Math.sin(a - g.phi), Math.cos(a - g.phi))) < g.alpha)) continue;
         addHazard(ctx, s, pattern, cx + Math.cos(a) * RING_START_R, cy + Math.sin(a) * RING_START_R, r, teleSec, {
           life: 8, avx: Math.cos(a) * sp, avy: Math.sin(a) * sp, group,
         });
