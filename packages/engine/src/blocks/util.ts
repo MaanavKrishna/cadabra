@@ -2,6 +2,20 @@ import type { InputFrame } from '@cadabra/spec';
 import type { BlockCtx } from '../block';
 import type { Entity } from '../world';
 
+/**
+ * Cross-block entity props (the composition contract):
+ * - `mover`: id of the block that moves this avatar (arena-move claims all; collect/dodge
+ *   move only avatars they spawned themselves; race claims its runners).
+ * - `topSpeed` / `accel`: the mover's current movement limits (px/s, px/s²), so hazard
+ *   blocks can size telegraphs and gaps to what an avatar can actually escape.
+ * - `dashKey`: controller button the mover dashes on ('' = none), so other blocks' bots
+ *   can veto or use dashing.
+ * - `stunUntil`: sim seconds; movers ignore input until then.
+ * - `rammedBy` / `rammedAt`: last ram on this avatar, recorded by the mover before it
+ *   exchanges velocities (see markRam / rammer).
+ * - `invulnUntil`: sim seconds; hazards can't hurt the avatar until then.
+ */
+
 /** Base avatar radius in px at avatarScale 1. */
 export const AVATAR_R = 22;
 /** Speed used by a block that had to spawn (and so must move) its own avatars. */
@@ -78,6 +92,39 @@ export function isStunned(ctx: BlockCtx<unknown>, e: Entity): boolean {
  * Avatars this call spawns are claimed with props.mover = blockId so that block moves
  * them; arena-move overrides the claim on any avatar regardless of setup order.
  */
+/** Movement limits of the slowest / largest live avatar (used for fairness maths). */
+export interface MoveCaps {
+  speed: number;
+  accel: number;
+  r: number;
+}
+
+/** Instant-acceleration stand-in for movers that set velocity directly. */
+export const INSTANT_ACCEL = 1e6;
+/** Human reaction allowance added to every escape-time calculation. */
+export const REACTION_SEC = 0.25;
+
+export function moveCaps(ctx: BlockCtx<unknown>): MoveCaps {
+  let speed = Infinity, accel = Infinity, r = 0;
+  for (const p of ctx.players) {
+    const e = ctx.entityOf(p.id);
+    if (!e) continue;
+    const s = typeof e.props.topSpeed === 'number' ? e.props.topSpeed : FALLBACK_SPEED;
+    const a = typeof e.props.accel === 'number' ? e.props.accel : INSTANT_ACCEL;
+    if (s < speed) speed = s;
+    if (a < accel) accel = a;
+    if (e.r > r) r = e.r;
+  }
+  if (speed === Infinity) return { speed: FALLBACK_SPEED, accel: INSTANT_ACCEL, r: AVATAR_R };
+  return { speed, accel, r };
+}
+
+/** Seconds an avatar with `caps` needs to move `dist` px from a standstill, plus reaction. */
+export function escapeTime(dist: number, caps: MoveCaps): number {
+  if (dist <= 0) return REACTION_SEC;
+  return REACTION_SEC + caps.speed / (2 * caps.accel) + dist / caps.speed;
+}
+
 export function ensureAvatars(ctx: BlockCtx<unknown>, blockId: string, r = AVATAR_R): void {
   const { width: w, height: h } = ctx.world;
   const n = ctx.players.length;
@@ -85,7 +132,8 @@ export function ensureAvatars(ctx: BlockCtx<unknown>, blockId: string, r = AVATA
   ctx.players.forEach((p, i) => {
     if (ctx.entityOf(p.id)) return;
     const a = (i / Math.max(1, n)) * Math.PI * 2 - Math.PI / 2;
-    const opts = { owner: p.id, r, sprite: `avatar:${p.id}`, props: { mover: blockId, boost: 1 } as Entity['props'] };
+    const props: Entity['props'] = { mover: blockId, boost: 1, topSpeed: FALLBACK_SPEED, accel: INSTANT_ACCEL };
+    const opts = { owner: p.id, r, sprite: `avatar:${p.id}`, props };
     if (p.team !== undefined) Object.assign(opts, { team: p.team });
     ctx.world.spawn('player', w / 2 + Math.cos(a) * ring, h / 2 + Math.sin(a) * ring, opts);
   });
@@ -99,6 +147,12 @@ export function markRam(attacker: Entity, victim: Entity, t: number): void {
   if (attacker.owner === undefined) return;
   victim.props.rammedBy = attacker.owner;
   victim.props.rammedAt = t;
+}
+
+/** Mark a ram as used so one bump is acted on once. */
+export function consumeRam(e: Entity): void {
+  delete e.props.rammedBy;
+  delete e.props.rammedAt;
 }
 
 /** Who is ramming whom between two touching avatars, or undefined if neither is. */
@@ -133,6 +187,8 @@ export function fallbackMove(ctx: BlockCtx<unknown>, blockId: string, intents: M
   for (const p of ctx.players) {
     const e = ctx.entityOf(p.id);
     if (!e || e.props.mover !== blockId) continue;
+    e.props.topSpeed = FALLBACK_SPEED;
+    e.props.accel = INSTANT_ACCEL;
     const d = intents.get(p.id);
     const s = isStunned(ctx, e) || !d ? 0 : FALLBACK_SPEED * boostOf(e);
     e.vx = (d?.x ?? 0) * s;

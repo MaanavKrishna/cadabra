@@ -43,6 +43,12 @@ export interface BlockDef<P = any> {
   setup(ctx: BlockCtx<P>): void;
   update(ctx: BlockCtx<P>, dt: number): void;
   onInput(ctx: BlockCtx<P>, playerId: string, input: InputFrame): void;
+  /**
+   * Bot input for one step (skill 0..1). Bots draw from ctx.rng, the same stream as the
+   * game, so determinism requires the host to call GameRuntime.botInput exactly once per
+   * step per bot, before step(). Return only the fields you have an opinion on (e.g. omit
+   * `axes` when idle) so bots of composed blocks merge sensibly.
+   */
   bot(ctx: BlockCtx<P>, playerId: string, skill: number): InputFrame;
   onTimeline?(ctx: BlockCtx<P>, ev: TimelineEvent): void;
 }

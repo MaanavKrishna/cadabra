@@ -217,10 +217,33 @@ describe('collect', () => {
     expect(stolen[0]!.data).toMatchObject({ from: 'p1' });
     const fx = rt.drainFx();
     expect(fx.some((f) => f.kind === 'shake')).toBe(true);
-    // cooldown: an immediate ram back does not steal it again
+    // break contact, then ram back inside the cooldown: no steal
+    b.x = a.x - 300; b.vx = 0; a.vx = 0;
+    rt.step();
     b.x = a.x - (a.r + b.r) + 2; b.y = a.y; b.vx = 400; a.vx = 0;
     rt.step();
     expect(ctx.world.get(item.id)!.props.carriedBy).toBe('p0');
+    // holding contact past the cooldown is still one bump: no repeat steal
+    for (let i = 0; i < 2 * SPS; i++) {
+      b.x = a.x - (a.r + b.r) + 2; b.y = a.y; b.vx = 400; a.vx = 0;
+      rt.step();
+    }
+    expect(ctx.world.get(item.id)!.props.carriedBy).toBe('p0');
+    expect(rt.events.filter((e) => e.type === 'collect.stolen')).toHaveLength(1);
+  });
+
+  test('stealCooldownSec below 0.3 is rejected', () => {
+    expect(collect.paramsSchema.safeParse({ ...collect.defaults, stealCooldownSec: 0.2 }).success).toBe(false);
+  });
+
+  test('live applyParams: faster spawnEverySec takes effect within 1 s', () => {
+    const rt = runtime(makeSpec([{ block: 'collect', params: { spawnEverySec: 999, maxItems: 20 } }]), makePlayers(1));
+    const items = () => rt.snapshot().entities.filter((e) => e.kind === 'item').length;
+    for (let i = 0; i < 2 * SPS; i++) rt.step();
+    const before = items();
+    rt.applyParams(0, { spawnEverySec: 0.2 });
+    for (let i = 0; i < SPS; i++) rt.step();
+    expect(items()).toBeGreaterThanOrEqual(before + 4);
   });
 
   test('carried items bank at the goal', () => {
@@ -387,5 +410,214 @@ describe('composition', () => {
     const b = once();
     expect(a.snap).toEqual(b.snap);
     expect(a.events).toEqual(b.events);
+  });
+});
+
+// ---------- fairness geometry (fix round 1) ----------
+
+const REACT = 0.2; // reaction allowance the checks demand on top of pure travel time
+
+/** Seconds to cover `d` px from rest with top speed v and acceleration a, plus reaction. */
+function reach(d: number, v: number, a: number): number {
+  return d <= 0 ? 0 : REACT + v / (2 * a) + d / v;
+}
+
+/**
+ * Runs a sweep round with stationary players and checks every wall as it appears:
+ * from every avatar position on the start edge (the worst case: impact = telegraph), a
+ * gap corridor is reachable before impact; a concurrent wall comes from the same edge,
+ * late enough that crossing the whole arena between the two impacts is possible.
+ */
+function checkSweepFairness(dodgeParams: Record<string, unknown>, moveParams: Record<string, unknown>, seed = 5) {
+  const probe = makeProbe();
+  const rt = runtime(
+    makeSpec([
+      { block: 'arena-move', params: moveParams },
+      { block: 'dodge', params: { pattern: 'sweep', startRate: 6, rampPerSec: 0.2, ...dodgeParams } },
+      { block: 'probe', params: {} },
+    ]),
+    makePlayers(2), seed, [probe.def],
+  );
+  const ctx = probe.ctx();
+  const W = 1280, H = 720;
+  const v = (moveParams.speed as number | undefined) ?? arenaMove.defaults.speed;
+  const acc = (moveParams.accel as number | undefined) ?? arenaMove.defaults.accel;
+  const R = 22 * ((moveParams.avatarScale as number | undefined) ?? 1);
+  const seen = new Set<number>();
+  const walls: { group: number; edge: string; armAt: number }[] = [];
+  let checked = 0;
+  for (let i = 0; i < 60 * SPS && rt.state !== 'over'; i++) {
+    rt.step();
+    const groups = new Map<number, typeof hz>();
+    const hz = ctx.world.byKind('hazard').filter((h) => h.props.pattern === 'sweep');
+    for (const h of hz) {
+      const g = h.props.group as number;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(h);
+    }
+    for (const [g, hs] of groups) {
+      if (seen.has(g)) continue;
+      seen.add(g);
+      const r = hs[0]!.r;
+      const axis = hs.every((h) => Math.abs(h.x - hs[0]!.x) < 1e-6) ? 'x' : 'y';
+      const span = axis === 'x' ? H : W;
+      const along = axis === 'x' ? hs[0]!.x : hs[0]!.y;
+      const edge = `${axis}${along < span ? '+' : '-'}`.replace(/.$/, along <= r + 1 ? '+' : '-');
+      const cross = hs.map((h) => (axis === 'x' ? h.y : h.x)).sort((a, b) => a - b);
+      // free intervals for the avatar centre between hazards (strictly clear by 1 px)
+      const pad = r + R + 1;
+      const free: [number, number][] = [];
+      const bounds = [-Infinity, ...cross, Infinity];
+      for (let k = 1; k < bounds.length; k++) {
+        const lo = Math.max(R, bounds[k - 1]! + pad), hi = Math.min(span - R, bounds[k]! - pad);
+        if (hi >= lo) free.push([lo, hi]);
+      }
+      expect(free.length).toBeGreaterThan(0);
+      const tele = (hs[0]!.props.armAt as number) - (rt.time - 1 / SPS);
+      for (let p = R; p <= span - R; p += 4) {
+        let d = Infinity;
+        for (const [lo, hi] of free) d = Math.min(d, p < lo ? lo - p : p > hi ? p - hi : 0);
+        expect(reach(d, v, acc)).toBeLessThanOrEqual(tele + 1e-6);
+      }
+      const armAt = hs[0]!.props.armAt as number;
+      for (const o of walls) {
+        if (!groups.has(o.group)) continue; // already gone
+        expect(edge).toBe(o.edge);
+        // time between the old wall passing a point and the new one arriving there
+        expect((rt.time - 1 / SPS) - o.armAt + tele).toBeGreaterThanOrEqual(reach(Math.max(W, H), v, acc) - 1e-6);
+      }
+      walls.push({ group: g, edge, armAt });
+      checked++;
+    }
+  }
+  return checked;
+}
+
+describe('dodge fairness', () => {
+  test('sweep at defaults: every avatar position can reach a gap before impact', () => {
+    expect(checkSweepFairness({}, {})).toBeGreaterThan(5);
+  });
+
+  test('sweep at extreme params (hazardRadius max, avatarScale max, speed min) stays passable', () => {
+    expect(checkSweepFairness({ hazardRadius: 80, hazardSpeed: 900 }, { avatarScale: 2.5, speed: 60 })).toBeGreaterThan(2);
+  });
+
+  test('skill-1 bot takes at most 1 hit/min on sweep', () => {
+    for (const seed of [1, 2, 3]) {
+      const rt = runtime(makeSpec([{ block: 'arena-move', params: {} }, { block: 'dodge', params: { pattern: 'sweep' } }]), makePlayers(1, true), seed);
+      playBots(rt, ['p0'], 1, 60);
+      expect(rt.events.filter((e) => e.type === 'dodge.hit').length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test.each([
+    ['defaults', {}, {}],
+    ['extreme', { hazardRadius: 80 }, { avatarScale: 2.5, speed: 60 }],
+  ] as const)('rain is escapable from dead centre (%s)', (_n, dp, mp) => {
+    const probe = makeProbe();
+    const rt = runtime(
+      makeSpec([{ block: 'arena-move', params: mp }, { block: 'dodge', params: { startRate: 5, ...dp } }, { block: 'probe', params: {} }]),
+      makePlayers(2), 4, [probe.def],
+    );
+    const ctx = probe.ctx();
+    const v = (mp as { speed?: number }).speed ?? 260;
+    const R = 22 * ((mp as { avatarScale?: number }).avatarScale ?? 1);
+    const seen = new Set<number>();
+    for (let i = 0; i < 20 * SPS; i++) {
+      rt.step();
+      for (const h of ctx.world.byKind('hazard')) {
+        if (seen.has(h.id)) continue;
+        seen.add(h.id);
+        const tele = (h.props.armAt as number) - (rt.time - 1 / SPS);
+        expect(reach(h.r + R + 1, v, arenaMove.defaults.accel)).toBeLessThanOrEqual(tele + 1e-6);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(20);
+  });
+
+  test('stunned avatar cannot be hit again until it can move', () => {
+    const stunSec = 3;
+    const rt = runtime(
+      makeSpec([{ block: 'dodge', params: { startRate: 10, onHit: 'stun', stunSec, invulnSec: 0.3 } }]),
+      makePlayers(4), 2,
+    );
+    for (let i = 0; i < 40 * SPS; i++) rt.step();
+    const hits = rt.events.filter((e) => e.type === 'dodge.hit');
+    expect(hits.length).toBeGreaterThan(3);
+    const last = new Map<string, number>();
+    for (const h of hits) {
+      const prev = last.get(h.player!);
+      if (prev !== undefined) expect(h.t - prev).toBeGreaterThanOrEqual(stunSec + 0.5 - 1e-9);
+      last.set(h.player!, h.t);
+    }
+  });
+
+  test('live applyParams: startRate takes effect within 1 s', () => {
+    const rt = runtime(makeSpec([{ block: 'dodge', params: { startRate: 0.1, rampPerSec: 0 } }]), makePlayers(1));
+    const hz = () => rt.snapshot().entities.filter((e) => e.kind === 'hazard').length;
+    for (let i = 0; i < 2 * SPS; i++) rt.step();
+    expect(hz()).toBe(0);
+    rt.applyParams(0, { startRate: 10, maxRate: 20 });
+    for (let i = 0; i < SPS; i++) rt.step();
+    expect(hz()).toBeGreaterThan(3);
+  });
+
+  test('timeline: surprise and twist fire waves, other kinds do not', () => {
+    const count = (kind: string) => {
+      const rt = runtime(
+        makeSpec([{ block: 'dodge', params: { startRate: 0.1, rampPerSec: 0 } }], 'topdown', {
+          timeline: [{ atSec: 1, kind, params: {}, hostLine: 'Now!' }],
+        }),
+        makePlayers(1),
+      );
+      for (let i = 0; i < 1.5 * SPS; i++) rt.step();
+      return rt.snapshot().entities.filter((e) => e.kind === 'hazard').length;
+    };
+    expect(count('surprise')).toBeGreaterThan(0);
+    expect(count('twist')).toBeGreaterThan(0);
+    expect(count('banner')).toBe(0);
+  });
+});
+
+describe('race live tweaks', () => {
+  test('applyParams laneCount mid-round keeps runners in lanes matching obstacles', () => {
+    const rt = runtime(makeSpec([{ block: 'race', params: { mashToRun: false, obstacleDensity: 0.5 } }], 'lanes'), makePlayers(4));
+    for (let i = 0; i < 3 * SPS; i++) {
+      for (const id of ['p0', 'p1', 'p2', 'p3']) rt.input(id, { t: i, buttons: { run: true } });
+      rt.step();
+    }
+    rt.applyParams(0, { laneCount: 2 });
+    rt.step();
+    const ents = rt.snapshot().entities;
+    const obs = ents.filter((e) => e.kind === 'obstacle');
+    expect(new Set(obs.map((o) => o.props.lane))).toEqual(new Set([0, 1]));
+    for (const r of ents.filter((e) => e.kind === 'player')) {
+      const lane = r.props.lane as number;
+      expect(lane).toBeLessThan(2);
+      const laneObs = obs.filter((o) => o.props.lane === lane);
+      expect(laneObs.length).toBeGreaterThan(0);
+      for (const o of laneObs) expect(o.y).toBeCloseTo(r.y, 6);
+    }
+  });
+
+  test('shrinking trackLength mid-round awards no extra laps', () => {
+    const rt = runtime(makeSpec([{ block: 'race', params: { mashToRun: false, obstacleDensity: 0, boostPads: 0 } }], 'lanes'), makePlayers(1));
+    const me = () => rt.snapshot().entities.find((e) => e.kind === 'player')!;
+    const laps = () => rt.events.filter((e) => e.type === 'score' && (e.data?.reason as string).startsWith('race.lap')).length;
+    let i = 0;
+    while ((me().props.progress as number) < 3000) {
+      rt.input('p0', { t: i++, buttons: { run: true } });
+      rt.step();
+    }
+    expect(me().props.lap).toBe(0);
+    const before = laps();
+    const frac = (me().props.progress as number) / 4000;
+    rt.applyParams(0, { trackLength: 1000 });
+    rt.input('p0', { t: i++, buttons: { run: true } });
+    rt.step();
+    expect(laps()).toBe(before);
+    expect(me().props.lap).toBe(0);
+    expect((me().props.progress as number) / 1000).toBeGreaterThanOrEqual(frac);
+    expect((me().props.progress as number) / 1000).toBeLessThan(frac + 0.02);
   });
 });

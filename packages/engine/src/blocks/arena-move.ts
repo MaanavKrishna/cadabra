@@ -120,7 +120,12 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     // arena-move owns movement of every avatar, whichever block spawned it
     for (const p of ctx.players) {
       const e = ctx.entityOf(p.id);
-      if (e) e.props.mover = 'arena-move';
+      if (!e) continue;
+      e.props.mover = 'arena-move';
+      e.props.topSpeed = ctx.params.speed;
+      e.props.accel = ctx.params.accel;
+      e.props.dashKey = ctx.params.dashButton;
+      e.r = AVATAR_R * ctx.params.avatarScale;
     }
   },
 
@@ -146,6 +151,10 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
       if (!e || e.props.mover !== 'arena-move') continue;
       const p = ps(s, pl.id);
       e.r = r;
+      // publish limits for hazard fairness maths (base speed: comeback boosts only help)
+      e.props.topSpeed = P.speed;
+      e.props.accel = P.accel;
+      e.props.dashKey = P.dashButton;
       const stunned = isStunned(ctx as BlockCtx<unknown>, e);
       const top = P.speed * boostOf(e);
 

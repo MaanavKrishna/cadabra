@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { BlockCtx, BlockDef } from '../block';
 import type { Entity } from '../world';
 import {
-  type BotMem, type Vec, botMem, clamp, ensureAvatars, fallbackMove, inputDir, len, rammer, stateOf, steer,
+  type BotMem, type Vec, botMem, clamp, consumeRam, ensureAvatars, fallbackMove, inputDir, len, rammer, stateOf, steer,
 } from './util';
 
 export const collectSchema = z.object({
@@ -23,7 +23,7 @@ export const collectSchema = z.object({
   /** Ramming a player steals one carried item (carry mode) or pointsPerItem points. */
   stealOnBump: z.boolean(),
   /** After a steal the thief can't steal again, and can't be robbed, for this long. */
-  stealCooldownSec: z.number().min(0).max(10),
+  stealCooldownSec: z.number().min(0.3).max(10),
   goldenChance: z.number().min(0).max(1),
   goldenMultiplier: z.number().min(1).max(10),
 });
@@ -32,7 +32,9 @@ export type CollectParams = z.infer<typeof collectSchema>;
 interface State {
   items: number[];
   goalId?: number;
-  nextSpawn: number;
+  lastSpawn: number;
+  /** Avatar pairs in contact last step: one bump = one steal attempt. */
+  touching: Set<string>;
   pickSeq: number;
   stealReadyAt: Map<string, number>;
   immuneUntil: Map<string, number>;
@@ -43,7 +45,7 @@ interface State {
 const states = new WeakMap<object, State>();
 const S = (ctx: object) =>
   stateOf<State>(states, ctx, () => ({
-    items: [], nextSpawn: 0, pickSeq: 0, stealReadyAt: new Map(), immuneUntil: new Map(), intents: new Map(), bots: new Map(),
+    items: [], lastSpawn: 0, touching: new Set(), pickSeq: 0, stealReadyAt: new Map(), immuneUntil: new Map(), intents: new Map(), bots: new Map(),
   }));
 
 const TOUCH_SLACK = 6;
@@ -210,7 +212,7 @@ export const collect: BlockDef<CollectParams> = {
     syncGoal(ctx, s);
     const n = Math.ceil(ctx.params.maxItems / 2);
     for (let i = 0; i < n; i++) spawnItem(ctx, s);
-    s.nextSpawn = ctx.params.spawnEverySec;
+    s.lastSpawn = 0;
   },
 
   onInput(ctx, playerId, input) {
@@ -227,24 +229,30 @@ export const collect: BlockDef<CollectParams> = {
     const P = ctx.params;
     const goal = syncGoal(ctx, s);
 
-    // spawn on a timer up to maxItems
-    if (ctx.time >= s.nextSpawn) {
+    // spawn on a timer up to maxItems; derived from the last spawn so live tweaks apply at once
+    if (ctx.time >= s.lastSpawn + P.spawnEverySec) {
       if (s.items.length < P.maxItems) spawnItem(ctx, s);
-      s.nextSpawn = ctx.time + P.spawnEverySec;
+      s.lastSpawn = ctx.time;
     }
 
-    // bump-to-steal (before movement rewrites velocities)
-    if (P.stealOnBump) {
-      const ps = ctx.players;
-      for (let i = 0; i < ps.length; i++) {
-        const a = ctx.entityOf(ps[i]!.id);
-        if (!a) continue;
-        for (let j = i + 1; j < ps.length; j++) {
-          const b = ctx.entityOf(ps[j]!.id);
-          if (!b || len(b.x - a.x, b.y - a.y) > a.r + b.r + TOUCH_SLACK) continue;
-          const thief = rammer(a, b, ctx.time);
-          if (thief) steal(ctx, s, thief, thief === a ? b : a);
-        }
+    // bump-to-steal (before movement rewrites velocities). Only the first step of a contact
+    // counts, and it consumes the ram mark: holding the stick into someone is one bump.
+    const was = s.touching;
+    s.touching = new Set();
+    const ps = ctx.players;
+    for (let i = 0; i < ps.length; i++) {
+      const a = ctx.entityOf(ps[i]!.id);
+      if (!a) continue;
+      for (let j = i + 1; j < ps.length; j++) {
+        const b = ctx.entityOf(ps[j]!.id);
+        if (!b || len(b.x - a.x, b.y - a.y) > a.r + b.r + TOUCH_SLACK) continue;
+        const key = `${ps[i]!.id}|${ps[j]!.id}`;
+        s.touching.add(key);
+        if (!P.stealOnBump || was.has(key)) continue;
+        const thief = rammer(a, b, ctx.time);
+        consumeRam(a);
+        consumeRam(b);
+        if (thief) steal(ctx, s, thief, thief === a ? b : a);
       }
     }
 

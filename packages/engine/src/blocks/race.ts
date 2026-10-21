@@ -64,9 +64,21 @@ interface RaceBot {
   inZoneSince?: number;
 }
 
+/** Params the current geometry was built from; live tweaks are diffed against these. */
+interface Built {
+  laneCount: number;
+  obstacleDensity: number;
+  boostPads: number;
+  relay: boolean;
+  trackLength: number;
+  checkpointCount: number;
+}
+
 interface State {
   runners: Map<string, Runner>;
   layout: Feature[];
+  featureIds: number[];
+  built?: Built;
   lapsDone: Map<number, number>; // lap index -> finishers
   finishers: number;
   heatResetAt?: number;
@@ -75,7 +87,7 @@ interface State {
 
 const states = new WeakMap<object, State>();
 const S = (ctx: object) =>
-  stateOf<State>(states, ctx, () => ({ runners: new Map(), layout: [], lapsDone: new Map(), finishers: 0, bots: new Map() }));
+  stateOf<State>(states, ctx, () => ({ runners: new Map(), layout: [], featureIds: [], lapsDone: new Map(), finishers: 0, bots: new Map() }));
 
 const START_PAD = 80;
 const END_PAD = 60;
@@ -106,8 +118,15 @@ function handoff(P: RaceParams): number {
   return P.trackLength / 2;
 }
 
+function runnerR(ctx: BlockCtx<RaceParams>): number {
+  return Math.min(AVATAR_R, (ctx.world.height / ctx.params.laneCount) * 0.35);
+}
+
+/** (Re)build the shared obstacle/pad layout and its entities in every lane. */
 function buildLayout(ctx: BlockCtx<RaceParams>, s: State): void {
   const P = ctx.params;
+  for (const id of s.featureIds) ctx.world.remove(id);
+  s.featureIds = [];
   const feats: Feature[] = [];
   const nObs = Math.round(P.obstacleDensity * 10);
   const slots = nObs + P.boostPads;
@@ -129,10 +148,70 @@ function buildLayout(ctx: BlockCtx<RaceParams>, s: State): void {
   // every lane gets the same features so the track reads as one course
   for (let lane = 0; lane < P.laneCount; lane++) {
     for (const f of s.layout) {
-      ctx.world.spawn(f.kind, xAt(ctx, f.at), laneY(ctx, lane), {
+      const e = ctx.world.spawn(f.kind, xAt(ctx, f.at), laneY(ctx, lane), {
         sprite: f.kind, r: f.kind === 'obstacle' ? 18 : 22, props: { lane, at: f.at },
       });
+      s.featureIds.push(e.id);
     }
+  }
+  s.built = {
+    laneCount: P.laneCount, obstacleDensity: P.obstacleDensity, boostPads: P.boostPads, relay: P.relay,
+    trackLength: s.built?.trackLength ?? P.trackLength, checkpointCount: s.built?.checkpointCount ?? P.checkpointCount,
+  };
+}
+
+/** Spawn or remove each runner's relay teammate and baton to match params.relay. */
+function syncRelay(ctx: BlockCtx<RaceParams>, s: State): void {
+  const P = ctx.params;
+  const r0 = runnerR(ctx);
+  for (const [id, r] of s.runners) {
+    if (P.relay && r.mate === undefined) {
+      r.mate = ctx.world.spawn('runner', 0, 0, { owner: id, r: r0 * 0.9, sprite: `avatar:${id}` }).id;
+      r.baton = ctx.world.spawn('baton', 0, 0, { owner: id, r: 6, sprite: 'baton' }).id;
+      // a runner already past the handoff carries on as runner 2 (never pulled backwards)
+      r.leg = r.progress >= handoff(P) ? 2 : 1;
+    } else if (!P.relay && r.mate !== undefined) {
+      ctx.world.remove(r.mate);
+      if (r.baton !== undefined) ctx.world.remove(r.baton);
+      r.mate = r.baton = undefined;
+      r.leg = 1;
+    }
+  }
+}
+
+/**
+ * Apply Tweak-panel changes safely: rescale progress when the lap length changes (never
+ * awarding laps or checkpoints), recount passed checkpoints, and rebuild lane geometry.
+ */
+function syncLive(ctx: BlockCtx<RaceParams>, s: State): void {
+  const P = ctx.params;
+  const b = s.built!;
+  if (P.trackLength !== b.trackLength) {
+    const k = P.trackLength / b.trackLength;
+    for (const r of s.runners.values()) {
+      r.progress = r.finished ? P.trackLength : Math.min(r.progress * k, P.trackLength - 1e-6);
+    }
+    b.trackLength = P.trackLength;
+  }
+  if (P.checkpointCount !== b.checkpointCount) {
+    for (const r of s.runners.values()) {
+      r.nextCp = Math.min(P.checkpointCount, Math.floor((r.progress / P.trackLength) * (P.checkpointCount + 1)));
+    }
+    b.checkpointCount = P.checkpointCount;
+  }
+  if (P.laneCount !== b.laneCount || P.obstacleDensity !== b.obstacleDensity || P.boostPads !== b.boostPads || P.relay !== b.relay) {
+    buildLayout(ctx, s);
+    syncRelay(ctx, s);
+    const rr = runnerR(ctx);
+    ctx.players.forEach((p, i) => {
+      const e = ctx.entityOf(p.id);
+      if (e && e.props.mover === 'race') {
+        e.r = rr;
+        e.props.lane = laneOf(ctx, i);
+      }
+      const m = s.runners.get(p.id)?.mate;
+      if (m !== undefined) ctx.world.get(m)!.r = rr * 0.9;
+    });
   }
 }
 
@@ -140,6 +219,7 @@ function placeRunner(ctx: BlockCtx<RaceParams>, e: Entity, r: Runner, lane: numb
   const P = ctx.params;
   e.x = xAt(ctx, r.progress / P.trackLength);
   e.y = laneY(ctx, lane);
+  e.props.lane = lane;
   e.vx = e.vy = 0;
   e.props.progress = r.progress;
   e.props.lap = r.lap;
@@ -154,6 +234,7 @@ function placeRunner(ctx: BlockCtx<RaceParams>, e: Entity, r: Runner, lane: numb
       m.x = xAt(ctx, handoff(P) / P.trackLength);
       m.y = laneY(ctx, lane) + 0.3 * (ctx.world.height / P.laneCount) * 0.5;
       m.props.leg = r.leg === 1 ? 2 : 1;
+      m.props.lane = lane;
     }
   }
   if (r.baton !== undefined) {
@@ -309,7 +390,7 @@ export const race: BlockDef<RaceParams> = {
   setup(ctx) {
     const s = S(ctx);
     buildLayout(ctx, s);
-    const r = Math.min(AVATAR_R, (ctx.world.height / ctx.params.laneCount) * 0.35);
+    const r = runnerR(ctx);
     ctx.players.forEach((p, i) => {
       const lane = laneOf(ctx, i);
       // race owns its runners: reuse an avatar if some block made one, else spawn it
@@ -321,12 +402,13 @@ export const race: BlockDef<RaceParams> = {
         progress: 0, speed: 0, lap: 0, leg: 1, nextCp: 0, finished: false, jumpUntil: 0, padUntil: 0,
         taps: 0, run: false, jumpQueued: false, passQueued: false, buttons: new Map(),
       };
-      if (ctx.params.relay) {
-        runner.mate = ctx.world.spawn('runner', 0, 0, { owner: p.id, r: r * 0.9, sprite: `avatar:${p.id}`, props: { lane } }).id;
-        runner.baton = ctx.world.spawn('baton', 0, 0, { owner: p.id, r: 6, sprite: 'baton' }).id;
-      }
       s.runners.set(p.id, runner);
-      placeRunner(ctx, e, runner, lane);
+    });
+    syncRelay(ctx, s);
+    ctx.players.forEach((p, i) => {
+      const e = ctx.entityOf(p.id);
+      const runner = s.runners.get(p.id);
+      if (e && runner) placeRunner(ctx, e, runner, laneOf(ctx, i));
     });
   },
 
@@ -350,6 +432,7 @@ export const race: BlockDef<RaceParams> = {
 
   update(ctx, dt) {
     const s = S(ctx);
+    syncLive(ctx, s);
     ctx.players.forEach((p, i) => {
       const r = s.runners.get(p.id);
       const e = ctx.entityOf(p.id);

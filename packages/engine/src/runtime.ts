@@ -150,7 +150,11 @@ export class GameRuntime {
     if (p) p.connected = connected;
   }
 
-  /** Merged bot input across all blocks (later blocks override earlier fields). */
+  /**
+   * Merged bot input across all blocks (later blocks override earlier fields). Consumes
+   * the shared seeded rng: call exactly once per step per bot (then input() + step()) to
+   * keep rounds deterministic and replayable.
+   */
   botInput(playerId: string, skill: number): InputFrame {
     let out: InputFrame = { t: this.simMs() };
     for (const b of this.blocks) {
