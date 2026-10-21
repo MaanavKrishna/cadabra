@@ -1,0 +1,17 @@
+{
+  "name": "@cadabra/tv",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "pixi.js": "^8.6.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

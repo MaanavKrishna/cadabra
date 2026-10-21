@@ -11,3 +11,9 @@ apps/backend/outputs.json
 .DS_Store
 video/
 shots/
+apps/android/local.properties
+apps/android/app/src/main/assets/www/
+apps/android/.gradle/
+apps/android/.kotlin/
+apps/android/build/
+apps/android/app/build/
