@@ -1,4 +1,4 @@
-// Live smoke: npx tsx apps/backend/scripts/smoke-bedrock.ts (needs AWS creds + deployed stack outputs.json)
+// Live smoke (reports which provider answered; set ANTHROPIC_API_KEY to exercise the fallback): npx tsx apps/backend/scripts/smoke-bedrock.ts (needs AWS creds + deployed stack outputs.json)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +16,7 @@ const step = async (label: string, fn: () => Promise<boolean>) => {
 };
 const ask = (model: 'designer' | 'fast') => async () => {
   const r = await converse({ model, system: 'Reply with one word.', messages: [{ role: 'user', content: [{ text: 'say ok' }] }], maxTokens: 20, timeoutMs: 20000 });
-  console.log(`  (${model} via ${r.modelId}: ${JSON.stringify(r.text)})`);
+  console.log(`  (${model} via ${r.provider}/${r.modelId}: ${JSON.stringify(r.text)})`);
   return /ok/i.test(r.text);
 };
 await step('designer ok', ask('designer'));

@@ -1,3 +1,4 @@
+import { anthropicConverse, getApiKey, _resetAnthropic } from './anthropic';
 import {
   ApplyGuardrailCommand, BedrockRuntimeClient, ConverseCommand,
   type Message, type Tool, type ToolUseBlock,
@@ -48,13 +49,19 @@ export interface ConverseOutput {
   stopReason?: string;
   usage?: { inputTokens?: number; outputTokens?: number };
   modelId: string;
+  provider: 'bedrock' | 'anthropic';
 }
+
+/** Bedrock failures that mean "this account can't use Claude here" (quota 0, no access, use-case form pending). */
+const ACCOUNT_UNAVAILABLE = new Set(['AccessDeniedException', 'ResourceNotFoundException']);
+const BEDROCK_RETRY_MS = 10 * 60_000;
+let bedrockDownUntil = 0;
 
 const lastGood = new Map<ConverseRequest['model'], string>();
 /** Test hook: forget cached working model ids. */
-export function _resetModelCache(): void { lastGood.clear(); }
+export function _resetModelCache(): void { lastGood.clear(); bedrockDownUntil = 0; _resetAnthropic(); }
 
-export async function converse(req: ConverseRequest): Promise<ConverseOutput> {
+async function converseBedrock(req: ConverseRequest): Promise<ConverseOutput> {
   const cached = lastGood.get(req.model);
   const chain: string[] = cached
     ? [cached, ...CHAINS[req.model].filter((m) => m !== cached)]
@@ -81,6 +88,7 @@ export async function converse(req: ConverseRequest): Promise<ConverseOutput> {
         stopReason: res.stopReason,
         usage: res.usage,
         modelId,
+        provider: 'bedrock',
       };
     } catch (e) {
       const name = (e as { name?: string })?.name ?? 'Error';
@@ -94,6 +102,41 @@ export async function converse(req: ConverseRequest): Promise<ConverseOutput> {
   const err = (firstErr ?? new Error('bedrock: no model attempted (timeout)')) as Error;
   try { err.message = `${err.message} [chain: ${attempts.join('; ')}]`; } catch { /* readonly */ }
   throw err;
+}
+
+/**
+ * Provider selection: Bedrock chain first; if the account can't use Claude on Bedrock (access denied / not found /
+ * throttled with no quota) and an Anthropic key exists, answer via the Anthropic API and remember for 10 minutes.
+ * Without a key the Bedrock error surfaces unchanged.
+ */
+export async function converse(req: ConverseRequest): Promise<ConverseOutput> {
+  const deadline = Date.now() + req.timeoutMs;
+  const viaAnthropic = async (key: string): Promise<ConverseOutput> => {
+    const r = await anthropicConverse({ ...req, messages: req.messages as never, tools: req.tools as never,
+      timeoutMs: Math.max(1, deadline - Date.now()) }, key);
+    const content = (r.output.message.content ?? []) as { text?: string; toolUse?: ToolUseBlock }[];
+    return {
+      text: content.map((c) => c.text ?? '').join(''),
+      toolUses: content.flatMap((c) => (c.toolUse ? [c.toolUse] : [])),
+      stopReason: r.stopReason, usage: r.usage, modelId: r.modelId, provider: 'anthropic',
+    };
+  };
+  if (Date.now() < bedrockDownUntil) {
+    const key = await getApiKey();
+    if (key) return viaAnthropic(key);
+    bedrockDownUntil = 0; // no key anymore: go back to Bedrock
+  }
+  try {
+    return await converseBedrock(req);
+  } catch (e) {
+    const name = (e as { name?: string })?.name ?? 'Error';
+    if (!ACCOUNT_UNAVAILABLE.has(name) && name !== 'ThrottlingException') throw e;
+    const key = await getApiKey();
+    if (!key) throw e;
+    log(`bedrock unavailable (${name}); using anthropic api for ${BEDROCK_RETRY_MS / 60000} min`);
+    bedrockDownUntil = Date.now() + BEDROCK_RETRY_MS;
+    return viaAnthropic(key);
+  }
 }
 
 type Assessment = { contentPolicy?: { filters?: { type?: string; confidence?: string; action?: string }[] } };

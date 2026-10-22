@@ -104,6 +104,11 @@ export class CadabraStack extends Stack {
       actions: ['bedrock:ApplyGuardrail'],
       resources: [guardrail.attrGuardrailArn],
     }));
+    // Anthropic API fallback key (secret is created out-of-band; the -* suffix is Secrets Manager's random tail).
+    fn.addToRolePolicy(new PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:ap-south-1:${this.account}:secret:cadabra/anthropic-api-key-*`],
+    }));
     fn.addToRolePolicy(new PolicyStatement({ actions: ['polly:SynthesizeSpeech'], resources: ['*'] }));
 
     const integ = new WebSocketLambdaIntegration('WsInteg', fn);
