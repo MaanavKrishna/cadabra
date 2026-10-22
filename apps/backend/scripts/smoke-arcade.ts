@@ -27,25 +27,27 @@ const next = async (t: string) => {
   }
   throw new Error(`timeout waiting for ${t}`);
 };
+// Messages are handled by separate Lambda invocations (no ordering), so writes get a beat to land.
 const send = (m: unknown) => ws.send(JSON.stringify(m));
+const write = async (m: unknown) => { send(m); await new Promise((r) => setTimeout(r, 700)); };
 const check = (ok: boolean, what: string) => { console.log(ok ? 'ok  ' : 'FAIL', what); if (!ok) process.exitCode = 1; };
 
 await new Promise((r) => ws.addEventListener('open', r, { once: true }));
 send({ t: 'room.create', household });
 await next('room.created');
-send({ t: 'arcade.save', household, spec });
+await write({ t: 'arcade.save', household, spec });
 send({ t: 'arcade.list', household });
 let items = await next('arcade.items');
 check(items.games.length === 1 && items.games[0].unplayed, 'saved as unplayed');
 send({ t: 'arcade.play', household, specId: spec.id });
 check((await next('arcade.game')).spec.id === spec.id, 'play returns spec');
-send({ t: 'arcade.played', household, specId: spec.id });
+await write({ t: 'arcade.played', household, specId: spec.id });
 send({ t: 'arcade.list', household });
 items = await next('arcade.items');
 check(items.games[0].playedCount === 1 && !items.games[0].unplayed, 'played bumped');
 send({ t: 'arcade.list', household: 'someone-else' });
 await next('error').then(() => check(true, 'household mismatch rejected'));
-send({ t: 'arcade.delete', household, specId: spec.id });
+await write({ t: 'arcade.delete', household, specId: spec.id });
 send({ t: 'arcade.list', household });
 check((await next('arcade.items')).games.length === 0, 'deleted');
 ws.close();
