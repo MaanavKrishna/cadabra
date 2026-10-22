@@ -1,8 +1,9 @@
 // Append-only: later tasks add their own message types (backend, forge, arcade) below.
 import { z } from 'zod';
 import { InputFrameSchema } from './controls';
-import { GameSpecSchema, PitchSchema } from './game-spec';
+import { GameSpecSchema, PaletteSchema, PitchSchema } from './game-spec';
 import { RoomSettingsSchema } from './settings';
+import { ArtUrlSchema } from './screens';
 
 export const SCREEN_NAMES = [
   'join', 'avatar', 'storm', 'vote', 'warmup', 'play', 'results', 'remix', 'tweak', 'wait', 'blocked',
@@ -48,6 +49,29 @@ export const ForgeIngredientSchema = z.union([
 export type ForgeIngredient = z.infer<typeof ForgeIngredientSchema>;
 
 export const HostLineKindSchema = z.enum(['join', 'pitches', 'forge', 'event', 'finale', 'results', 'remix', 'fallback']);
+
+// ---- Arcade (Task 24) ----
+const ArcadeHousehold = z.string().min(1).max(64).regex(NoControlChars);
+const ArcadeSpecId = z.string().min(1).max(64);
+/** Art for a saved game: key art plus sprite images (https or data:image URLs). */
+export const ArcadeArtSchema = z.object({
+  keyArt: ArtUrlSchema.optional(),
+  sprites: z.record(z.string().max(64), ArtUrlSchema).optional(),
+});
+export type ArcadeArt = z.infer<typeof ArcadeArtSchema>;
+/** One tile in arcade.items: light on purpose (API Gateway caps server->client messages at 128 KB). */
+export const ArcadeGameSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  hook: z.string(),
+  palette: PaletteSchema,
+  /** https URL only (data: art is omitted here; arcade.play returns the full art). */
+  keyArt: z.string().optional(),
+  playedCount: z.number(),
+  lastPlayed: z.number(),
+  unplayed: z.boolean(),
+});
+export type ArcadeGameSummary = z.infer<typeof ArcadeGameSummarySchema>;
 
 export const ClientToBackendSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('room.create'), household: z.string().max(64).regex(NoControlChars).optional() }),
@@ -107,6 +131,13 @@ export const ClientToBackendSchema = z.discriminatedUnion('t', [
     kind: z.enum(['draw', 'trivia-gen']),
     payload: z.unknown(),
   }),
+  // ---- Arcade (Task 24): TV only; `household` must be the room's household ----
+  z.object({ t: z.literal('arcade.list'), household: ArcadeHousehold }),
+  z.object({ t: z.literal('arcade.save'), household: ArcadeHousehold, spec: z.unknown(), art: ArcadeArtSchema.optional() }),
+  z.object({ t: z.literal('arcade.play'), household: ArcadeHousehold, specId: ArcadeSpecId }),
+  z.object({ t: z.literal('arcade.delete'), household: ArcadeHousehold, specId: ArcadeSpecId }),
+  /** A round of this game was played: bump playedCount/lastPlayed (saves it first when `spec` is given and new). */
+  z.object({ t: z.literal('arcade.played'), household: ArcadeHousehold, specId: ArcadeSpecId, spec: z.unknown().optional(), art: ArcadeArtSchema.optional() }),
 ]);
 export type ClientToBackend = z.infer<typeof ClientToBackendSchema>;
 
@@ -134,5 +165,8 @@ export const BackendToClientSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('host.audio'), id: z.string().optional(), text: z.string(), url: z.string().optional() }),
   z.object({ t: z.literal('host.roasted'), id: z.string(), lines: z.array(z.string()), urls: z.array(z.string().nullable()).optional() }),
   z.object({ t: z.literal('judge.result'), id: z.string(), result: z.unknown() }),
+  // ---- Arcade (Task 24) ----
+  z.object({ t: z.literal('arcade.items'), games: z.array(ArcadeGameSummarySchema) }),
+  z.object({ t: z.literal('arcade.game'), spec: GameSpecSchema, art: ArcadeArtSchema.optional() }),
 ]);
 export type BackendToClient = z.infer<typeof BackendToClientSchema>;

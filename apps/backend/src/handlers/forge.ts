@@ -6,6 +6,7 @@ import {
 import type { Context } from 'aws-lambda';
 import type { BackendToClient } from '@cadabra/spec';
 import { claimForgeRun, type ForgeEvent } from '../forge-room';
+import { saveUnplayed } from '../arcade';
 import { FORGE_BUDGETS, runForge, type ForgeJob } from '../forge';
 
 /**
@@ -82,9 +83,12 @@ export async function handler(ev: ForgeEvent, context?: Pick<Context, 'getRemain
         ConditionExpression: 'forgeId = :f', ExpressionAttributeValues: { ':f': ev.forgeId },
       })).catch(() => {});
     },
-    onLoserReady: (pitch, spec) => {
-      // Task 24 stores these as unplayed Arcade entries.
-      log('loser ready (arcade hook)', pitch.id, spec.id);
+    onLoserReady: async (pitch, spec) => {
+      // Losing pitches become unplayed Arcade entries for the room's household.
+      const meta = (await ddb.send(new GetCommand({ TableName: TABLE(), Key: { pk, sk: 'META' } }))).Item;
+      if (typeof meta?.household !== 'string') return;
+      const saved = await saveUnplayed({ ddb, table: TABLE(), now: () => Math.floor(Date.now() / 1000) }, meta.household, spec);
+      log('loser saved to arcade', pitch.id, spec.id, saved);
     },
     log,
   });

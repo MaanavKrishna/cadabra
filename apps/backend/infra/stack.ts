@@ -123,7 +123,7 @@ export class CadabraStack extends Stack {
       bundling: { minify: true, sourceMap: true, target: 'node22' },
     });
     // Least privilege: only the item operations the handler uses.
-    table.grant(fn, 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:UpdateItem', 'dynamodb:Query');
+    table.grant(fn, 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:UpdateItem', 'dynamodb:Query', 'dynamodb:BatchWriteItem');
 
     // Bedrock: Converse/Invoke on Anthropic (ap-south-1 profiles route to other regions, so any-region
     // foundation-model ARNs are needed alongside the profile ARN), Stability image models (us-west-2), Guardrails, Polly.
@@ -189,7 +189,7 @@ export class CadabraStack extends Stack {
       },
       bundling: { minify: true, sourceMap: true, target: 'node22' },
     });
-    table.grant(forgeFn, 'dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:Query');
+    table.grant(forgeFn, 'dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem');
     grantAi(forgeFn);
     forgeFn.grantInvoke(fn);
     fn.addEnvironment('FORGE_FN', forgeFn.functionName);

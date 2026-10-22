@@ -8,6 +8,7 @@ import type { APIGatewayProxyResult, APIGatewayProxyWebsocketEventV2 } from 'aws
 import { ClientToBackendSchema } from '@cadabra/spec';
 import { createRoom, disconnect, forward, joinRoom, resumeRoom, type Ctx } from '../rooms';
 import { recordVote, startForge, type ForgeEvent } from '../forge-room';
+import { handleArcade, type ArcadeMsg } from '../arcade';
 import { requestHost, type HostEvent } from '../host-room';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -78,6 +79,13 @@ export async function handler(event: APIGatewayProxyWebsocketEventV2): Promise<A
       await startForge(ctx, connectionId, m, { invoke: invokeForge, endpoint: `https://${domainName}/${stage}` });
       break;
     case 'forge.vote': await recordVote(ctx, connectionId, m); break;
+    case 'arcade.list':
+    case 'arcade.save':
+    case 'arcade.play':
+    case 'arcade.delete':
+    case 'arcade.played':
+      await handleArcade(ctx, connectionId, m as ArcadeMsg);
+      break;
     case 'host.say':
     case 'host.roast':
     case 'judge.request':
