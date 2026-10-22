@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { InputFrame, PeerMsg } from '@cadabra/spec';
-import { CouchClient, CouchHost, MAX_DRAW_BYTES } from '../src/index';
-import { BlockedRTC, FakeBackend, FakeRTC, MemStorage, resetFakes } from './fakes';
+import { CouchClient, CouchHost, MAX_DRAW_BYTES, RELAY_CHUNK_BYTES } from '../src/index';
+import { BlockedRTC, FakeBackend, FakeRTC, MemStorage, WS_FRAME_MAX, resetFakes } from './fakes';
 
 let backend: FakeBackend;
 const tick = (ms: number) => vi.advanceTimersByTimeAsync(ms);
@@ -14,7 +14,7 @@ function mkHost(storage = new MemStorage()) {
 }
 function mkClient(opts: { rtc?: typeof FakeRTC; storage?: MemStorage } = {}) {
   return new CouchClient({
-    wsUrl: 'wss://x', WebSocket: backend.WebSocket as any,
+    wsUrl: 'wss://x', WebSocket: backend.WebSocket as any, random: () => 0.5,
     RTCPeerConnection: (opts.rtc ?? FakeRTC) as any, storage: opts.storage ?? new MemStorage(),
   });
 }
@@ -66,7 +66,7 @@ describe('couchpad', () => {
     expect(client.mode).toBe('relay');
     client.sendInput({ t: 2, axes: { x: 0, y: 1 } });
     await tick(50);
-    expect(got.at(-1)).toEqual({ t: 2, axes: { x: 0, y: 1 } });
+    expect(got.at(-1)!.axes).toEqual({ x: 0, y: 1 });
     expect(host.players().get(playerId)?.transport).toBe('relay');
   });
 
@@ -141,7 +141,7 @@ describe('couchpad', () => {
     got.length = 0;
     client.sendInput({ t: 2, draw: 'x'.repeat(MAX_DRAW_BYTES + 1), vote: 1 });
     await tick(50);
-    expect(got).toEqual([{ t: 2, vote: 1 }]);
+    expect(got.filter((f) => !f.axes)).toEqual([{ t: 2, vote: 1 }]);
   });
 
   test('broadcast reaches direct and relay players', async () => {
@@ -236,5 +236,225 @@ describe('couchpad', () => {
     const statePc = FakeRTC.all[0]!.channels.find((c) => c.label === 'state')!;
     expect(statePc.sent.some((s) => JSON.parse(s).t === 'pong')).toBe(true);
     expect(client.rttMs()).toBeGreaterThanOrEqual(0);
+  });
+
+  test('a TV page reload resumes the room: fresh host with same storage gets re-offers and input', async () => {
+    const storage = new MemStorage();
+    const host1 = mkHost(storage);
+    const p = host1.create(); await tick(0);
+    const { code } = await p;
+    const client = mkClient();
+    const j = client.join(code, 'Ana'); await tick(0);
+    const { playerId } = await j;
+    await tick(100);
+    expect(client.mode).toBe('direct');
+
+    host1.close(); // page unload
+    await tick(0);
+    expect(client.mode).toBe('relay');
+    const host2 = mkHost(storage);
+    const joined: string[] = [];
+    host2.on('player', (id: string) => joined.push(id));
+    const got: InputFrame[] = [];
+    host2.on('input', (_id: string, f: InputFrame) => got.push(f));
+    const r = host2.resume(); await tick(0);
+    expect(await r).toEqual({ code });
+    expect(joined).toEqual([playerId]);
+    expect(host2.players().get(playerId)).toMatchObject({ name: 'Ana', connected: true });
+    // input flows even before the new direct link is up (relay) ...
+    client.sendInput({ t: Date.now(), buttons: { a: true } });
+    await tick(0);
+    expect(got.at(-1)?.buttons).toEqual({ a: true });
+    // ... and the phone's re-offer is accepted by the fresh host
+    await tick(200);
+    expect(client.mode).toBe('direct');
+    expect(host2.players().get(playerId)?.transport).toBe('direct');
+    client.sendInput({ t: Date.now(), buttons: { a: false } });
+    await tick(0);
+    expect(got.at(-1)?.buttons).toEqual({ a: false });
+  });
+
+  test('resume reconciles players: missing ones leave', async () => {
+    const storage = new MemStorage();
+    const host = mkHost(storage);
+    const p = host.create(); await tick(0);
+    const { code } = await p;
+    const a = mkClient(); const b = mkClient();
+    const ja = a.join(code, 'A'); const jb = b.join(code, 'B'); await tick(0);
+    const [{ playerId: ia }, { playerId: ib }] = await Promise.all([ja, jb]);
+    await tick(100);
+    const left: string[] = [];
+    host.on('left', (id: string) => left.push(id));
+    // TV socket drops; while it is away B's phone goes too (its player.left is lost)
+    backend.sockets[0]!.drop();
+    await tick(0);
+    b.close();
+    await tick(3000);
+    expect(left).toEqual([ib]);
+    expect(host.players().get(ia)?.connected).toBe(true);
+    expect(host.players().get(ib)?.connected).toBe(false);
+  });
+
+  test('a dropped button release still reaches the TV within 50 ms', async () => {
+    const { host, client } = await setup();
+    await tick(100);
+    const got: InputFrame[] = [];
+    host.on('input', (_id: string, f: InputFrame) => got.push(f));
+    client.sendInput({ t: Date.now(), buttons: { a: true } });
+    await tick(0);
+    expect(got.at(-1)?.buttons).toEqual({ a: true });
+    const input = FakeRTC.all[0]!.channels.find((c) => c.label === 'input')!;
+    let releases = 0;
+    input.drop = (d) => JSON.parse(d).frame?.buttons?.a === false && ++releases === 1; // lose the first release
+    await tick(10);
+    client.sendInput({ t: Date.now(), buttons: { a: false } });
+    await tick(0);
+    expect(got.at(-1)?.buttons).toEqual({ a: true }); // release lost
+    await tick(50);
+    expect(releases).toBe(2); // original (lost) + repeat ~30 ms later
+    expect(got.at(-1)?.buttons).toEqual({ a: false });
+  });
+
+  test('a button held still for 2 s stays held (keepalive well under 500 ms staleness)', async () => {
+    const { host, client } = await setup();
+    await tick(100);
+    const at: number[] = []; const got: InputFrame[] = [];
+    host.on('input', (_id: string, f: InputFrame) => { at.push(Date.now()); got.push(f); });
+    client.sendInput({ t: Date.now(), buttons: { a: true } });
+    await tick(2000);
+    expect(got.length).toBeGreaterThanOrEqual(15);
+    expect(got.every((f) => f.buttons?.a === true)).toBe(true);
+    const gaps = at.slice(1).map((x, i) => x - at[i]!);
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(150);
+    expect(Date.now() - at.at(-1)!).toBeLessThanOrEqual(150);
+    for (let i = 1; i < got.length; i++) expect(got[i]!.t).toBeGreaterThan(got[i - 1]!.t);
+    // released + idle -> keepalive stops
+    client.sendInput({ t: Date.now(), buttons: { a: false } });
+    await tick(100);
+    const n = got.length;
+    await tick(1000);
+    expect(got.length).toBe(n);
+  });
+
+  test('host drops continuous input frames that are not newer', async () => {
+    const { host, client } = await setup(BlockedRTC);
+    const got: InputFrame[] = [];
+    host.on('input', (_id: string, f: InputFrame) => got.push(f));
+    client.sendInput({ t: 1000, axes: { x: 1, y: 0 } });
+    await tick(0);
+    const phoneWs = backend.sockets.at(-1)!;
+    phoneWs.send(JSON.stringify({ t: 'relay', to: 'tv', data: { t: 'input', frame: { t: 999, axes: { x: -1, y: 0 } } } }));
+    phoneWs.send(JSON.stringify({ t: 'relay', to: 'tv', data: { t: 'input', frame: { t: 1000, axes: { x: -1, y: 0 } } } }));
+    await tick(0);
+    expect(got.map((f) => f.axes?.x)).toEqual([1]);
+    // one-shots share the continuous frame's t and are never dropped as stale
+    client.sendInput({ t: 1000, swipe: 'left' });
+    await tick(0);
+    expect(got.at(-1)).toEqual({ t: 1000, swipe: 'left' });
+  });
+
+  test('large relay messages are chunked under the WS frame limit and reassembled', async () => {
+    const { host, client, playerId } = await setup(BlockedRTC);
+    await tick(4100);
+    const big = 'x'.repeat(100 * 1024);
+    const gotPhone: PeerMsg[] = [];
+    client.on('msg', (m: PeerMsg) => gotPhone.push(m));
+    expect(host.sendTo(playerId, { t: 'screen', name: 'results', data: { big } })).toBe(true);
+    await tick(0);
+    expect(gotPhone).toEqual([{ t: 'screen', name: 'results', data: { big } }]);
+    const draw = 'data:image/png;base64,' + 'A"\\é'.repeat(30 * 1024); // escaping + multibyte
+    expect(draw.length).toBeLessThanOrEqual(MAX_DRAW_BYTES);
+    const got: InputFrame[] = [];
+    host.on('input', (_id: string, f: InputFrame) => got.push(f));
+    client.sendInput({ t: 5, draw });
+    await tick(0);
+    expect(got).toEqual([{ t: 5, draw }]);
+    expect(backend.maxFrame).toBeLessThanOrEqual(WS_FRAME_MAX);
+    expect(backend.maxFrame).toBeGreaterThan(RELAY_CHUNK_BYTES / 2);
+  });
+
+  test('partial chunk sets expire after 10 s', async () => {
+    const { host, client } = await setup(BlockedRTC);
+    await tick(4100);
+    const got: InputFrame[] = [];
+    host.on('input', (_id: string, f: InputFrame) => got.push(f));
+    const phoneWs = backend.sockets.at(-1)!;
+    const send = (seq: number) => phoneWs.send(JSON.stringify({ t: 'relay', to: 'tv', data: { t: '~chunk', id: 777, seq, total: 2, part: seq === 0 ? '{"t":"input","frame":{"t":1,' : '"vote":1}}' } }));
+    send(0);
+    await tick(10_001);
+    send(1);
+    await tick(0);
+    expect(got).toEqual([]);
+    send(0);
+    await tick(0);
+    expect(got).toEqual([{ t: 1, vote: 1 }]);
+    void client;
+  });
+
+  test('reliable messages queue while the WS is down and flush on rejoin', async () => {
+    const { host, client, playerId } = await setup(BlockedRTC);
+    await tick(4100);
+    const msgs: PeerMsg[] = [];
+    host.on('msg', (_id: string, m: PeerMsg) => msgs.push(m));
+    backend.sockets.at(-1)!.drop();
+    await tick(0);
+    expect(client.send({ t: 'screen', name: 'wait' })).toBe(true);
+    expect(msgs).toEqual([]);
+    await tick(1000);
+    expect(msgs).toEqual([{ t: 'screen', name: 'wait' }]);
+    for (let i = 0; i < 70; i++) client.send({ t: 'screen', name: 'vote' }); // fine while up
+    void playerId;
+  });
+
+  test('reliable queue is bounded at 64', async () => {
+    const { client } = await setup(BlockedRTC);
+    await tick(4100);
+    backend.sockets.at(-1)!.drop();
+    await tick(0);
+    const results = Array.from({ length: 65 }, () => client.send({ t: 'screen', name: 'wait' }));
+    expect(results.filter(Boolean)).toHaveLength(64);
+    expect(results[64]).toBe(false);
+  });
+
+  test('backoff resets only after a stable 3 s open', async () => {
+    const { client } = await setup(BlockedRTC);
+    void client;
+    await tick(4100); // stable for > 3 s
+    const n0 = backend.sockets.length;
+    backend.sockets.at(-1)!.drop();
+    await tick(240);
+    expect(backend.sockets.length).toBe(n0);
+    await tick(20); // 250 ms (jitter pinned to 0)
+    expect(backend.sockets.length).toBe(n0 + 1);
+    await tick(10);
+    backend.sockets.at(-1)!.drop(); // flapping: dropped right after open
+    await tick(490);
+    expect(backend.sockets.length).toBe(n0 + 1);
+    await tick(20); // next step 500 ms, not reset to 250
+    expect(backend.sockets.length).toBe(n0 + 2);
+  });
+
+  test('join times out after 8 s; a second join supersedes the first', async () => {
+    const host = mkHost();
+    const p = host.create(); await tick(0);
+    const { code } = await p;
+    backend.mute = true;
+    const c = mkClient();
+    const j1 = c.join(code, 'A');
+    const r1 = expect(j1).rejects.toThrow('join.timeout');
+    await tick(8001);
+    await r1;
+    const j2 = c.join(code, 'A');
+    const r2 = expect(j2).rejects.toThrow('join.superseded');
+    backend.mute = false;
+    const j3 = c.join(code, 'B');
+    await r2;
+    await tick(0);
+    expect((await j3).playerId).toBeTruthy();
+    expect(host.players().size).toBe(1);
+    c.close();
+    const before = backend.log.length;
+    await tick(10_000); // close() stops pings and reconnects
+    expect(backend.log.length).toBe(before);
   });
 });

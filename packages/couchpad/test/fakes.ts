@@ -1,6 +1,9 @@
 // Test doubles: an in-memory backend that mirrors apps/backend/src/rooms.ts semantics,
 // a fake WebSocket bound to it, and a fake RTCPeerConnection pair.
-import type { WireIn as BackendToClient, WireOut as ClientToBackend } from '../src/signaling';
+import type { BackendToClient, ClientToBackend } from '@cadabra/spec';
+
+/** API Gateway WebSocket frame limit. */
+export const WS_FRAME_MAX = 32 * 1024;
 
 let seq = 0;
 const id = (p: string) => `${p}${++seq}`;
@@ -14,6 +17,7 @@ export class FakeBackend {
   sockets: FakeWebSocket[] = [];
   /** every message the backend received (for asserting relay use). */
   log: ClientToBackend[] = [];
+  maxFrame = 0;
 
   private out(ws: FakeWebSocket | undefined, msg: BackendToClient) {
     if (!ws || ws.readyState !== 1) return false;
@@ -21,8 +25,12 @@ export class FakeBackend {
     return true;
   }
 
+  /** when true the backend swallows everything (unresponsive server). */
+  mute = false;
+
   handle(ws: FakeWebSocket, m: ClientToBackend) {
     this.log.push(m);
+    if (this.mute) return;
     switch (m.t) {
       case 'room.create': {
         const code = `R${String(++seq).padStart(3, 'B')}`.slice(0, 4).toUpperCase();
@@ -44,7 +52,9 @@ export class FakeBackend {
         }
         this.conns.set(ws, { code: m.code.toUpperCase(), role: 'player', playerId: p.playerId });
         this.out(ws, { t: 'room.joined', playerId: p.playerId, token: p.token, name: p.name });
-        return void this.out(room.tv, { t: 'player.joined', player: { id: p.playerId, name: p.name } });
+        this.out(room.tv, { t: 'player.joined', player: { id: p.playerId, name: p.name } });
+        if (!room.tv) this.out(ws, { t: 'tv.left' });
+        return;
       }
       case 'room.resume': {
         const room = this.rooms.get(m.code);
@@ -53,7 +63,8 @@ export class FakeBackend {
         if (room.tv && room.tv !== ws) this.conns.delete(room.tv);
         room.tv = ws;
         this.conns.set(ws, { code: m.code, role: 'tv' });
-        this.out(ws, { t: 'room.resumed', code: m.code });
+        const live = [...room.players.values()].filter((p) => p.conn);
+        this.out(ws, { t: 'room.resumed', players: live.map((p) => ({ id: p.playerId, name: p.name })) });
         for (const p of room.players.values()) this.out(p.conn, { t: 'tv.back' });
         return;
       }
@@ -64,6 +75,7 @@ export class FakeBackend {
         const room = this.rooms.get(me.code)!;
         const from = me.role === 'tv' ? 'tv' : me.playerId!;
         const to = m.to ?? 'tv';
+        if (me.role === 'tv' && to === 'tv') return void this.out(ws, { t: 'error', code: 'room.badRequest' });
         if (me.role === 'player' && to !== 'tv') return void this.out(ws, { t: 'error', code: 'room.badRequest' });
         const target = to === 'tv' ? room.tv : room.players.get(to)?.conn;
         if (!this.out(target, { t: m.t, from, data: m.data } as BackendToClient)) {
@@ -115,11 +127,14 @@ export class FakeWebSocket {
   }
   send(data: string) {
     if (this.readyState !== 1) throw new Error('ws not open');
+    if (data.length > WS_FRAME_MAX) throw new Error(`ws frame too large: ${data.length}`);
+    this.backend.maxFrame = Math.max(this.backend.maxFrame, data.length);
     const m = JSON.parse(data) as ClientToBackend;
     queueMicrotask(() => this.backend.handle(this, m));
   }
   deliver(msg: BackendToClient) {
     const data = JSON.stringify(msg);
+    if (data.length > WS_FRAME_MAX) throw new Error(`ws frame too large: ${data.length}`);
     queueMicrotask(() => { if (this.readyState === 1) this.onmessage?.({ data }); });
   }
   close() { this.drop(); }
@@ -141,10 +156,13 @@ export class FakeChannel {
   onmessage: ((ev: { data: string }) => void) | null = null;
   peer?: FakeChannel;
   sent: string[] = [];
+  /** return true to silently lose this message (lossy-link simulation). */
+  drop?: (data: string) => boolean;
   constructor(public label: string, public init: { ordered?: boolean; maxRetransmits?: number } = {}) {}
   send(data: string) {
     if (this.readyState !== 'open') throw new Error('channel not open');
     this.sent.push(data);
+    if (this.drop?.(data)) return;
     const p = this.peer;
     queueMicrotask(() => { if (p?.readyState === 'open') p.onmessage?.({ data }); });
   }
