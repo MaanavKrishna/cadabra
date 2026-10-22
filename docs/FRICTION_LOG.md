@@ -52,3 +52,19 @@ Entry format: task, steps, expected vs actual, severity, workaround, suggestion.
 - Screenshot via `adb exec-out screencap -p`: works. `screenrecord --time-limit 10` + pull: works, playable mp4 (see friction above).
 - D-pad keys reach JS: `adb shell input keyevent` UP/DOWN/LEFT/RIGHT/CENTER/ENTER/PLAY_PAUSE/MENU logged as `SPIKE {"key": ...}`; VOLUME_UP is swallowed without a JS call (unmapped).
 - Decision gate: fps >= 40, so keep the 1280x720 internal resolution (no 960x540 change for Task 8). DataChannel works, so no `TRANSPORT=relay-only` for Task 10.
+
+### Bedrock Claude models unusable on this account (ap-south-1)
+- Task: 14. Steps: `aws bedrock-runtime converse` with `anthropic.claude-sonnet-5-5`, `anthropic.claude-haiku-5-5`, `in.`/`global.` sonnet-5, sonnet-5-5, opus-5(-5), opus-4-7, fable-5, haiku-5-5, and `global.`/`in.` sonnet-4-5/4-6/haiku-4-5.
+- Expected: the models listed by `list-foundation-models`/`list-inference-profiles` can be invoked. Actual: the 5.x/opus/fable family returns `AccessDeniedException: ... is not available for this account`; the 4.x family returns `ResourceNotFoundException: Model use case details have not been submitted for this account` (Anthropic use-case form not filled). `apac.anthropic.claude-sonnet-5` and `in.anthropic.claude-haiku-5-5` do not exist (invalid identifier). Base ids do not support on-demand (`amazon.nova-lite-v1:0` -> ValidationException, needs a profile).
+- Severity: high (blocks live Forge). Workaround: code keeps ordered fallback chains (designer: base -> `in.` -> `global.` 5-5 -> `global.` 5; fast: base -> `global.` haiku-5-5 -> `global.` haiku-4-5) and retries on ValidationException/AccessDenied/ResourceNotFound; the owner must submit the Anthropic use-case form in the Bedrock console and request access, then rerun `npx tsx apps/backend/scripts/smoke-bedrock.ts`.
+- Suggestion: list-* APIs should reflect per-account invocability; the error should link the form.
+
+### Bedrock Nova daily token quota is zero-ish on a new account
+- Task: 14. Steps: converse on `apac.amazon.nova-{micro,lite,pro}-v1:0`, `global.amazon.nova-2-lite-v1:0`.
+- Expected: small calls succeed. Actual: `ThrottlingException: Too many tokens per day`. Severity: medium. Workaround: none (request quota increase). Suggestion: surface new-account on-demand quotas up front.
+
+### Guardrails work in ap-south-1
+- Task: 14. CfnGuardrail + CfnGuardrailVersion deploy cleanly; ApplyGuardrail blocks profanity/violence and allows clean text. One guardrail serves both modes: family-safe off is a client-side filter on the assessment (only HATE/SEXUAL at HIGH block).
+
+### Lambda reserved concurrency (20) rejected again on redeploy
+- Task: 14. Actual: UPDATE_FAILED "decreases account's UnreservedConcurrentExecution below its minimum value of [10]"; deploy.sh's retry with `-c reservedConcurrency=0` succeeded. Severity: low. Suggestion: default reservedConcurrency to 0 on this account.
