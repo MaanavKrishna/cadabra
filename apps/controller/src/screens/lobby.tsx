@@ -1,7 +1,8 @@
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { AVATARS, avatarUrl } from '../avatars';
 import type { ScreenData, SendReply } from '../protocol';
 import { Btn, Eyebrow, Mark } from '../ui/kit';
+import { selfieToToon } from '../toon';
 
 export function AvatarScreen({ data, reply, avatar, setAvatar }: {
   data: ScreenData['avatar']; reply: SendReply; avatar?: string; setAvatar(a: string): void;
@@ -9,6 +10,25 @@ export function AvatarScreen({ data, reply, avatar, setAvatar }: {
   const [pick, setPick] = useState(avatar);
   const [locked, setLocked] = useState(false);
   const [toast, setToast] = useState('');
+  const [selfie, setSelfie] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const ring = () => {
+    const c = getComputedStyle(document.documentElement).getPropertyValue('--c-primary').trim();
+    return /^#[0-9a-f]{6}$/i.test(c) ? c : '#ffb400';
+  };
+  const onFile = async (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return; // camera cancelled or permission denied: keep the premade picker
+    setBusy(true);
+    setToast('');
+    const r = await selfieToToon(file, ring());
+    setBusy(false);
+    if (r.ok) { setSelfie(r.dataUrl); setPick(r.dataUrl); navigator.vibrate?.(15); }
+    else setToast("Couldn't use that photo. Pick a character instead!");
+  };
   const taken = new Set(data.taken ?? []);
   return (
     <section class="screen screen-avatar" data-screen="avatar">
@@ -17,6 +37,15 @@ export function AvatarScreen({ data, reply, avatar, setAvatar }: {
         <h1 class="display sm">Pick your <em>hero</em></h1>
       </div>
       <div class="avatar-grid" role="radiogroup">
+        {selfie && (
+          <button
+            type="button" role="radio" aria-checked={pick === selfie} aria-label="your selfie hero" disabled={locked}
+            class={`avatar-tile is-selfie ${pick === selfie ? 'is-on' : ''}`}
+            onClick={() => { setPick(selfie); navigator.vibrate?.(15); }}
+          >
+            <img src={selfie} alt="" draggable={false} />
+          </button>
+        )}
         {AVATARS.map((a) => {
           const isTaken = taken.has(a.key) && a.key !== avatar;
           return (
@@ -37,8 +66,12 @@ export function AvatarScreen({ data, reply, avatar, setAvatar }: {
       </div>
       <div class="dock two">
         {toast && <div class="toast" role="status">{toast}</div>}
-        <Btn variant="glass" disabled={locked} onClick={() => setToast('Selfie heroes are coming soon. Pick a character for now!')}>
-          <CameraIcon /> Selfie
+        <input
+          ref={fileRef} type="file" accept="image/*" capture="user" hidden data-testid="selfie-input"
+          onChange={onFile}
+        />
+        <Btn variant="glass" disabled={locked || busy} onClick={() => fileRef.current?.click()}>
+          <CameraIcon /> {busy ? 'Toonifying…' : selfie ? 'Retake' : 'Selfie'}
         </Btn>
         <Btn
           class="wide"

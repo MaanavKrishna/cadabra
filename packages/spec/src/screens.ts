@@ -53,8 +53,18 @@ export type Standing = z.infer<typeof StandingSchema>;
 export type ParsedScreen = { [K in ScreenName]: { name: K; data: ScreenData[K] } }[ScreenName];
 
 // ---- replies ----
+/** On-phone stylized selfie avatar: a small data URL (webp/jpeg, <= 40 KB of bytes). The photo itself never leaves the phone. */
+export const SELFIE_MAX_BYTES = 40_000;
+export const SELFIE_MAX_CHARS = 30 + Math.ceil((SELFIE_MAX_BYTES * 4) / 3) + 4;
+export const isSelfieAvatar = (s: unknown): s is string =>
+  typeof s === 'string' && s.length <= SELFIE_MAX_CHARS && /^data:image\/(jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(s);
+const AvatarSchema = z.union([
+  z.string().regex(/^[a-z]{1,20}$/),
+  z.string().max(SELFIE_MAX_CHARS).refine(isSelfieAvatar, 'bad selfie avatar'),
+]);
+
 export const ReplySchema = z.discriminatedUnion('reply', [
-  z.object({ reply: z.literal('avatar.pick'), avatar: z.string().regex(/^[a-z]{1,20}$/) }),
+  z.object({ reply: z.literal('avatar.pick'), avatar: AvatarSchema }),
   z.object({ reply: z.literal('storm.add'), idea: text(40).min(1) }),
   z.object({ reply: z.literal('vote.cast'), vote: z.number().int().min(0).max(5) }),
   z.object({ reply: z.literal('warmup.ready') }),
