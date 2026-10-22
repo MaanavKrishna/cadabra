@@ -141,9 +141,10 @@ export interface ToolState {
   /** Latest spec the agent wrote or patched (normalized). */
   current?: unknown;
   /** Latest spec that passed validate + playtest. */
-  passing?: { spec: GameSpec; report: PlaytestReport };
+  passing?: { spec: GameSpec; report: PlaytestReport; from?: unknown };
   /** Server-owned fields (version, id, origin) are stamped on every spec the agent sends. */
   normalize(spec: unknown): unknown;
+  /** Bots in each playtest: the room's head count (2..4), default 4. */
   players?: number;
 }
 
@@ -181,7 +182,7 @@ export function runPlaytest(spec: unknown, players = 4): { report: PlaytestRepor
 
 function check(spec: unknown, state: ToolState): ToolOutcome & { spec?: GameSpec; report?: PlaytestReport } {
   const { report, spec: parsed } = runPlaytest(spec, state.players);
-  if (report.ok && parsed) state.passing = { spec: parsed, report };
+  if (report.ok && parsed) state.passing = { spec: parsed, report, from: spec };
   return {
     status: report.ok ? 'success' : 'error',
     result: report.ok
@@ -241,6 +242,11 @@ export function runTool(name: string, input: unknown, state: ToolState): ToolOut
       }
       case 'submit_spec': {
         const spec = pickSpec(args, state);
+        // Latest spec unchanged since it passed: no need to play it again.
+        if (spec !== undefined && state.passing && state.passing.from === spec) {
+          const { spec: ok, report } = state.passing;
+          return { status: 'success', result: { accepted: true }, submitted: { spec: ok, report } };
+        }
         if (spec === undefined) return err('no spec yet: pass {"spec": {...}}');
         const out = check(spec, state);
         if (out.status !== 'success' || !out.spec || !out.report) {

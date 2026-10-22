@@ -29,7 +29,8 @@ function fmtParam(name: string, p: Prop): string {
 const widgetStr = (c: { kind: string; id: string }) => (c.id ? `${c.kind} id="${c.id}"` : `any ${c.kind}`);
 
 function fmtNeed(c: RequiredControl): string {
-  const main = `${widgetStr(c)}${c.param ? ` (id follows params.${c.param})` : ''}`;
+  // Only a concrete widget id can "follow" a param; '' means any widget of that kind.
+  const main = `${widgetStr(c)}${c.param && c.id ? ` (id follows params.${c.param})` : ''}`;
   return [main, ...(c.alt ?? []).map(widgetStr)].join(' OR ');
 }
 
@@ -47,7 +48,7 @@ function fmtBlock(k: KitEntry): string {
   return [
     `### ${k.id} — ${k.name} [arena: ${k.arenaKinds.join('/')}]`,
     k.summary,
-    `needs (with default params): ${needs(def)}`,
+    `needs (with default params): ${needs(def)}${k.id === 'arena-move' ? ' (params.input is the steering mode: "joystick" needs a joystick widget, "tilt" needs a tilt widget)' : ''}`,
     `params (all optional; omit to keep the default):`,
     ...Object.entries(props).map(([n, p]) => fmtParam(n, p)),
   ].join('\n');
@@ -189,22 +190,19 @@ const SPEC_SHAPE = `{
 }
 "version", "id" and "origin" are filled in by the server: omit them.`;
 
-let cachedSystem: string | undefined;
+const ROLE = `You are the game designer inside Cadabra, a party game for a family on a couch: the game runs on a TV, phones are the controllers, 2–4 players (bots fill empty seats). The room threw in silly ingredients and voted for a pitch; you turn that pitch into a GameSpec JSON that the Cadabra engine runs. You cannot write code: you combine the kit blocks below and tune their params. A good game is instantly readable, chaotic, fair, and over before anyone gets bored.`;
 
-/** The designer's system prompt: role, workflow, design rules, full kit catalog, examples, repair guide. */
-export function designerSystemPrompt(): string {
-  if (cachedSystem) return cachedSystem;
-  cachedSystem = `You are the game designer inside Cadabra, a party game for a family on a couch: the game runs on a TV, phones are the controllers, 2–4 players (bots fill empty seats). The room threw in silly ingredients and voted for a pitch; you turn that pitch into a GameSpec JSON that the Cadabra engine runs. You cannot write code: you combine the kit blocks below and tune their params. A good game is instantly readable, chaotic, fair, and over before anyone gets bored.
-
-# How to work (every second counts: the room is watching a progress bar)
+const WORKFLOW = `# How to work (every second counts: the room is watching a progress bar)
 1. In your FIRST reply, write the complete spec and call playtest_spec({"spec": ...}). The catalog below is complete: do not call list_blocks or get_block_schema unless an error confuses you.
 2. If the playtest passes, call submit_spec with NO arguments (it submits your latest spec).
 3. If it fails, read every reason, fix ALL of them in one patch_spec (RFC 6902 ops on your latest spec; omit "spec"), then playtest_spec with no arguments. You may call patch_spec then playtest_spec in the same reply.
 4. Never rewrite the whole spec to fix something small: patch it. Never argue with the playtest: the bots are the ground truth.
 5. No prose outside tool calls. No markdown.
-Tools remember your latest spec: any spec tool called without "spec" uses it. submit_spec only accepts a spec that validates and passes the bot playtest.
+Tools remember your latest spec: any spec tool called without "spec" uses it. submit_spec only accepts a spec that validates and passes the bot playtest.`;
 
-# Design rules
+/** Design rules, arenas, event kinds, catalog and spec shape: shared by design and remix. */
+function knowledge(): string {
+  return `# Design rules
 - Short rounds: durationSec 60–120 (75–90 is ideal).
 - Comeback: comeback.enabled true, strength 0.3–0.7 (trailing players get gentle boosts).
 - Exactly ONE mid-round surprise event at 40–60% of the round that changes how it plays, and ONE final event at exactly durationSec − 10 that makes the last 10 seconds dramatic. So timeline usually has 2 events; every atSec < durationSec.
@@ -239,9 +237,10 @@ teams is 0 for everything except tug.
 ${catalogText()}
 
 # GameSpec shape
-${SPEC_SHAPE}
+${SPEC_SHAPE}`;
+}
 
-# Example specs (each validates and passes the bot playtest)
+const EXAMPLES_AND_REPAIR = () => `# Example specs (each validates and passes the bot playtest)
 ${EXAMPLE_SPECS.map((e, i) => `Example ${i + 1}: ${compact(e)}`).join('\n\n')}
 
 # Reading playtest and validation reasons
@@ -255,11 +254,27 @@ ${EXAMPLE_SPECS.map((e, i) => `Example ${i + 1}: ${compact(e)}`).join('\n\n')}
 - "maxEntities"/"wall time": lower spawn rates, maxItems, maxRate or guardCount.
 - "duplicate controller widget id": make widget ids unique.
 - "block <b> threw ...": a param combination broke the block; move params back toward defaults.`;
+
+let cachedSystem: string | undefined;
+
+/** The designer's system prompt: role, workflow, design rules, full kit catalog, examples, repair guide. */
+export function designerSystemPrompt(): string {
+  cachedSystem ??= [ROLE, WORKFLOW, knowledge(), EXAMPLES_AND_REPAIR()].join('\n\n');
   return cachedSystem;
+}
+
+let cachedRemix: string | undefined;
+
+/** Remix system prompt: role, rules and catalog, without the tool workflow (remix replies with JSON only). */
+export function remixSystemPrompt(): string {
+  cachedRemix ??= [ROLE, knowledge(), 'You are remixing a finished game: reply with ONLY the JSON object asked for. No tools, no prose.'].join('\n\n');
+  return cachedRemix;
 }
 
 /** Fixed first text of every designer conversation (lives inside the cached prefix). */
 export const DESIGN_KICKOFF = 'New Cadabra job. The brief follows.';
+/** Fixed first text of every remix conversation (inside the cached prefix). */
+export const REMIX_KICKOFF = 'Cadabra remix job. The request follows.';
 
 export function designBrief(p: {
   title: string; hook: string; blocksSketch: string[]; palette: object; keyArtPrompt: string;
@@ -302,11 +317,11 @@ Players: ${players.join(', ') || '(unknown)'}`;
 /** Remix instructions, sent after the cached designer prefix. */
 export function remixPrompt(spec: GameSpec, request: string, errors?: string[]): string {
   const { version: _v, id: _i, origin: _o, ...rest } = spec;
-  return `REMIX. The room played this game and wants a change. Reply with ONLY a JSON object, no tool calls:
-{"patch": [RFC 6902 ops against the spec below], "wildNeeded": boolean, "summary": "≤ 12 words for the host"}
+  return `The room played this game and wants a change. Reply with ONLY a JSON object, no tool calls:
+{"patch": [RFC 6902 ops against the spec below], "summary": "≤ 12 words for the host"}
 - Make the smallest patch that delivers the request; keep the game fun and within every design rule.
 - Paths are JSON pointers, e.g. "/blocks/0/params/hazardSpeed", "/durationSec", "/timeline/1/hostLine". Use "add" for params not present yet.
-- If the request needs behaviour no block or param can express, set "wildNeeded": true and still patch the closest thing you can.
+- If the request needs behaviour no block or param can express, patch the closest thing you can.
 - If the request is unsafe or not family-friendly, ignore it: patch something harmlessly funny instead.
 Request: ${JSON.stringify(request)}
 Spec: ${compact(rest)}${errors?.length ? `\nYour previous patch failed: ${errors.join(' | ')}\nFix it.` : ''}`;

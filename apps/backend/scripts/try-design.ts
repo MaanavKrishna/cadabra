@@ -30,7 +30,7 @@ for (let run = 1; run <= runs; run++) {
   t0 = Date.now();
   try {
     const r = await design(ps[0]!, {
-      ingredients, players, householdBlocks: [], deadlineMs,
+      ingredients, players, householdBlocks: [], deadlineMs, familySafe: true,
       onProgress: (step) => console.log(`  … ${step} (${s(t0)})`),
     });
     const wall = Date.now() - t0;
@@ -41,8 +41,8 @@ for (let run = 1; run <= runs; run++) {
 
     if (process.env.REMIX) {
       t0 = Date.now();
-      const m = await remix(r.spec, process.env.REMIX, { deadlineMs: 10000, onProgress: (st) => console.log(`  … ${st} (${s(t0)})`) });
-      console.log(`remix (${s(t0)}): parent=${m.spec.origin.parentId} wildNeeded=${m.wildNeeded}`);
+      const m = await remix(r.spec, process.env.REMIX, { deadlineMs: 10000, familySafe: true, onProgress: (st) => console.log(`  … ${st} (${s(t0)})`) });
+      console.log(`remix (${s(t0)}): parent=${m.spec.origin.parentId}`);
     }
   } catch (e) {
     failed++;
