@@ -195,3 +195,26 @@ All at 60 fps on the Fire TV Stick HD unless stated; the display is 60 Hz and an
 - GPU time per frame (no timer query), actual controller-to-screen latency, ambient temperature, the 4th-wall effect of a real phone controller network, long sessions beyond 3 min, 5+ min memory growth, and audio load (sfx is procedural WebAudio, not included in the bench).
 - Matrix cells measure the opening 8 s of a round, not the surprise/twist events (the finale was measured separately for 3 games).
 - One run per cell; cells within about 3 fps of each other are not distinguishable.
+
+## After Task 8c (background bake)
+
+Change (`packages/render/src/background.ts`, `stage.ts`): the static background (gradient, floor tile, palette light pool, vignette, the three palette glows) is rendered once into one RenderTexture (1360x800 at 1280, covering the shake pad) and drawn as a single sprite with blending off (`blendMode 'none'`). It is re-rendered only on `loadTheme` / palette / floor / arena change (`BackgroundBake.invalidate`), never per frame. The vignette now sits under the entities instead of over them, the floor no longer scrolls slowly, and the three glows are frozen at their rest positions. The motes stay as 20 small additive sprites. The finale glow and the hit flash are now four thin additive edge strips (`EdgeGlow`, 110 px / 200 px) that are invisible (not drawn) whenever their alpha is ~0, instead of full-screen quads. Nothing else was implicated: the camera zoom is a transform on the shaker container (no re-render), there are no masks or filters, and `sortableChildren` is only on the bodies container (at most ~30 children).
+
+Same harness, group `8c` (`node apps/tv/bench/tv-bench.mjs run <ip> 8c out.jsonl`), full fx frozen, 2 s warm-up + 8 s measured, one run per cell. Columns: fps avg / worst second / 1% low / JS ms per frame.
+
+| cell | before | after |
+|---|---|---|
+| heist 4p 1280 | 44.7 / 44 / 20.0 / 8.9 | **59.7** / 57.9 / 42.7 / 8.5 |
+| dodge 4p 1280 | 50.0 / 49 / 27.2 / 7.8 | **59.7** / 58.9 / 42.7 / 7.5 |
+| sweep 4p 1280 | 48.9 / 47 / 23.9 / 9.5 | **59.8** / 58.9 / 49.7 / 9.0 |
+| race 4p 1280 | 46.9 / 46 / 20.0 / 8.8 | **59.8** / 58.9 / 49.7 / 8.1 |
+| tug 4p 1280 | 48.2 / 48 / 29.9 / 6.8 | **59.7** / 57.9 / 42.6 / 6.0 |
+| quiz 4p 1280 | 43.6 / 41 / 17.1 / 5.3 | **59.1** / 56.9 / 24.9 / 4.5 |
+| heist 8p 1280 | 40.5 / 40 / 15.0 / 10.9 | **59.9** / 59.9 / 59.5 / 10.0 |
+| heist 4p 1920 | 25.0 / 25 / 9.0 / 11.3 | **59.4** / 57.9 / 33.2 / 8.4 |
+| finale heist 4p 1280 (edge glow on) | 43.6 / 40 / 16.0 / 9.2 | **59.2** / 55.9 / 27.2 / 8.5 |
+| finale dodge 4p 1280 | 48.8 / 46.9 / 21.8 / 8.2 | **59.6** / 58.9 / 37.4 / 7.6 |
+
+GL mtrack is unchanged at 1280 (73-78 MB before, 75-78 MB after; the bake texture is ~4 MB) and 107 -> 118 MB at 1920. Visual parity checked with `adb exec-out screencap` on heist and dodge (group `shot`): same look, the HUD chips are slightly crisper at the edges because the vignette no longer darkens them.
+
+Budget update: the GameView now holds 60 fps at 1280x720 with 2-8 players and full effects, and at 1920x1080 with 4 players in heist (59.4). The background costs one opaque layer; new full-screen effects must stay edge-only or baked (each full-screen alpha layer is still about 2.5 ms at 1280).

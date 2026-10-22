@@ -109,6 +109,13 @@ function buildPlan(): Cell[] {
       add({ id: `finale-${game}-8p-${w}-auto`, grp: 'finale', kind: 'game', w, h, game, bots: 8, fx: 'auto', mode: 'finale' });
     }
   }
+  // ---- 8c: before/after the background bake (6 modes 4p 1280 full, a few extra) ----
+  for (const game of GAME_LIST) add({ id: `8c-${game}-4p-1280`, grp: '8c', kind: 'game', w: 1280, h: 720, game, bots: 4, fx: 'full' });
+  add({ id: '8c-heist-8p-1280', grp: '8c', kind: 'game', w: 1280, h: 720, game: 'heist', bots: 8, fx: 'full' });
+  add({ id: '8c-heist-4p-1920', grp: '8c', kind: 'game', w: 1920, h: 1080, game: 'heist', bots: 4, fx: 'full' });
+  for (const game of ['heist', 'dodge']) add({ id: `8c-finale-${game}-4p-1280`, grp: '8c', kind: 'game', w: 1280, h: 720, game, bots: 4, fx: 'full', mode: 'finale' });
+  // ---- shot: long-running cells for adb screencap (visual parity) ----
+  for (const game of ['heist', 'dodge']) add({ id: `shot-${game}`, grp: 'shot', kind: 'game', w: 1280, h: 720, game, bots: 4, fx: 'full', durMs: 25000 });
   add({ id: 'input-heist-8p', grp: 'input', kind: 'game', w: 1280, h: 720, game: 'heist', bots: 8, fx: 'auto', durMs: 70000 });
   add({ id: 'thermal-heist-8p-1280', grp: 'thermal', kind: 'game', w: 1280, h: 720, game: 'heist', bots: 8, fx: 'auto', durMs: 180000 });
   return plan;
@@ -192,11 +199,13 @@ async function setupGame(c: Cell, over: { synthetic?: number } = {}): Promise<Se
   if (c.mode?.startsWith('hide:')) {
     const v = view as unknown as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     for (const k of c.mode.slice(5).split(',').filter(Boolean)) {
-      if (k === 'blobs') v.blobs.forEach((b: Sprite) => { b.visible = false; });
-      else if (k === 'vignette') v.vignette.visible = false;
-      else if (k === 'finale') v.finaleGlow.visible = false;
+      // (after Task 8c the blobs / vignette / floor / light are baked into one sprite: these are no-ops then)
+      if (k === 'blobs') v.blobs?.forEach((b: Sprite) => { b.visible = false; });
+      else if (k === 'vignette' && v.vignette) v.vignette.visible = false;
+      else if (k === 'finale' && v.finaleGlow) (v.finaleGlow.root ?? v.finaleGlow).visible = false;
       else if (k === 'floor' && v.floor) v.floor.visible = false;
-      else if (k === 'light') v.ambience.light.visible = false;
+      else if (k === 'light' && v.ambience?.light) v.ambience.light.visible = false;
+      else if (k === 'bake' && v.bake) v.bake.sprite.visible = false;
       else if (k === 'motes') v.ambience.motes.visible = false;
       else if (k === 'hud') v.hud.root.visible = false;
     }

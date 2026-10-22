@@ -3,6 +3,7 @@ import type { Entity, FxEvent, GameRuntime, Player } from '@cadabra/engine';
 import type { Theme } from '@cadabra/spec';
 import { Ambience } from './ambience';
 import { HitStop, hitStopFor } from './anim';
+import { BackgroundBake, EdgeGlow } from './background';
 import { DEFAULT_ART_URLS } from './assets';
 import { CameraRig, capShake } from './camera';
 import { arch, easeInOutSine, easeOutBack, easeOutCubic } from './ease';
@@ -116,7 +117,8 @@ export class GameView {
 
   private shaker = new Container();
   private world = new Container();
-  private bg = new Container();
+  /** Static background baked into one opaque sprite (see BackgroundBake). */
+  private bake!: BackgroundBake;
   private bgGrad = new Graphics();
   private floor?: TilingSprite | Sprite;
   private ambience!: Ambience;
@@ -141,11 +143,14 @@ export class GameView {
   private fxY = 0;
   private fxAt = -9;
   private vignette!: Sprite;
-  private finaleGlow!: Sprite;
-  private flash!: Sprite;
+  /** Finale pulse and hit flash: thin additive edge strips, drawn only while active. */
+  private finaleGlow!: EdgeGlow;
+  private flash!: EdgeGlow;
   private vignetteTex?: Texture;
   private grad?: FillGradient;
 
+  private finaleTint = hexToNum(DEFAULT_PALETTE.accent);
+  private finaleA = 0;
   private palette: Palette = DEFAULT_PALETTE;
   private art: Record<string, string> = {};
   private defaults: Record<string, string> = DEFAULT_ART_URLS;
@@ -190,34 +195,35 @@ export class GameView {
     this.hud = new Hud(this.W, this.H);
 
     this.ambience = new Ambience(this.store.cell('glow'), this.W, this.H, SHAKE_PAD);
-    this.bg.addChild(this.bgGrad, this.ambience.light);
+    const renderer = this.app.renderer;
+    this.bake = new BackgroundBake(this.W, this.H, SHAKE_PAD, (container, target, transform) => {
+      renderer.render({ container, target, clear: true, transform });
+    });
+    // baked stack (off-stage): gradient, [floor], light pool, palette glows, vignette
+    const stack = this.bake.stack;
+    stack.addChild(this.bgGrad, this.ambience.light);
     for (let i = 0; i < 3; i++) {
       const s = new Sprite(this.store.cell('glow'));
       s.anchor.set(0.5);
       s.blendMode = 'add';
       this.blobs.push(s);
-      this.bg.addChild(s);
+      stack.addChild(s);
     }
-    this.bg.addChild(this.ambience.motes);
-    const en = this.entities;
-    this.world.addChild(en.floor, en.glows, en.trails, en.bodies, this.particles.view, en.overlay);
-    this.shaker.addChild(this.bg, this.world);
     const vt = vignetteTexture();
     this.vignetteTex = vt;
-    this.flash = new Sprite(Texture.WHITE);
-    this.flash.width = this.W;
-    this.flash.height = this.H;
-    this.flash.visible = false;
     this.vignette = new Sprite(vt);
     this.vignette.tint = 0x000000;
-    this.finaleGlow = new Sprite(vt);
-    this.finaleGlow.blendMode = 'add';
-    this.finaleGlow.alpha = 0;
-    for (const v of [this.vignette, this.finaleGlow]) {
-      v.width = this.W;
-      v.height = this.H;
-    }
-    this.app.stage.addChild(this.shaker, this.vignette, this.finaleGlow, this.flash, this.popLayer);
+    this.vignette.position.set(-SHAKE_PAD, -SHAKE_PAD);
+    this.vignette.width = this.W + SHAKE_PAD * 2;
+    this.vignette.height = this.H + SHAKE_PAD * 2;
+    stack.addChild(this.vignette);
+    const en = this.entities;
+    this.world.addChild(en.floor, en.glows, en.trails, en.bodies, this.particles.view, en.overlay);
+    // on stage: ONE opaque background quad, then the moving motes (small additive sprites)
+    this.shaker.addChild(this.bake.sprite, this.ambience.motes, this.world);
+    this.finaleGlow = new EdgeGlow(this.W, this.H, 110);
+    this.flash = new EdgeGlow(this.W, this.H, 200);
+    this.app.stage.addChild(this.shaker, this.finaleGlow.root, this.flash.root, this.popLayer);
     if (this.showHud) this.app.stage.addChild(this.hud.root);
     this.layout();
     this.applyPalette();
@@ -232,6 +238,7 @@ export class GameView {
     if (this.started) {
       this.entities.setArena(width, height);
       this.layout();
+      this.bake.invalidate();
     }
   }
 
@@ -304,7 +311,7 @@ export class GameView {
       this.floor = t;
     }
     this.floorKey = key;
-    this.bg.addChildAt(this.floor, 1);
+    this.bake.stack.addChildAt(this.floor, 1);
     this.applyPalette();
   }
 
@@ -320,6 +327,7 @@ export class GameView {
     this.floor?.destroy();
     this.floor = undefined;
     this.floorKey = '';
+    this.bake?.invalidate();
   }
 
   private applyPalette(): void {
@@ -341,10 +349,15 @@ export class GameView {
     const cols = [hexToNum(p.primary), hexToNum(p.accent), hexToNum(p.glow)];
     this.blobs.forEach((b, i) => {
       b.tint = cols[i]!;
+      // palette glows: frozen where they drift through at rest, baked into the background
+      b.position.set(this.W * (0.25 + 0.5 * ((i * 0.37) % 1)) + Math.sin(i * 2) * 160, this.H * (0.3 + 0.4 * (i % 2)) + Math.cos(i) * 90);
+      b.scale.set(9 + Math.sin(i) * 1.5);
+      b.alpha = this.floor ? 0.08 : 0.14;
     });
-    this.finaleGlow.tint = hexToNum(p.accent);
+    this.finaleTint = hexToNum(p.accent);
     this.particles.setPalette(p);
     this.hud.setPalette(p);
+    this.bake.invalidate();
   }
 
   /**
@@ -484,7 +497,8 @@ export class GameView {
     const vdt = frozen ? 0 : dt * this.juice.timeScale;
     this.vt += vdt;
 
-    this.animateBackground();
+    // the static background is re-rendered only after a theme / palette / floor change
+    this.bake.ensure();
     this.ambience.update(this.vt, this.budget.degraded);
     const snap = this.snap;
     let finale = false;
@@ -534,7 +548,8 @@ export class GameView {
         this.tmpC.y = this.H / 2;
       }
       this.cam.setFinale(finale, this.tmpC.x, this.tmpC.y);
-      this.finaleGlow.alpha = finale ? 0.2 + 0.16 * Math.sin(this.rt * 6) : Math.max(0, this.finaleGlow.alpha - dt);
+      this.finaleA = finale ? 0.2 + 0.16 * Math.sin(this.rt * 6) : Math.max(0, this.finaleA - dt);
+      this.finaleGlow.set(this.finaleA, this.finaleTint);
     }
     this.particles.update(vdt);
     this.animateFloats();
@@ -549,28 +564,13 @@ export class GameView {
     this.shaker.position.set(this.cam.fx + o.x + this.driftO.x, this.cam.fy + o.y + this.driftO.y);
     this.shaker.scale.set(z);
     this.shaker.rotation = o.rot;
-    const fa = this.juice.flashAlpha;
-    this.flash.visible = fa > 0.001;
-    if (this.flash.visible) {
-      this.flash.tint = this.juice.flashColor;
-      this.flash.alpha = fa * 0.6;
-    }
+    // hit flash: a bright additive edge burst (edge strips only, and only while it lasts)
+    this.flash.set(this.juice.flashAlpha * 0.9, this.juice.flashColor);
   }
 
   private readonly posO = { x: 0, y: 0 };
   private readonly posFn = (e: Entity) => this.interp.posInto(e, this.alpha, this.posO);
   private readonly avatarFn = (p: Player) => this.entities.avatarTexture(p, this.ctx!);
-
-  private animateBackground(): void {
-    const t = this.vt;
-    for (let i = 0; i < this.blobs.length; i++) {
-      const b = this.blobs[i]!;
-      b.position.set(this.W * (0.25 + 0.5 * ((i * 0.37) % 1)) + Math.sin(t * 0.13 + i * 2) * 160, this.H * (0.3 + 0.4 * (i % 2)) + Math.cos(t * 0.11 + i) * 90);
-      b.scale.set(9 + Math.sin(t * 0.2 + i) * 1.5);
-      b.alpha = this.floor ? 0.08 : 0.14;
-    }
-    if (this.floor instanceof TilingSprite) this.floor.tilePosition.set(Math.sin(t * 0.05) * 20, t * 2);
-  }
 
   private animateFloats(): void {
     for (const f of this.floats) {
@@ -617,6 +617,9 @@ export class GameView {
     this.particles.destroy();
     this.entities.destroy();
     this.ambience.destroy();
+    this.finaleGlow.destroy();
+    this.flash.destroy();
+    this.bake.destroy();
     this.hud.destroy();
     this.store.destroy();
     this.grad?.destroy();

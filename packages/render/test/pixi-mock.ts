@@ -1,6 +1,6 @@
 /** Minimal pixi.js stand-in for logic tests: display objects keep state, nothing draws. */
 
-class Point {
+export class Point {
   x = 0;
   y = 0;
   set(x: number, y = x): void {
@@ -126,4 +126,20 @@ export function fakeDocument(): void {
   (globalThis as unknown as { document: unknown }).document = {
     createElement: () => ({ width: 0, height: 0, getContext: () => ctx }),
   };
+}
+
+export class Matrix {
+  tx = 0;
+  ty = 0;
+  translate(x: number, y: number): this {
+    this.tx += x;
+    this.ty += y;
+    return this;
+  }
+}
+
+export class RenderTexture extends Texture {
+  static create(o: { width: number; height: number }): RenderTexture {
+    return new RenderTexture({ source: { width: o.width, height: o.height } });
+  }
 }
