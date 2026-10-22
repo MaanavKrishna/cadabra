@@ -5,8 +5,8 @@ import {
 } from '@aws-sdk/client-apigatewaymanagementapi';
 import type { Context } from 'aws-lambda';
 import type { BackendToClient } from '@cadabra/spec';
-import type { ForgeEvent } from '../forge-room';
-import { runForge, type ForgeJob } from '../forge';
+import { claimForgeRun, type ForgeEvent } from '../forge-room';
+import { FORGE_BUDGETS, runForge, type ForgeJob } from '../forge';
 
 /**
  * Forge Lambda (invoked asynchronously by the ws handler on forge.pitch). Streams pitches,
@@ -18,8 +18,13 @@ const TABLE = () => process.env.TABLE_NAME!;
 const SAFETY_MS = 4000;
 const log = (...a: unknown[]) => console.log('[forge]', ...a);
 
-export async function handler(ev: ForgeEvent, context?: Pick<Context, 'getRemainingTimeInMillis'>) {
+export async function handler(ev: ForgeEvent, context?: Pick<Context, 'getRemainingTimeInMillis' | 'awsRequestId'>) {
   const t0 = Date.now();
+  const claim = await claimForgeRun({ ddb, table: TABLE() }, ev, context?.awsRequestId ?? `local-${t0}`, t0, FORGE_BUDGETS.pitchMs);
+  if (claim !== 'ok') {
+    log(JSON.stringify({ code: ev.code, forgeId: ev.forgeId, skipped: claim, ageMs: t0 - ev.startedAt }));
+    return { skipped: claim };
+  }
   const remaining = context?.getRemainingTimeInMillis?.() ?? 120_000;
   const hardStop = t0 + remaining - SAFETY_MS;
   const api = new ApiGatewayManagementApiClient({ endpoint: ev.endpoint });

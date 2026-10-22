@@ -120,6 +120,8 @@ function progressLabel(name: string, input: unknown, state: ToolState): string {
 /** Build the agent's game from the voted pitch: tool-calling loop over the engine. */
 export async function design(p: Pitch, ctx: {
   ingredients: string[]; players: string[]; householdBlocks: string[]; deadlineMs: number; onProgress: (step: string) => void;
+  /** Seats in the round incl. bots (default: players.length); sets the playtest head count. */
+  seats?: number;
   /** Guardrails on the player-visible text before returning (default true). */
   familySafe?: boolean;
 }): Promise<{ spec: GameSpec; report: PlaytestReport; toolCalls: number }> {
@@ -131,7 +133,7 @@ export async function design(p: Pitch, ctx: {
   const id = newSpecId(p.title);
   const origin = { ingredients: ctx.ingredients.slice(0, 8), wild: false };
   // Playtest with the room's real head count (bots fill seats, min 2, max 4).
-  const state: ToolState = { normalize: (s) => stamp(s, { id, origin }), players: Math.min(4, Math.max(2, ctx.players.length)) };
+  const state: ToolState = { normalize: (s) => stamp(s, { id, origin }), players: Math.min(4, Math.max(2, ctx.seats ?? ctx.players.length)) };
   const familySafe = ctx.familySafe ?? true;
   const system = designerSystemPrompt();
   const brief = designBrief(p, {

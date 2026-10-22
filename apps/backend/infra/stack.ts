@@ -168,6 +168,7 @@ export class CadabraStack extends Stack {
       memorySize: 3008,
       timeout: Duration.seconds(120),
       retryAttempts: 0, // a retried forge would arrive long after the room moved on
+      maxEventAge: Duration.seconds(60),
       environment: {
         TABLE_NAME: table.tableName,
         GUARDRAIL_ID: guardrail.attrGuardrailId,

@@ -124,9 +124,9 @@ export const BackendToClientSchema = z.discriminatedUnion('t', [
   /** Sent to a player whose ingredient was blocked by family-safe screening. */
   z.object({ t: z.literal('screen'), name: ScreenNameSchema }),
   z.object({ t: z.literal('forge.pitches'), forgeId: z.string().optional(), pitches: z.array(PitchSchema).length(3) }),
-  z.object({ t: z.literal('forge.progress'), pitchId: z.string(), step: z.string(), pct: z.number().min(0).max(100) }),
+  z.object({ t: z.literal('forge.progress'), forgeId: z.string().optional(), pitchId: z.string(), step: z.string(), pct: z.number().min(0).max(100) }),
   /** `fallback`: a reskinned prebuilt game (AI design failed or ran out of time). */
-  z.object({ t: z.literal('forge.ready'), pitchId: z.string(), spec: GameSpecSchema, fallback: z.boolean().optional() }),
+  z.object({ t: z.literal('forge.ready'), forgeId: z.string().optional(), pitchId: z.string(), spec: GameSpecSchema, fallback: z.boolean().optional() }),
   // ---- Host voice and AI judgements (Task 18) ----
   /** `url` (mp3) is absent when voice synthesis failed: show the caption only. */
   z.object({ t: z.literal('host.audio'), id: z.string().optional(), text: z.string(), url: z.string().optional() }),

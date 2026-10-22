@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import {
   BackendToClientSchema, ClientToBackendSchema, DEFAULT_SETTINGS, FALLBACK_SPECS, parseSpec, pickFallback,
   type BackendToClient, type GameSpec, type Pitch,
@@ -15,7 +16,9 @@ vi.mock('../src/ai/bedrock', () => ({
 
 const { runForge, pctFor } = await import('../src/forge');
 const { themedFallback } = await import('../src/fallback');
-const { startForge, recordVote } = await import('../src/forge-room');
+const { startForge, recordVote, claimForgeRun } = await import('../src/forge-room');
+process.env.TABLE_NAME = 'T';
+const forgeLambda = await import('../src/handlers/forge');
 const { runPlaytest } = await import('../src/ai/tools');
 const { fallbackPitches } = await import('../src/ai/designer');
 
@@ -100,7 +103,10 @@ describe('forge orchestration', () => {
     expect(ready.every((e) => !(e.msg as any).fallback)).toBe(true);
     const prog = posts(h.log, 'forge.progress');
     expect(prog.length).toBeGreaterThanOrEqual(3);
-    for (const e of [...ready, ...prog]) expect(BackendToClientSchema.safeParse(e.msg).success).toBe(true);
+    for (const e of [...ready, ...prog]) {
+      expect(BackendToClientSchema.safeParse(e.msg).success).toBe(true);
+      expect((e.msg as any).forgeId).toBe('f1');
+    }
     // losers' AI specs go to the arcade hook
     expect(h.losers.sort()).toEqual(['pa', 'pc']);
   });
@@ -167,6 +173,51 @@ describe('forge orchestration', () => {
     expect(h.log.at(-1)!.what).toBe('done');
     expect(res.winnerReadyMs).toBeDefined();
   });
+
+  test('winner always gets the full window after the vote, even past its own design deadline', async () => {
+    const h = harness({
+      voteAfterMs: 100, winner: 'pa',
+      budgets: { designMs: 150, winnerMs: 400 },
+      design: () => new Promise(() => {}),
+    });
+    await h.run();
+    const vote = h.log.find((e) => e.what === 'vote')!.at;
+    const ready = posts(h.log, 'forge.ready').find((e) => (e.msg as any).pitchId === 'pa')!;
+    expect(ready.at - vote).toBeGreaterThanOrEqual(390);
+  });
+
+  test('a throwing reskin still yields a plain playable fallback', async () => {
+    const t0 = Date.now();
+    const sent: BackendToClient[] = [];
+    await runForge({
+      code: 'BCDF', forgeId: 'f1', startedAt: t0, hardStop: t0 + 5000, ingredients: ['x'], players: [], settings: DEFAULT_SETTINGS,
+      budgets: { pitchMs: 200, designMs: 2000, winnerMs: 500, pollMs: 20, voteWaitMs: 100, screenMs: 100 },
+    }, {
+      post: async (_c: string, m: BackendToClient) => { sent.push(m); return true; },
+      room: async () => ({ tvConn: 'tv1' }), setPitchIds: async () => {}, done: async () => {},
+      pitch: async () => structuredClone(PITCHES),
+      design: async () => { throw new Error('ai down'); },
+      fallback: async () => { throw new Error('reskin broke'); },
+    });
+    const ready = sent.filter((m) => m.t === 'forge.ready') as any[];
+    expect(ready).toHaveLength(3);
+    for (const r of ready) expect(runPlaytest(r.spec, 4).report.ok).toBe(true);
+  });
+
+  test('a hung post times out instead of stalling the forge', async () => {
+    const t0 = Date.now();
+    await runForge({
+      code: 'BCDF', forgeId: 'f1', startedAt: t0, hardStop: t0 + 20_000, ingredients: ['x'], players: [], settings: DEFAULT_SETTINGS,
+      budgets: { pitchMs: 200, designMs: 2000, winnerMs: 500, pollMs: 20, voteWaitMs: 100, screenMs: 100 },
+    }, {
+      post: () => new Promise(() => {}),
+      room: async () => ({ tvConn: 'tv1', winner: 'pa', voteAt: t0 }), setPitchIds: async () => {}, done: async () => {},
+      pitch: async () => structuredClone(PITCHES),
+      design: async (p: Pitch) => ({ spec: aiSpec(p), report: {} as any, toolCalls: 0 }),
+    });
+    // pitches + 3 readies, each post capped at 3 s; far below the 20 s hard stop
+    expect(Date.now() - t0).toBeLessThan(15_000);
+  }, 20_000);
 
   test('before the vote, a failed design is sent as a fallback right away', async () => {
     const h = harness({ voteAfterMs: 500, design: async () => { throw new Error('boom'); } });
@@ -306,6 +357,37 @@ describe('forge room ops', () => {
     // the votes still validate against these pitches
     await recordVote(ctx, 'tv1', vote(msgs[0].pitches[1].id), 7_000);
     expect(store.get('ROOM#BCDF|META')!.forgeWinner).toBe(msgs[0].pitches[1].id);
+  });
+
+  test('duplicate forge event does not start a second forge', async () => {
+    const api = mockClient(ApiGatewayManagementApiClient);
+    api.on(PostToConnectionCommand).resolves({});
+    const meta = store.get('ROOM#BCDF|META')!;
+    meta.forgeId = 'f1'; meta.forgeBusyUntil = 1_000_100;
+    const ev = { code: 'BCDF', forgeId: 'f1', startedAt: Date.now(), endpoint: 'https://x/prod', ingredients: [], players: [], settings: DEFAULT_SETTINGS };
+    expect(await claimForgeRun(ctx, ev, 'req-1', ev.startedAt + 100, 8000)).toBe('ok');
+    expect(meta.forgeRunner).toBe('req-1');
+    expect(await claimForgeRun(ctx, ev, 'req-2', ev.startedAt + 200, 8000)).toBe('duplicate');
+    // the Lambda handler bails before posting anything
+    const r = await forgeLambda.handler(ev as any, { getRemainingTimeInMillis: () => 120_000, awsRequestId: 'req-3' });
+    expect(r).toEqual({ skipped: 'duplicate' });
+    expect(api.commandCalls(PostToConnectionCommand)).toHaveLength(0);
+    expect(meta.forgeRunner).toBe('req-1');
+    api.restore();
+  });
+
+  test('stale forge event (older than the pitch budget) bails and releases the lock', async () => {
+    const api = mockClient(ApiGatewayManagementApiClient);
+    api.on(PostToConnectionCommand).resolves({});
+    const meta = store.get('ROOM#BCDF|META')!;
+    meta.forgeId = 'f1'; meta.forgeBusyUntil = 1_000_100;
+    const ev = { code: 'BCDF', forgeId: 'f1', startedAt: Date.now() - 9000, endpoint: 'https://x/prod', ingredients: [], players: [], settings: DEFAULT_SETTINGS };
+    const r = await forgeLambda.handler(ev as any, { getRemainingTimeInMillis: () => 120_000, awsRequestId: 'req-1' });
+    expect(r).toEqual({ skipped: 'stale' });
+    expect(meta.forgeRunner).toBeUndefined();
+    expect(meta.forgeBusyUntil).toBeUndefined();
+    expect(api.commandCalls(PostToConnectionCommand)).toHaveLength(0);
+    api.restore();
   });
 
   test('forge.vote is idempotent', async () => {

@@ -1,6 +1,7 @@
 import type { BackendToClient, ForgeIngredient, GameSpec, Pitch, RoomSettings } from '@cadabra/spec';
+import { pickFallback } from '@cadabra/spec';
 import { screen } from './ai/bedrock';
-import { design as aiDesign, fallbackPitches, pitch as aiPitch } from './ai/designer';
+import { design as aiDesign, fallbackPitches, newSpecId, pitch as aiPitch } from './ai/designer';
 import { themedFallback } from './fallback';
 
 /**
@@ -53,7 +54,7 @@ export interface ForgeDeps {
   screen?: typeof screen;
   fallback?: typeof themedFallback;
   /** Task 24 hook: an AI-designed spec for a pitch the room did not pick (store as an unplayed Arcade entry). */
-  onLoserReady?(pitch: Pitch, spec: GameSpec): void;
+  onLoserReady?(pitch: Pitch, spec: GameSpec): void | Promise<void>;
   log?(...a: unknown[]): void;
 }
 
@@ -66,7 +67,6 @@ export interface ForgeResult {
   outcome: Record<string, 'ai' | 'fallback' | 'dropped'>;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms)));
 
 async function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -94,6 +94,8 @@ export function pctFor(step: string, prev: number): number {
   return Math.min(95, Math.max(target, prev + (target <= prev ? 3 : 0)));
 }
 
+const POST_TIMEOUT_MS = 3000;
+
 type Status = 'running' | 'ready' | 'fallback' | 'dropped';
 
 export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeResult> {
@@ -114,7 +116,8 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
   let tvConn = view.tvConn;
   let queue = Promise.resolve();
   const replay: BackendToClient[] = [];
-  const postSafe = (conn: string, msg: BackendToClient) => deps.post(conn, msg).catch(() => true);
+  // A hung post must not stall the queue (and the forge) behind it.
+  const postSafe = (conn: string, msg: BackendToClient) => within(deps.post(conn, msg).catch(() => true), POST_TIMEOUT_MS, true);
   const toTv = (msg: BackendToClient, keep = true) => {
     if (keep) replay.push(msg);
     queue = queue.then(async () => { if (tvConn) await postSafe(tvConn, msg); });
@@ -176,7 +179,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
     const aiSpecs: (GameSpec | undefined)[] = pitches.map(() => undefined);
     const pct = pitches.map(() => 0);
     let winner: number | undefined;
-    let winnerDeadline = Infinity;
+    let winnerDeadline = -Infinity;
     let lastResolved = now();
     let wake: () => void = () => {};
     const pending: Promise<unknown>[] = [];
@@ -193,11 +196,18 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
     const sendReady = (i: number, spec: GameSpec, fallback: boolean) => {
       result.readies++;
       if (winner === i) result.winnerReadyMs = now() - (view.voteAt ?? now());
-      return toTv({ t: 'forge.ready', pitchId: pitches[i]!.id, spec, ...(fallback ? { fallback: true } : {}) });
+      return toTv({ t: 'forge.ready', forgeId: job.forgeId, pitchId: pitches[i]!.id, spec, ...(fallback ? { fallback: true } : {}) });
     };
     const fallbackFor = (i: number) => {
       markDone(i, 'fallback');
       const p = doFallback(pitches[i]!, { ingredients: allowed, familySafe, seats, deadline: Math.min(now() + 2000, job.hardStop) })
+        .catch((e: unknown) => {
+          // Reskin failed: the plain prebuilt game is still playable.
+          log('themed fallback failed', (e as Error)?.message);
+          const spec = structuredClone(pickFallback(pitches[i]!.blocksSketch, { seats })) as GameSpec;
+          spec.id = newSpecId(spec.title);
+          return spec;
+        })
         .then((spec) => sendReady(i, spec, true));
       pending.push(p);
       return p;
@@ -205,7 +215,10 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
     const loserReady = (i: number) => {
       const spec = aiSpecs[i];
       if (!spec) return;
-      try { deps.onLoserReady?.(pitches[i]!, spec); } catch { /* hook is best effort */ }
+      try {
+        const r = deps.onLoserReady?.(pitches[i]!, spec);
+        if (r) pending.push(Promise.resolve(r).catch(() => {}));
+      } catch { /* hook is best effort */ }
     };
 
     pitches.forEach((p, i) => {
@@ -214,12 +227,12 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
         const next = pctFor(step, pct[i]!);
         if (next === pct[i] && step !== 'Game ready') return;
         pct[i] = next;
-        const msg: BackendToClient = { t: 'forge.progress', pitchId: p.id, step, pct: next };
+        const msg: BackendToClient = { t: 'forge.progress', forgeId: job.forgeId, pitchId: p.id, step, pct: next };
         void toTv(msg, false);
         void toPhones(msg);
       };
       doDesign(p, {
-        ingredients: allowed, players: names, householdBlocks: [], deadlineMs: ownDeadline, familySafe, onProgress,
+        ingredients: allowed, players: names, seats, householdBlocks: [], deadlineMs: ownDeadline, familySafe, onProgress,
       }).then((r) => {
         aiSpecs[i] = r.spec;
         if (status[i] !== 'running') {
@@ -253,6 +266,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
         if (w >= 0) {
           winner = w;
           result.winner = pitches[w]!.id;
+          // The winner always gets the full window after the vote (capped by the hard stop).
           winnerDeadline = Math.min((v.voteAt ?? now()) + B.winnerMs, job.hardStop);
           if (status[w] === 'ready' || status[w] === 'fallback') result.winnerReadyMs = 0;
           pitches.forEach((_, i) => { if (i !== w && status[i] === 'ready') loserReady(i); });
@@ -261,7 +275,9 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
       const t = now();
       for (let i = 0; i < pitches.length; i++) {
         if (status[i] !== 'running') continue;
-        const deadline = winner === i ? Math.min(ownDeadline, winnerDeadline) : ownDeadline;
+        // Winner: exactly vote + winnerMs (not cut short by its own design deadline, never later
+        // than the vote budget); everyone else: their own design deadline.
+        const deadline = winner === i ? winnerDeadline : ownDeadline;
         if (t < deadline && t < job.hardStop - 2500) continue;
         if (isLoser(i)) markDone(i, 'dropped');
         else void fallbackFor(i);

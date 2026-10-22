@@ -63,7 +63,7 @@ export async function startForge(ctx: Ctx, conn: string, msg: PitchMsg, opts: {
   const nowMs = opts.nowMs ?? Date.now();
   const forgeId = randomBytes(6).toString('base64url');
   const locked = await update(ctx, msg.code,
-    'SET forgeId = :f, forgeStartAt = :s, forgeBusyUntil = :u REMOVE forgeWinner, forgeVoteAt, forgePitchIds',
+    'SET forgeId = :f, forgeStartAt = :s, forgeBusyUntil = :u REMOVE forgeWinner, forgeVoteAt, forgePitchIds, forgeRunner',
     { ':f': forgeId, ':s': nowMs, ':u': ctx.now() + FORGE_LOCK_SEC, ':now': ctx.now() },
     'attribute_exists(pk) AND (attribute_not_exists(forgeBusyUntil) OR forgeBusyUntil < :now)');
   if (!locked) return void (await post(ctx, conn, { t: 'error', code: 'forge.busy' }));
@@ -91,6 +91,26 @@ async function offlineForge(ctx: Ctx, conn: string, ev: ForgeEvent) {
     await post(ctx, conn, { t: 'forge.ready', pitchId: pitches[i]!.id, spec: specs[i]!, fallback: true });
   }
   await update(ctx, ev.code, 'REMOVE forgeBusyUntil', { ':f': ev.forgeId }, 'forgeId = :f').catch(() => false);
+}
+
+/**
+ * Forge Lambda start: claim this forge exactly once. Async invokes can be delivered twice or late;
+ * a duplicate (already claimed) or stale event (older than the pitch budget: the room has moved on)
+ * must not start a second forge. A stale unclaimed forge releases the room's lock so the TV can retry.
+ */
+export async function claimForgeRun(
+  ctx: Pick<Ctx, 'ddb' | 'table'>, ev: Pick<ForgeEvent, 'code' | 'forgeId' | 'startedAt'>,
+  requestId: string, nowMs: number, maxAgeMs: number,
+): Promise<'ok' | 'stale' | 'duplicate'> {
+  const c = ctx as Ctx;
+  if (nowMs - ev.startedAt > maxAgeMs) {
+    await update(c, ev.code, 'REMOVE forgeBusyUntil', { ':f': ev.forgeId },
+      'forgeId = :f AND attribute_not_exists(forgeRunner)').catch(() => false);
+    return 'stale';
+  }
+  const ok = await update(c, ev.code, 'SET forgeRunner = :req', { ':req': requestId, ':f': ev.forgeId },
+    'forgeId = :f AND attribute_not_exists(forgeRunner)');
+  return ok ? 'ok' : 'duplicate';
 }
 
 /**
