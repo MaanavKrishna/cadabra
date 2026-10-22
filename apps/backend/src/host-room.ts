@@ -14,7 +14,7 @@ export const HOST_MSG_TYPES = new Set<string>(['host.say', 'host.roast', 'judge.
 /** judge.request payloads above this (serialized) are rejected: WS messages cap at 128 KB, async invokes at 256 KB. */
 export const MAX_JUDGE_PAYLOAD_BYTES = 110_000;
 /** Per-room cap per kind of request (counters live on the room META item). */
-export const HOST_LIMITS = { 'host.roast': 5, 'judge.request': 15, 'host.say': 60 } as const;
+export const HOST_LIMITS = { 'host.roast': 30, 'judge.request': 60, 'host.say': 300 } as const;
 const COUNTER = { 'host.roast': 'rlRoast', 'judge.request': 'rlJudge', 'host.say': 'rlSay' } as const;
 
 const log = (...a: unknown[]) => console.warn('[host-room]', ...a);
