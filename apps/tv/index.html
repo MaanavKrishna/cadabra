@@ -3,21 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cadabra TV</title>
-    <style>
-      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #fff; font-family: sans-serif; }
-      canvas { display: block; }
-      #hud { position: fixed; left: 5%; top: 5%; font-size: 28px; line-height: 1.3; text-shadow: 0 2px 4px #000; }
-      #fps { font-size: 96px; font-weight: bold; }
-    </style>
+    <title>Cadabra</title>
+    <style>html, body { margin: 0; height: 100%; background: #05060e; overflow: hidden; }</style>
   </head>
   <body>
-    <div id="hud">
-      <div id="fps">-- fps</div>
-      <div id="rtc">WebRTC: testing...</div>
-      <div id="key">key: -</div>
-      <div id="ua"></div>
-    </div>
-    <script type="module" src="./src/spike.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defineConfig, type Plugin } from 'vite';
+import type { Plugin } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 /**
  * `VITE_ENTRY=bench vite build` makes dist/index.html the device benchmark (bench.html), so the
  * installed Android app (which always loads assets/www/index.html) runs it. Without the flag the
- * default entry (the spike page) is untouched.
+ * default entry is the real TV app (index.html -> src/main.tsx).
  */
 function benchEntry(): Plugin {
   return {
@@ -23,5 +24,13 @@ function benchEntry(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [benchEntry()],
-  build: { target: 'es2020', outDir: 'dist' },
+  esbuild: { jsx: 'automatic', jsxImportSource: 'preact' },
+  server: { host: true, fs: { allow: ['../..'] } },
+  build: {
+    target: 'es2020',
+    outDir: 'dist',
+    // keep the default art pack as files (the WebView caches them; no huge inlined data URLs)
+    assetsInlineLimit: 0,
+  },
+  test: { include: ['test/**/*.test.{ts,tsx}'] },
 });
