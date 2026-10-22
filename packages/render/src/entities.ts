@@ -44,11 +44,14 @@ interface View {
   aura?: Sprite;
   marks?: Sprite[];
   texts?: Text[];
+  knot?: Sprite;
   flags: Record<string, unknown>;
   dieAt?: number;
 }
 
 const DIE_SEC = 0.22;
+/** Pooled views kept per kind; extra ones are destroyed. */
+const POOL_MAX = 64;
 /** Direction of travel drawn in directional pack art (rad, screen space). */
 const ART_HEADING: Record<string, number> = { fireball: (3 * Math.PI) / 4 };
 const POP_SEC = 0.32;
@@ -83,6 +86,9 @@ export class EntityLayer {
   readonly overlay = new Container();
   private views = new Map<number, View>();
   private dying: View[] = [];
+  private pool = new Map<string, View[]>();
+  /** Views built vs. taken from a pool (debug overlay / tests). */
+  readonly stats = { created: 0, reused: 0 };
   private sources = new Map<string, SpriteSource>();
   private lanes = new Graphics();
   private laneKey = '';
@@ -168,7 +174,7 @@ export class EntityLayer {
       seen.add(e.id);
       let v = this.views.get(e.id);
       if (!v) {
-        v = this.make(e, c);
+        v = this.acquire(e, c);
         this.views.set(e.id, v);
       }
       const p = pos(e);
@@ -202,10 +208,8 @@ export class EntityLayer {
       const v = this.dying[i]!;
       const k = (c.vt - v.dieAt!) / DIE_SEC;
       if (k >= 1) {
-        v.root.destroy({ children: true });
-        v.floor.destroy({ children: true });
-        v.over.destroy({ children: true });
         this.dying.splice(i, 1);
+        this.release(v);
         continue;
       }
       const s = v.kind === 'item' ? 1 + k * 0.6 : 1 - k;
@@ -214,6 +218,73 @@ export class EntityLayer {
       v.floor.alpha = v.over.alpha = 1 - k;
       if (v.kind === 'player') v.root.rotation += c.dt * 12;
     }
+  }
+
+  /** A view for `e`: from the kind's pool when one is free, else built. */
+  private acquire(e: Entity, c: FrameCtx): View {
+    const v = this.pool.get(e.kind)?.pop();
+    if (!v) {
+      this.stats.created++;
+      return this.make(e, c);
+    }
+    this.stats.reused++;
+    v.id = e.id;
+    v.born = c.vt;
+    v.px = e.x;
+    v.py = e.y;
+    v.face = 1;
+    v.srcKey = '';
+    v.tex = undefined;
+    v.swapAt = -9;
+    v.flags = {};
+    v.dieAt = undefined;
+    for (const o of [v.root, v.floor, v.over]) {
+      o.visible = true;
+      o.alpha = 1;
+    }
+    v.root.scale.set(1);
+    v.root.rotation = 0;
+    v.body.alpha = 1;
+    v.body.tint = 0xffffff;
+    v.body.rotation = 0;
+    // per-kind extras: updaters switch on what they use each frame
+    if (v.aura) v.aura.visible = false;
+    if (v.marks) for (const m of v.marks) m.visible = false;
+    if (v.crown) v.crown.visible = false;
+    v.g?.clear();
+    v.og?.clear();
+    return v;
+  }
+
+  /** Park a finished view in its kind's pool (hidden), or destroy it if the pool is full. */
+  private release(v: View): void {
+    const list = this.pool.get(v.kind) ?? [];
+    if (list.length >= POOL_MAX) {
+      v.root.destroy({ children: true });
+      v.floor.destroy({ children: true });
+      v.over.destroy({ children: true });
+      return;
+    }
+    v.root.visible = v.floor.visible = v.over.visible = false;
+    list.push(v);
+    this.pool.set(v.kind, list);
+  }
+
+  /** Root container of the live view for an entity id (debug / tests). */
+  rootOf(id: number): Container | undefined {
+    return this.views.get(id)?.root;
+  }
+
+  /** Drop every live view into the pools (new game / theme). */
+  clear(): void {
+    for (const v of this.views.values()) this.release(v);
+    for (const v of this.dying) this.release(v);
+    this.views.clear();
+    this.dying = [];
+    this.laneKey = '';
+    this.lanes.clear();
+    this.quiz?.destroy();
+    this.quiz = undefined;
   }
 
   private place(v: View, x: number, y: number, size: number, tex: Texture, anchorY = 0.5): number {
@@ -443,6 +514,7 @@ export class EntityLayer {
     }
     const col = hexToNum(c.palette.primary);
     const [glow, ring] = v.marks;
+    glow!.visible = ring!.visible = true;
     const pulse = 1 + Math.sin(c.vt * 2.5) * 0.04;
     glow!.position.set(x, y);
     glow!.scale.set(((e.r * 2.4) / 64) * pulse);
@@ -472,8 +544,9 @@ export class EntityLayer {
     const breathe = gv.awake ? 1 : 1 + Math.sin(c.vt * 2.2) * 0.03;
     const punch = sinceWake < 0.3 ? 1 + 0.25 * Math.sin((sinceWake / 0.3) * Math.PI) : 1;
     const size = Math.max(110, e.r * 3.2);
-    const k = this.place(v, x + shake, y, size * punch * this.popScale(v, c), tex, 0.62);
-    v.body.scale.set(k * punch * this.popScale(v, c), k * breathe * punch * this.popScale(v, c));
+    const k = this.place(v, x + shake, y, size, tex, 0.62);
+    const m = punch * this.popScale(v, c);
+    v.body.scale.set(k * m, k * breathe * m);
     // generated art has no awake variant: tint it angry
     v.body.tint = gv.awake && !(v.tex && this.isAwakeArt(e, c, guardKind)) ? 0xff9a9a : 0xffffff;
     this.shadowAt(v, x, y + size * 0.3, size * 0.9, size * 0.3, 0.4);
@@ -530,7 +603,7 @@ export class EntityLayer {
 
   private isAwakeArt(e: Entity, c: FrameCtx, guardKind?: string): boolean {
     const src = this.source(e.sprite, c, 'guard', 'awake', guardKind);
-    return src.type === 'url' && /awake/.test(src.key);
+    return src.type === 'url' && /awake/.test(src.key.split('|')[0]!);
   }
 
   // ---------- tug ----------
@@ -541,54 +614,56 @@ export class EntityLayer {
     const right = num(e.props.lineRight, this.arenaW * 0.7);
     const knot = ropeKnotX(e.props, x);
     const shift = knot - (left + right) / 2;
-    const span = right - left + 360;
     const segW = 64;
-    const n = Math.ceil(span / segW) + 1;
+    // the segment count follows the rope length (live Tweak changes included)
+    const n = Math.ceil((right - left + 360) / segW) + 1;
     if (!v.g) {
       v.g = new Graphics();
       v.floor.addChild(v.g);
       v.marks = [];
-      for (let i = 0; i < n; i++) {
-        const s = new Sprite();
-        s.anchor.set(0.5);
-        v.floor.addChild(s);
-        v.marks.push(s);
-      }
-      const knotS = new Sprite();
-      knotS.anchor.set(0.5);
-      v.marks.push(knotS);
-      v.root.addChild(knotS);
+      v.knot = new Sprite();
+      v.knot.anchor.set(0.5);
+      v.root.addChild(v.knot);
       v.shadow.visible = false;
       v.body.visible = false;
       v.texts = [label('SUDDEN DEATH', 40, hexToNum(c.palette.accent), { display: true })];
       v.over.addChild(v.texts[0]!);
     }
-    const g = v.g;
-    g.clear();
+    // static backdrop: redrawn only when the lines or arena change
     const H = this.arenaH;
-    // team halves
-    g.rect(0, 0, left, H).fill({ color: TEAM_COLORS[0], alpha: 0.12 });
-    g.rect(right, 0, this.arenaW - right, H).fill({ color: TEAM_COLORS[1], alpha: 0.12 });
-    g.rect(left - 4, 0, 8, H).fill({ color: TEAM_COLORS[0], alpha: 0.85 });
-    g.rect(right - 4, 0, 8, H).fill({ color: TEAM_COLORS[1], alpha: 0.85 });
-    for (let yy = 0; yy < H; yy += 36) g.rect((left + right) / 2 - 2, yy, 4, 20).fill({ color: 0xffffff, alpha: 0.35 });
+    const bk = `${left}|${right}|${this.arenaW}x${H}`;
+    if (v.flags.backdrop !== bk) {
+      v.flags.backdrop = bk;
+      const g = v.g.clear();
+      g.rect(0, 0, left, H).fill({ color: TEAM_COLORS[0], alpha: 0.12 });
+      g.rect(right, 0, this.arenaW - right, H).fill({ color: TEAM_COLORS[1], alpha: 0.12 });
+      g.rect(left - 4, 0, 8, H).fill({ color: TEAM_COLORS[0], alpha: 0.85 });
+      g.rect(right - 4, 0, 8, H).fill({ color: TEAM_COLORS[1], alpha: 0.85 });
+      for (let yy = 0; yy < H; yy += 36) g.rect((left + right) / 2 - 2, yy, 4, 20).fill({ color: 0xffffff, alpha: 0.35 });
+    }
 
-    const segs = v.marks!.slice(0, n);
-    const k = segW / Math.max(1, segTex.width) * 1.08;
+    const segs = v.marks!;
+    while (segs.length < n) {
+      const sp = new Sprite();
+      sp.anchor.set(0.5);
+      v.floor.addChild(sp);
+      segs.push(sp);
+    }
+    const k = (segW / Math.max(1, segTex.width)) * 1.08;
     const sag = Math.sin(c.vt * 3) * 2;
-    segs.forEach((s, i) => {
-      s.texture = segTex;
-      const sx = left - 180 + shift + i * segW;
-      s.position.set(sx, y + sag * Math.sin((i / n) * Math.PI));
-      s.scale.set(k);
-      s.rotation = segTex.width < segTex.height ? Math.PI / 2 : 0;
+    segs.forEach((sp, i) => {
+      sp.visible = i < n;
+      if (!sp.visible) return;
+      sp.texture = segTex;
+      sp.position.set(left - 180 + shift + i * segW, y + sag * Math.sin((i / n) * Math.PI));
+      sp.scale.set(k);
+      sp.rotation = segTex.width < segTex.height ? Math.PI / 2 : 0;
     });
-    const knotS = v.marks![n]!;
+    const knotS = v.knot!;
     const mk = this.source('rope-marker', c, 'item');
     knotS.texture = this.store.get(mk, fallbackShape('item', c.palette) as SpriteSource & { type: 'shape' });
     const beat = e.props.onBeat === true;
-    const ks = (beat ? 1.25 : 1) * (56 / Math.max(1, knotS.texture.width, knotS.texture.height));
-    knotS.scale.set(ks);
+    knotS.scale.set((beat ? 1.25 : 1) * (56 / Math.max(1, knotS.texture.width, knotS.texture.height)));
     knotS.position.set(0, 0);
     v.root.position.set(knot, y);
     v.root.zIndex = y - 1;
@@ -644,6 +719,7 @@ export class EntityLayer {
     }
     const col = hexToNum(c.palette.glow);
     const [glow, ring] = v.marks;
+    glow!.visible = ring!.visible = true;
     glow!.position.set(x, y);
     glow!.scale.set((e.r * 2.6) / 64);
     glow!.tint = col;
@@ -671,6 +747,7 @@ export class EntityLayer {
         v.aura.blendMode = 'add';
         v.floor.addChild(v.aura);
       }
+      v.aura.visible = true;
       v.aura.tint = hexToNum(c.palette.primary);
       v.aura.position.set(x, y);
       v.aura.scale.set((size * 1.4) / 64);
@@ -743,6 +820,7 @@ class PanelView {
   private last = '';
   private phaseKey = '';
   private phaseLen = 1;
+  private barKey = '';
 
   constructor(private W: number, private H: number) {
     this.title = label('', 40, 0xffffff, { display: true });
@@ -803,7 +881,8 @@ class PanelView {
     this.title.position.set(W / 2, H * 0.245);
     this.sub.position.set(W / 2, H * 0.335);
     const timed = phase === 'question' || phase === 'drawing';
-    this.bar.clear();
+    let barKey = '';
+    let frac = 0;
     if (timed && left > 0) {
       // the phase length is the largest time-left seen since the phase began
       if (this.phaseKey !== `${phase}|${P.index ?? P.round}`) {
@@ -811,10 +890,18 @@ class PanelView {
         this.phaseLen = left;
       }
       this.phaseLen = Math.max(this.phaseLen, left);
-      const frac = Math.min(1, left / this.phaseLen);
-      const bw = W * 0.84;
-      this.bar.roundRect(W * 0.08, H * 0.4, bw, 10, 5).fill({ color: 0xffffff, alpha: 0.15 });
-      this.bar.roundRect(W * 0.08, H * 0.4, bw * frac, 10, 5).fill({ color: left < 5 ? 0xff4d6d : hexToNum(c.palette.glow) });
+      frac = Math.min(1, left / this.phaseLen);
+      // ~1 px steps at TV width: redraw only when the bar visibly moves
+      barKey = `${Math.round(frac * 1000)}|${left < 5}|${c.palette.glow}`;
+    }
+    if (barKey !== this.barKey) {
+      this.barKey = barKey;
+      this.bar.clear();
+      if (barKey) {
+        const bw = W * 0.84;
+        this.bar.roundRect(W * 0.08, H * 0.4, bw, 10, 5).fill({ color: 0xffffff, alpha: 0.15 });
+        this.bar.roundRect(W * 0.08, H * 0.4, bw * frac, 10, 5).fill({ color: left < 5 ? 0xff4d6d : hexToNum(c.palette.glow) });
+      }
     }
   }
 

@@ -6,11 +6,11 @@ import { EntityLayer, label, type FrameCtx } from './entities';
 import { Hud } from './hud';
 import { FxBudget, JuiceState, MAX_PARTICLES } from './juice';
 import { ParticleSystem } from './particles';
-import { setSfxSet, sfx } from './sfx';
+import { prewarmSfx, setSfxSet, sfx } from './sfx';
 import { AVATAR_ART, DEFAULT_SPRITES } from './sprites';
 import { TextureStore } from './textures';
 import { darken, hexToNum, lighten, mix, type Palette } from './theme';
-import { lerpPos } from './visual';
+import { SnapInterp } from './visual';
 
 export type Snapshot = ReturnType<GameRuntime['snapshot']>;
 
@@ -109,7 +109,9 @@ export class GameView {
   private floatLayer = new Container();
   private vignette!: Sprite;
   private finaleGlow!: Sprite;
-  private flash = new Graphics();
+  private flash!: Sprite;
+  private vignetteTex?: Texture;
+  private grad?: FillGradient;
 
   private palette: Palette = DEFAULT_PALETTE;
   private art: Record<string, string> = {};
@@ -118,8 +120,7 @@ export class GameView {
 
   private snap?: Snapshot;
   private alpha = 1;
-  private prev = new Map<number, { x: number; y: number }>();
-  private cur = new Map<number, { x: number; y: number }>();
+  private interp = new SnapInterp();
   private scores = new Map<string, number>();
   private vt = 0;
   private fpsAvg = 60;
@@ -165,6 +166,11 @@ export class GameView {
     this.world.addChild(this.entities.floor, this.entities.bodies, this.particles.view, this.entities.overlay, this.floatLayer);
     this.shaker.addChild(this.bg, this.world);
     const vt = vignetteTexture();
+    this.vignetteTex = vt;
+    this.flash = new Sprite(Texture.WHITE);
+    this.flash.width = this.W;
+    this.flash.height = this.H;
+    this.flash.visible = false;
     this.vignette = new Sprite(vt);
     this.vignette.tint = 0x000000;
     this.finaleGlow = new Sprite(vt);
@@ -211,10 +217,19 @@ export class GameView {
     this.palette = theme.palette;
     this.art = { ...art };
     setSfxSet(theme.sfxSet);
+    prewarmSfx();
+    // a new game: no view may keep showing the previous game's art before it is evicted
+    this.entities.clear();
     this.entities.resetSources();
+    this.hud.clear();
+    this.interp.reset();
+    this.snap = undefined;
+    this.scores.clear();
+    if (this.floor && this.floorKey.startsWith('art|')) this.dropFloor();
+    this.store.beginTheme(Object.values(this.art));
     this.applyPalette();
     const jobs: Promise<unknown>[] = [];
-    for (const [key, url] of Object.entries(this.art)) jobs.push(this.store.load(url, `art:${key}`));
+    for (const url of Object.values(this.art)) jobs.push(this.store.load(url, undefined, true));
     const wanted = new Set<string>([
       ...Object.values(DEFAULT_SPRITES).slice(0, 8), 'bear-awake', 'rope-marker',
       ...AVATAR_ART,
@@ -222,7 +237,7 @@ export class GameView {
     ]);
     for (const name of wanted) {
       const url = this.defaults[name];
-      if (url) jobs.push(this.store.load(url, name));
+      if (url) jobs.push(this.store.load(url));
     }
     jobs.push(this.store.useFxArt(this.defaults));
     jobs.push(this.loadFloor());
@@ -230,14 +245,14 @@ export class GameView {
   }
 
   private async loadFloor(): Promise<void> {
-    const custom = this.art.floor ?? this.art.background;
-    const name = custom ? undefined : pickFloor(this.palette, this.defaults);
-    const key = custom ? `art:${this.art.floor ? 'floor' : 'background'}` : name;
-    if (!key || key === this.floorKey) return;
-    const url = custom ?? this.defaults[name!]!;
-    const tex = await this.store.load(url, `floor|${key}`, 512);
-    if (!tex || this.destroyed) return;
-    this.floor?.destroy();
+    const { url, custom } = this.floorUrl();
+    // keyed by URL: a new game with a new floor always swaps it in
+    const key = url ? `${custom ? 'art' : 'pack'}|${url}` : '';
+    if (!url || key === this.floorKey) return;
+    const tex = await this.store.load(url, custom ? 1280 : 512, custom);
+    // a later loadTheme may have asked for another floor meanwhile
+    if (!tex || this.destroyed || this.floorUrl().url !== url) return;
+    this.dropFloor();
     if (custom) {
       // full-bleed generated backdrop: cover the arena
       const s = new Sprite(tex);
@@ -258,6 +273,20 @@ export class GameView {
     this.applyPalette();
   }
 
+  /** Generated floor/background art, else the pack floor that suits the palette. */
+  private floorUrl(): { url: string | undefined; custom: boolean } {
+    const custom = this.art.floor ?? this.art.background;
+    if (custom) return { url: custom, custom: true };
+    const name = pickFloor(this.palette, this.defaults);
+    return { url: name ? this.defaults[name] : undefined, custom: false };
+  }
+
+  private dropFloor(): void {
+    this.floor?.destroy();
+    this.floor = undefined;
+    this.floorKey = '';
+  }
+
   private applyPalette(): void {
     if (!this.started) return;
     const p = this.palette;
@@ -268,6 +297,8 @@ export class GameView {
       colorStops: [{ offset: 0, color: lighten(bg, 0.1) }, { offset: 1, color: darken(bg, 0.45) }],
     });
     this.bgGrad.clear().rect(-SHAKE_PAD, -SHAKE_PAD, this.W + SHAKE_PAD * 2, this.H + SHAKE_PAD * 2).fill(grad);
+    this.grad?.destroy();
+    this.grad = grad;
     // floors are toned into the palette so sprites always read on top
     if (this.floor) this.floor.tint = mix(0xffffff, lighten(bg, 0.2), 0.5);
     this.floorShade.clear();
@@ -288,15 +319,10 @@ export class GameView {
    */
   render(snap: Snapshot, fx: FxEvent[], alpha = 1): void {
     if (this.destroyed) return;
-    if (snap !== this.snap) {
-      const swap = this.prev;
-      this.prev = this.cur;
-      this.cur = swap;
-      this.cur.clear();
-      for (const e of snap.entities) this.cur.set(e.id, { x: e.x, y: e.y });
-      if (this.started) this.scoreJuice(snap);
-      this.snap = snap;
-    }
+    // hosts call snapshot() every frame (a new object each time): only a new sim time
+    // rotates the interpolation pair, so frames without a step keep lerping smoothly
+    if (this.interp.push(snap) && this.started) this.scoreJuice(snap);
+    this.snap = snap;
     this.alpha = alpha;
     if (!this.started) return;
     for (const e of fx) this.onFx(e);
@@ -395,10 +421,7 @@ export class GameView {
       };
       if (leader && !tie) ctx.leader = leader;
       const a = this.alpha;
-      const pos = (e: Entity) => {
-        const p0 = this.prev.get(e.id);
-        return p0 ? lerpPos(p0, e, a) : e;
-      };
+      const pos = (e: Entity) => this.interp.pos(e, a);
       this.entities.sync(snap.entities, pos, ctx);
       if (this.showHud) this.hud.update(snap.players, snap.remaining, snap.banner, this.vt, (p) => this.entities.avatarTexture(p, ctx));
       const finale = snap.remaining > 0 && snap.remaining <= 10;
@@ -413,7 +436,8 @@ export class GameView {
     const fa = this.juice.flashAlpha;
     this.flash.visible = fa > 0.001;
     if (this.flash.visible) {
-      this.flash.clear().rect(0, 0, this.W, this.H).fill({ color: this.juice.flashColor, alpha: fa * 0.6 });
+      this.flash.tint = this.juice.flashColor;
+      this.flash.alpha = fa * 0.6;
     }
   }
 
@@ -450,6 +474,8 @@ export class GameView {
     this.entities.destroy();
     this.hud.destroy();
     this.store.destroy();
+    this.grad?.destroy();
+    this.vignetteTex?.destroy(true);
     this.app.destroy(true, { children: true });
   }
 }

@@ -4,7 +4,7 @@ import type { Theme } from '@cadabra/spec';
 vi.mock('pixi.js', () => ({}));
 
 import { AVATAR_ART, DEFAULT_SPRITES, avatarArtFor, resolveSprite } from '../src/sprites';
-import { avatarFx, guardVisual, lerpPos, telegraphState } from '../src/visual';
+import { SnapInterp, avatarFx, guardVisual, lerpPos, telegraphState } from '../src/visual';
 
 const palette: Theme['palette'] = { bg: '#101030', primary: '#4cc9f0', accent: '#f72585', glow: '#ffd166', text: '#ffffff' };
 const defaults: Record<string, string> = {
@@ -18,7 +18,7 @@ describe('sprite resolution', () => {
     expect(DEFAULT_SPRITES.guard).toBe('bear-sleep');
     expect(resolveSprite('item', { art: {}, defaults, palette, kind: 'item' })).toEqual({ type: 'url', url: 'u/coin.png', key: 'coin' });
     expect(resolveSprite('item', { art: { item: 'https://cdn/x.png' }, defaults, palette, kind: 'item' })).toEqual({
-      type: 'url', url: 'https://cdn/x.png', key: 'art:item',
+      type: 'url', url: 'https://cdn/x.png', key: 'art:item|https://cdn/x.png',
     });
     expect(resolveSprite('ladoo', { art: {}, defaults, palette, kind: 'item' })).toMatchObject({ url: 'u/ladoo.png' });
   });
@@ -81,5 +81,53 @@ describe('telegraph visual state', () => {
   test('lerpPos interpolates and snaps on teleports', () => {
     expect(lerpPos({ x: 0, y: 0 }, { x: 10, y: 20 }, 0.5)).toEqual({ x: 5, y: 10 });
     expect(lerpPos({ x: 0, y: 0 }, { x: 900, y: 0 }, 0.5)).toEqual({ x: 900, y: 0 });
+  });
+});
+
+describe('snapshot interpolation', () => {
+  const DT = 1 / 60;
+  const snap = (step: number, x: number) => ({ time: step * DT, entities: [{ id: 1, x, y: 0 }] });
+
+  test('frames with no step keep interpolating between the last two distinct sim times', () => {
+    const it = new SnapInterp();
+    expect(it.push(snap(1, 0))).toBe(true);
+    expect(it.push(snap(2, 10))).toBe(true);
+    // the host calls snapshot() again without stepping: a new object, same sim time
+    const again = snap(2, 10);
+    expect(it.push(again)).toBe(false);
+    expect(it.pos(again.entities[0]!, 0.5)).toEqual({ x: 5, y: 0 });
+    expect(it.push(snap(2, 10))).toBe(false);
+    expect(it.pos({ id: 1, x: 10, y: 0 }, 0.25)).toEqual({ x: 2.5, y: 0 });
+  });
+
+  test('slow-mo at timeScale 0.3 gives monotonic, smooth positions', () => {
+    const it = new SnapInterp();
+    const v = 300; // px/s
+    let steps = 0, acc = 0;
+    const xs: number[] = [];
+    it.push(snap(0, 0));
+    for (let frame = 0; frame < 240; frame++) {
+      acc += DT * 0.3;
+      while (acc >= DT - 1e-9) {
+        steps++;
+        acc -= DT;
+      }
+      const s = snap(steps, v * steps * DT); // fresh object every frame, as snapshot() does
+      it.push(s);
+      xs.push(it.pos(s.entities[0]!, acc / DT).x);
+    }
+    const d = xs.slice(1).map((x, i) => x - xs[i]!).slice(10);
+    expect(Math.min(...d)).toBeGreaterThan(0);
+    // 1.5 px per frame expected (300 px/s * 0.3 / 60), no stalls or jumps
+    expect(Math.min(...d)).toBeGreaterThan(1.2);
+    expect(Math.max(...d)).toBeLessThan(1.8);
+  });
+
+  test('a new round (time goes backwards) does not lerp from the old round', () => {
+    const it = new SnapInterp();
+    it.push(snap(100, 0));
+    it.push(snap(101, 50));
+    it.push(snap(1, 400));
+    expect(it.pos({ id: 1, x: 400, y: 0 }, 0)).toMatchObject({ x: 400, y: 0 });
   });
 });

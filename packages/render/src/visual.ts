@@ -97,3 +97,42 @@ export function ropeKnotX(props: Props, fallbackX: number): number {
 export function secondsLeft(props: Props, time: number): number {
   return Math.max(0, num(props.endsAt, time) - time);
 }
+
+type Pt = { x: number; y: number };
+
+/**
+ * Holds the last two *distinct* simulation states. Hosts call snapshot() every display
+ * frame and get a fresh object each time, so states are told apart by sim time, never by
+ * object identity: frames without a sim step keep lerping between the same two states.
+ */
+export class SnapInterp {
+  private prev = new Map<number, Pt>();
+  private cur = new Map<number, Pt>();
+  private curTime = NaN;
+
+  /** Returns true when `snap` is a new sim state (time changed). */
+  push(snap: { time: number; entities: readonly { id: number; x: number; y: number }[] }): boolean {
+    if (snap.time === this.curTime) return false;
+    // time went backwards: a new round, nothing to lerp from
+    if (snap.time < this.curTime) this.cur.clear();
+    const old = this.prev;
+    this.prev = this.cur;
+    this.cur = old;
+    this.cur.clear();
+    for (const e of snap.entities) this.cur.set(e.id, { x: e.x, y: e.y });
+    this.curTime = snap.time;
+    return true;
+  }
+
+  /** Drawn position of `e` (current state) at accumulator fraction `alpha`. */
+  pos(e: { id: number; x: number; y: number }, alpha: number): Pt {
+    const p0 = this.prev.get(e.id);
+    return p0 ? lerpPos(p0, e, alpha) : e;
+  }
+
+  reset(): void {
+    this.prev.clear();
+    this.cur.clear();
+    this.curTime = NaN;
+  }
+}

@@ -164,6 +164,31 @@ export function synth(voicesIn: Voice[], rate: number, pitch = 1, square: Wave =
   return out;
 }
 
+function buffer(ac: AudioContext, name: SfxName): AudioBuffer {
+  let buf = cache.get(name);
+  if (!buf) {
+    const data = synth(SFX_BANK[name], ac.sampleRate, set.pitch, set.square);
+    buf = ac.createBuffer(1, data.length, ac.sampleRate);
+    buf.getChannelData(0).set(data);
+    cache.set(name, buf);
+  }
+  return buf;
+}
+
+/**
+ * Synthesise the whole bank for the current set now (call when a game loads), so the
+ * first hit of a round never pays the synthesis cost mid-frame. No-op without WebAudio.
+ */
+export function prewarmSfx(): void {
+  try {
+    const ac = audio();
+    if (!ac) return;
+    for (const n of Object.keys(SFX_BANK) as SfxName[]) buffer(ac, n);
+  } catch {
+    // audio is optional
+  }
+}
+
 /** Play a named sound effect. Unknown names, missing WebAudio and errors are ignored. */
 export function sfx(name: string): void {
   if (muted) return;
@@ -172,17 +197,15 @@ export function sfx(name: string): void {
   try {
     const ac = audio();
     if (!ac || !master) return;
-    if (ac.state === 'suspended') void ac.resume().catch(() => undefined);
+    if (ac.state !== 'running') {
+      // not audible yet (autoplay policy / interrupted): ask to resume, skip this one
+      void ac.resume().catch(() => undefined);
+      return;
+    }
     const now = ac.currentTime * 1000;
     if (now - (lastAt.get(name) ?? -Infinity) < MIN_GAP_MS || voices >= MAX_VOICES) return;
     lastAt.set(name, now);
-    let buf = cache.get(name);
-    if (!buf) {
-      const data = synth(bank, ac.sampleRate, set.pitch, set.square);
-      buf = ac.createBuffer(1, data.length, ac.sampleRate);
-      buf.getChannelData(0).set(data);
-      cache.set(name, buf);
-    }
+    const buf = buffer(ac, name as SfxName);
     const src = ac.createBufferSource();
     src.buffer = buf;
     // a hair of pitch variation keeps repeats from sounding robotic

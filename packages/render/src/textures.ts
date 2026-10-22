@@ -282,7 +282,12 @@ function drawCell(g: CanvasRenderingContext2D, kind: (typeof ATLAS_CELLS)[number
   g.restore();
 }
 
-type Img = HTMLImageElement;
+/** What the store needs from a decoded image. */
+export interface Img {
+  naturalWidth: number;
+  naturalHeight: number;
+}
+export type ImageLoader = (url: string) => Promise<Img>;
 
 function loadImage(url: string): Promise<Img> {
   return new Promise((resolve, reject) => {
@@ -298,7 +303,7 @@ function loadImage(url: string): Promise<Img> {
 /** Downscale with high-quality smoothing (one pass per halving keeps it sharp). */
 function shrink(img: Img, max: number): HTMLCanvasElement {
   let w = img.naturalWidth, h = img.naturalHeight;
-  let src: CanvasImageSource = img;
+  let src = img as unknown as CanvasImageSource;
   while (Math.max(w, h) / 2 >= max) {
     const c = canvas(Math.ceil(w / 2), Math.ceil(h / 2));
     const g = c.getContext('2d')!;
@@ -317,19 +322,25 @@ function shrink(img: Img, max: number): HTMLCanvasElement {
 }
 
 /**
- * Texture cache. `get()` never blocks: it hands back the procedural shape until the art
- * has loaded (then the art), and remembers failures so a bad URL is tried once.
+ * Texture cache keyed by URL (and target size), so two games that use the same sprite key
+ * with different art never share a texture. `get()` never blocks: it hands back the
+ * procedural shape until the art has loaded. Failures are remembered per theme only.
  */
 export class TextureStore {
   private art = new Map<string, Texture>();
   private loading = new Map<string, Promise<Texture | null>>();
   private failed = new Set<string>();
   private shapes = new Map<string, Texture>();
+  /** Cache ids loaded for the current theme's generated art (evicted on the next theme). */
+  private themeOwned = new Set<string>();
+  private destroyed = false;
+  private readonly loader: ImageLoader;
   readonly atlas: HTMLCanvasElement;
   readonly atlasTex: Texture;
   readonly cells: Record<string, Texture> = {};
 
-  constructor() {
+  constructor(opts: { loadImage?: ImageLoader } = {}) {
+    this.loader = opts.loadImage ?? loadImage;
     this.atlas = canvas(CELL * ATLAS_CELLS.length, CELL);
     const g = this.atlas.getContext('2d')!;
     ATLAS_CELLS.forEach((k, i) => drawCell(g, k, i * CELL));
@@ -352,19 +363,20 @@ export class TextureStore {
       const url = urls[name];
       if (!url) return;
       try {
-        const img = await loadImage(url);
+        const img = await this.loader(url);
+        if (this.destroyed) return;
         const i = ATLAS_CELLS.indexOf(cellKey);
         g.clearRect(i * CELL, 0, CELL, CELL);
         const k = Math.min(CELL / img.naturalWidth, CELL / img.naturalHeight);
         const w = img.naturalWidth * k, h = img.naturalHeight * k;
         g.imageSmoothingQuality = 'high';
-        g.drawImage(img, i * CELL + (CELL - w) / 2, (CELL - h) / 2, w, h);
+        g.drawImage(img as unknown as CanvasImageSource, i * CELL + (CELL - w) / 2, (CELL - h) / 2, w, h);
         changed = true;
       } catch {
         // keep the procedural cell
       }
     }));
-    if (changed) this.atlasTex.source.update();
+    if (changed && !this.destroyed) this.atlasTex.source.update();
   }
 
   shape(shape: ShapeKind, color: string, accent: string): Texture {
@@ -377,29 +389,54 @@ export class TextureStore {
     return t;
   }
 
-  /** Ready texture for a url source, or undefined while loading / after failure. */
-  loaded(key: string): Texture | undefined {
-    return this.art.get(key);
+  private static id(url: string, max: number): string {
+    return `${max}|${url}`;
   }
 
-  load(url: string, key: string, max = ART_MAX): Promise<Texture | null> {
-    const have = this.art.get(key);
+  /**
+   * Start a new game's theme: forget failures (a URL that failed last game gets another
+   * try) and evict generated art from the previous theme that `keep` no longer lists. Call
+   * only when no view still shows the old art (GameView clears its views first).
+   */
+  beginTheme(keep: Iterable<string>): void {
+    this.failed.clear();
+    const urls = new Set(keep);
+    for (const id of this.themeOwned) {
+      const url = id.slice(id.indexOf('|') + 1);
+      if (urls.has(url)) continue;
+      this.art.get(id)?.destroy(true);
+      this.art.delete(id);
+      this.themeOwned.delete(id);
+    }
+  }
+
+  /** Ready texture for a URL, or undefined while loading / after failure. */
+  loaded(url: string, max = ART_MAX): Texture | undefined {
+    return this.art.get(TextureStore.id(url, max));
+  }
+
+  /** Load (once) a URL as a downscaled texture. `theme` marks generated art for eviction. */
+  load(url: string, max = ART_MAX, theme = false): Promise<Texture | null> {
+    const id = TextureStore.id(url, max);
+    if (theme) this.themeOwned.add(id);
+    const have = this.art.get(id);
     if (have) return Promise.resolve(have);
-    if (this.failed.has(key)) return Promise.resolve(null);
-    let p = this.loading.get(key);
+    if (this.failed.has(id) || this.destroyed) return Promise.resolve(null);
+    let p = this.loading.get(id);
     if (!p) {
-      p = loadImage(url)
+      p = this.loader(url)
         .then((img) => {
+          if (this.destroyed) return null; // resolved after teardown: discard
           const t = Texture.from(shrink(img, max));
-          this.art.set(key, t);
+          this.art.set(id, t);
           return t;
         })
         .catch(() => {
-          this.failed.add(key);
+          this.failed.add(id);
           return null;
         })
-        .finally(() => this.loading.delete(key));
-      this.loading.set(key, p);
+        .finally(() => this.loading.delete(id));
+      this.loading.set(id, p);
     }
     return p;
   }
@@ -407,18 +444,20 @@ export class TextureStore {
   /** Best texture for a source right now (kicks off loading). `fallback` shape while loading. */
   get(src: SpriteSource, fallback: SpriteSource & { type: 'shape' }): Texture {
     if (src.type === 'shape') return this.shape(src.shape, src.color, src.accent);
-    const t = this.art.get(src.key);
+    const t = this.art.get(TextureStore.id(src.url, ART_MAX));
     if (t) return t;
-    void this.load(src.url, src.key);
+    void this.load(src.url, ART_MAX, src.key.startsWith('art:'));
     return this.shape(fallback.shape, fallback.color, fallback.accent);
   }
 
   destroy(): void {
+    this.destroyed = true;
     for (const t of this.art.values()) t.destroy(true);
     for (const t of this.shapes.values()) t.destroy(true);
+    for (const t of Object.values(this.cells)) t.destroy(false);
     this.atlasTex.destroy(true);
     this.art.clear();
     this.shapes.clear();
+    this.loading.clear();
   }
 }
-

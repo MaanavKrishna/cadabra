@@ -124,11 +124,11 @@ export function resolveSprite(key: string, o: ResolveOpts): SpriteSource {
   const url = (u: string | undefined, k: string): SpriteSource | undefined => (u ? { type: 'url', url: u, key: k } : undefined);
 
   if (o.variant === 'awake') {
-    const v = url(art[`${key}:awake`], `art:${key}:awake`) ?? url(art[`${key}-awake`], `art:${key}-awake`);
+    const v = url(art[`${key}:awake`], `art:${key}:awake|${art[`${key}:awake`]}`) ?? url(art[`${key}-awake`], `art:${key}-awake|${art[`${key}-awake`]}`);
     if (v) return v;
   }
   // generated art wins even for the awake state (the view tints it), keeping one look
-  const a = url(art[key], `art:${key}`);
+  const a = url(art[key], `art:${key}|${art[key]}`);
   if (a) return a;
 
   if (key.startsWith('avatar:')) {

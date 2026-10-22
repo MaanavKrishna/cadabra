@@ -221,6 +221,15 @@ export class Hud {
     } else this.bannerRoot.alpha = 1;
   }
 
+  /** Forget the current game's chips and banner (new game). */
+  clear(): void {
+    for (const c of this.chips.values()) c.root.destroy({ children: true });
+    this.chips.clear();
+    this.banner = '';
+    this.bannerRoot.visible = false;
+    this.lastSec = -1;
+  }
+
   destroy(): void {
     this.root.destroy({ children: true });
     this.chips.clear();
