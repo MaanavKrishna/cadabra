@@ -3,7 +3,9 @@ import { CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { WebSocketApi, WebSocketStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { WebSocketLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
-import { Distribution, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import {
+  CachePolicy, Distribution, ResponseHeadersPolicy, ViewerProtocolPolicy,
+} from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
@@ -29,6 +31,26 @@ export class CadabraStack extends Stack {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+    });
+
+    // Audio (Polly mp3s under voice/) and art are read by the TV WebView and phones from another origin:
+    // serve the private bucket through CloudFront with CORS GET from anywhere. Keys are content hashes, so cache hard.
+    const assetsCdn = new Distribution(this, 'AssetsCdn', {
+      defaultBehavior: {
+        origin: S3BucketOrigin.withOriginAccessControl(assets),
+        viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: new ResponseHeadersPolicy(this, 'AssetsCors', {
+          corsBehavior: {
+            accessControlAllowOrigins: ['*'],
+            accessControlAllowMethods: ['GET', 'HEAD', 'OPTIONS'],
+            accessControlAllowHeaders: ['*'],
+            accessControlAllowCredentials: false,
+            accessControlMaxAge: Duration.days(1),
+            originOverride: true,
+          },
+        }),
+      },
     });
 
     const site = new Bucket(this, 'ControllerSite', {
@@ -114,6 +136,29 @@ export class CadabraStack extends Stack {
     };
     grantAi(fn);
 
+    // Host: voice (Polly), host lines, roast and AI judgements; invoked async by the ws handler.
+    const hostFn = new NodejsFunction(this, 'HostFn', {
+      entry: fileURLToPath(new URL('../src/handlers/host.ts', import.meta.url)),
+      handler: 'handler',
+      runtime: Runtime.NODEJS_LATEST,
+      architecture: Architecture.ARM_64,
+      memorySize: 1024,
+      timeout: Duration.seconds(30),
+      retryAttempts: 0, // a late retry would answer a judgement the game already gave up on
+      environment: {
+        TABLE_NAME: table.tableName,
+        GUARDRAIL_ID: guardrail.attrGuardrailId,
+        GUARDRAIL_VERSION: guardrailVersion.attrVersion,
+        ASSETS_BUCKET: assets.bucketName,
+        ASSETS_URL: `https://${assetsCdn.distributionDomainName}`,
+      },
+      bundling: { minify: true, sourceMap: true, target: 'node22' },
+    });
+    grantAi(hostFn);
+    assets.grantReadWrite(hostFn, 'voice/*');
+    hostFn.grantInvoke(fn);
+    fn.addEnvironment('HOST_FN', hostFn.functionName);
+
     // Forge: pitches + 3 parallel designs + fallback, invoked async by the ws handler on forge.pitch.
     const forgeFn = new NodejsFunction(this, 'ForgeFn', {
       entry: fileURLToPath(new URL('../src/handlers/forge.ts', import.meta.url)),
@@ -154,6 +199,7 @@ export class CadabraStack extends Stack {
     });
     fn.addToRolePolicy(manageConnections);
     forgeFn.addToRolePolicy(manageConnections);
+    hostFn.addToRolePolicy(manageConnections);
 
     new CfnOutput(this, 'GuardrailId', { value: guardrail.attrGuardrailId });
     new CfnOutput(this, 'GuardrailVersion', { value: guardrailVersion.attrVersion });
@@ -161,6 +207,8 @@ export class CadabraStack extends Stack {
     new CfnOutput(this, 'ControllerUrl', { value: `https://${cdn.distributionDomainName}` });
     new CfnOutput(this, 'ControllerBucket', { value: site.bucketName });
     new CfnOutput(this, 'ControllerDistributionId', { value: cdn.distributionId });
+    new CfnOutput(this, 'AssetsUrl', { value: `https://${assetsCdn.distributionDomainName}` });
+    new CfnOutput(this, 'HostFnName', { value: hostFn.functionName });
     new CfnOutput(this, 'AssetsBucket', { value: assets.bucketName });
     new CfnOutput(this, 'TableName', { value: table.tableName });
     new CfnOutput(this, 'ForgeFnName', { value: forgeFn.functionName });

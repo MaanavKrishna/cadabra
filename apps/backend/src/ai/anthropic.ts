@@ -76,6 +76,9 @@ export function toAnthropicMessages(messages: Obj[]): Obj[] {
           type: 'tool_result', tool_use_id: c.toolResult.toolUseId, content: toolResultContent(c.toolResult.content),
           ...(c.toolResult.status === 'error' ? { is_error: true } : {}),
         });
+      } else if (c.image?.source?.bytes) {
+        const fmt = c.image.format === 'jpg' ? 'jpeg' : c.image.format;
+        blocks.push({ type: 'image', source: { type: 'base64', media_type: `image/${fmt}`, data: Buffer.from(c.image.source.bytes).toString('base64') } });
       } else if (typeof c.text === 'string') {
         if (c.text.trim()) blocks.push({ type: 'text', text: c.text }); // the API rejects empty text blocks
       }

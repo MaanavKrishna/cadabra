@@ -8,6 +8,7 @@ import type { APIGatewayProxyResult, APIGatewayProxyWebsocketEventV2 } from 'aws
 import { ClientToBackendSchema } from '@cadabra/spec';
 import { createRoom, disconnect, forward, joinRoom, resumeRoom, type Ctx } from '../rooms';
 import { recordVote, startForge, type ForgeEvent } from '../forge-room';
+import { requestHost, type HostEvent } from '../host-room';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -18,6 +19,13 @@ const lambda = new LambdaClient({});
 const invokeForge = async (ev: ForgeEvent) => {
   const fn = process.env.FORGE_FN;
   if (!fn) throw new Error('FORGE_FN not set');
+  await lambda.send(new InvokeCommand({ FunctionName: fn, InvocationType: 'Event', Payload: Buffer.from(JSON.stringify(ev)) }));
+};
+
+/** Start the Host Lambda (voice, host lines, AI judgements) asynchronously; it replies to the TV itself. */
+const invokeHost = async (ev: HostEvent) => {
+  const fn = process.env.HOST_FN;
+  if (!fn) throw new Error('HOST_FN not set');
   await lambda.send(new InvokeCommand({ FunctionName: fn, InvocationType: 'Event', Payload: Buffer.from(JSON.stringify(ev)) }));
 };
 
@@ -70,6 +78,11 @@ export async function handler(event: APIGatewayProxyWebsocketEventV2): Promise<A
       await startForge(ctx, connectionId, m, { invoke: invokeForge, endpoint: `https://${domainName}/${stage}` });
       break;
     case 'forge.vote': await recordVote(ctx, connectionId, m); break;
+    case 'host.say':
+    case 'host.roast':
+    case 'judge.request':
+      await requestHost(ctx, connectionId, m, { invoke: invokeHost, endpoint: `https://${domainName}/${stage}` });
+      break;
   }
   return ok();
 }

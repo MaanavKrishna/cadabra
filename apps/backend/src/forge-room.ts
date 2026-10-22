@@ -31,7 +31,7 @@ const post = async (ctx: Ctx, conn: string, msg: Parameters<Ctx['send']>[1]) => 
 };
 
 /** Only the room's TV may run the forge. */
-async function isTvOf(ctx: Ctx, conn: string, code: string) {
+export async function isTvOf(ctx: Ctx, conn: string, code: string) {
   const me = (await ctx.ddb.send(new GetCommand({ TableName: ctx.table, Key: { pk: `CONN#${conn}`, sk: 'META' } }))).Item;
   return !!me && me.role === 'tv' && me.room === code;
 }
