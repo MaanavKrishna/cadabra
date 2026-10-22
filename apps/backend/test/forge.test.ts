@@ -108,6 +108,18 @@ describe('forge art', () => {
     expect(Date.now() - t).toBeLessThan(2500);
   });
 
+  test('a hung art step does not delay forge.ready, and delays done() by at most ~2 s', async () => {
+    const h = harness({ voteAfterMs: 50, winner: 'pa', art: () => new Promise<void>(() => {}) });
+    const t = Date.now();
+    await h.run();
+    const readyAt = Math.max(...posts(h.log, 'forge.ready').map((e) => e.at));
+    expect(posts(h.log, 'forge.ready')).toHaveLength(3);
+    expect(readyAt).toBeLessThan(1500);
+    const doneAt = h.log.find((e) => e.what === 'done')!.at;
+    expect(doneAt - readyAt).toBeLessThan(2600);
+    expect(Date.now() - t).toBeLessThan(4500);
+  });
+
   test('a throwing art step never breaks the forge', async () => {
     const h = harness({ voteAfterMs: 50, winner: 'pa', art: async () => { throw new Error('boom'); } });
     await h.run();

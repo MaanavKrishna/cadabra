@@ -108,6 +108,15 @@ describe('art', () => {
     await expect(sprite('x', 'y', { specId: 's' })).rejects.toMatchObject({ name: 'ArtSkipped' });
   });
 
+  test('remove-background failure keeps the raw sprite and does not trip the breaker', async () => {
+    br.on(InvokeModelCommand, { modelId: MODELS.removeBg }).rejects(err('ThrottlingException'));
+    const url = await sprite('a fire imp', 'flat', { specId: 'spec1', key: 'imp' });
+    expect(url).toBe('https://cdn.test/art/spec1/imp.png');
+    expect(imageAvailable()).toBe(true);
+    const put = s3.commandCalls(PutObjectCommand)[0]!.args[0].input;
+    expect(Buffer.from(put.Body as Uint8Array).toString('base64')).toBe(PNG);
+  });
+
   test('AccessDenied also trips the breaker; breaker expires after 10 minutes', async () => {
     br.on(InvokeModelCommand).rejects(err('AccessDeniedException'));
     await artForSpec(spec({}), () => {}, Date.now() + 5000);

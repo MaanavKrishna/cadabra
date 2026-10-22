@@ -129,7 +129,7 @@ const blobUrl = (b: Blob) => new Promise<string>((res, rej) => {
 });
 
 /** Encode the circular avatar: WebP (keeps the transparent corners) shrinking quality, then JPEG on a dark backdrop. */
-export async function encodeAvatar(src: HTMLCanvasElement): Promise<{ dataUrl: string; mime: string } | undefined> {
+export async function encodeAvatar(src: HTMLCanvasElement, backdrop = '#1c1228'): Promise<{ dataUrl: string; mime: string } | undefined> {
   for (const size of [src.width, 192, 160]) {
     const c = size === src.width ? src : scaled(src, size);
     for (const q of [0.85, 0.7, 0.55, 0.4]) {
@@ -140,7 +140,7 @@ export async function encodeAvatar(src: HTMLCanvasElement): Promise<{ dataUrl: s
     flat.width = flat.height = c.width;
     const g = flat.getContext('2d');
     if (!g) return undefined;
-    g.fillStyle = '#1c1228';
+    g.fillStyle = backdrop; // square JPEG (no alpha): circle on a ring-colored field; the TV should circle-mask it
     g.fillRect(0, 0, flat.width, flat.height);
     g.drawImage(c, 0, 0);
     for (const q of [0.85, 0.7, 0.55, 0.4]) {
@@ -158,35 +158,85 @@ function scaled(src: HTMLCanvasElement, size: number): HTMLCanvasElement {
   return c;
 }
 
-async function decode(file: Blob): Promise<{ img: CanvasImageSource; w: number; h: number; free(): void }> {
+export const DECODE_MAX_SIDE = 1024;
+const MID_SIZE = 512;
+
+type Decoded = { img: CanvasImageSource; w: number; h: number; free(): void };
+
+/** Cheap size probe via <img> (no canvas). Undefined if the browser cannot show the format or it takes too long. */
+function probeSize(file: Blob): Promise<{ w: number; h: number } | undefined> {
+  return new Promise((resolve) => {
+    let url: string | undefined;
+    const done = (v?: { w: number; h: number }) => { if (url) URL.revokeObjectURL(url); resolve(v); };
+    try {
+      url = URL.createObjectURL(file);
+      const el = new Image();
+      const timer = setTimeout(() => done(undefined), 2500);
+      el.onload = () => { clearTimeout(timer); done(el.naturalWidth > 0 ? { w: el.naturalWidth, h: el.naturalHeight } : undefined); };
+      el.onerror = () => { clearTimeout(timer); done(undefined); };
+      el.src = url;
+    } catch { done(undefined); }
+  });
+}
+
+/**
+ * Decode a photo without ever holding a full-resolution (12 MP+) bitmap: probe the size, then ask the decoder
+ * for <= 1024 px on the long side. Fallback chain: bitmap (EXIF-aware) -> bitmap -> <img> + decode().
+ */
+export async function decodePhoto(file: Blob): Promise<Decoded> {
+  const size = await probeSize(file);
+  const opts: Record<string, unknown> = {};
+  if (size && Math.max(size.w, size.h) > DECODE_MAX_SIDE) {
+    const k = DECODE_MAX_SIDE / Math.max(size.w, size.h);
+    Object.assign(opts, { resizeWidth: Math.max(1, Math.round(size.w * k)), resizeHeight: Math.max(1, Math.round(size.h * k)), resizeQuality: 'medium' });
+  }
   if (typeof createImageBitmap === 'function') {
-    const bm = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-    return { img: bm, w: bm.width, h: bm.height, free: () => bm.close() };
+    for (const variant of [{ ...opts, imageOrientation: 'from-image' }, opts]) {
+      try {
+        const bm = await createImageBitmap(file, variant as ImageBitmapOptions);
+        return { img: bm, w: bm.width, h: bm.height, free: () => bm.close() };
+      } catch { /* try the next decode variant */ }
+    }
   }
   const url = URL.createObjectURL(file);
-  const el = new Image();
-  await new Promise<void>((res, rej) => { el.onload = () => res(); el.onerror = () => rej(new Error('decode')); el.src = url; });
-  return { img: el, w: el.naturalWidth, h: el.naturalHeight, free: () => URL.revokeObjectURL(url) };
+  try {
+    const el = new Image();
+    el.src = url;
+    if (typeof el.decode === 'function') await el.decode();
+    else await new Promise<void>((res, rej) => { el.onload = () => res(); el.onerror = () => rej(new Error('decode')); });
+    if (!el.naturalWidth) throw new Error('decode');
+    return { img: el, w: el.naturalWidth, h: el.naturalHeight, free: () => URL.revokeObjectURL(url) };
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
 }
 
 /** Photo File -> circular cartoon avatar data URL (<= 25 KB). All on-device; the source image is dropped afterwards. */
 export async function selfieToToon(file: File | Blob | undefined | null, ringColor: string): Promise<ToonResult> {
   if (!file || !file.size) return { ok: false, reason: 'no-file' };
-  let dec: Awaited<ReturnType<typeof decode>> | undefined;
+  let dec: Decoded | undefined;
+  const mid = document.createElement('canvas');
   const work = document.createElement('canvas');
   try {
-    dec = await decode(file);
+    dec = await decodePhoto(file);
     const { sx, sy, s } = faceCrop(dec.w, dec.h);
+    // Two-step downscale (crop -> 512 -> 256) keeps detail and avoids aliasing from huge sources.
+    mid.width = mid.height = MID_SIZE;
+    const gm = mid.getContext('2d');
     work.width = work.height = TOON_SIZE;
     const g = work.getContext('2d', { willReadFrequently: true });
-    if (!g) return { ok: false, reason: 'unreadable' };
+    if (!gm || !g) return { ok: false, reason: 'unreadable' };
+    gm.imageSmoothingQuality = 'high';
     g.imageSmoothingQuality = 'high';
-    g.drawImage(dec.img, sx, sy, s, s, 0, 0, TOON_SIZE, TOON_SIZE);
+    gm.drawImage(dec.img, sx, sy, s, s, 0, 0, MID_SIZE, MID_SIZE);
+    g.drawImage(mid, 0, 0, MID_SIZE, MID_SIZE, 0, 0, TOON_SIZE, TOON_SIZE);
+    mid.width = mid.height = 0;
     const px = g.getImageData(0, 0, TOON_SIZE, TOON_SIZE);
     const out = toonify(px.data, TOON_SIZE, ringColor);
     g.clearRect(0, 0, TOON_SIZE, TOON_SIZE);
     g.putImageData(new ImageData(out as Uint8ClampedArray<ArrayBuffer>, TOON_SIZE, TOON_SIZE), 0, 0);
-    const enc = await encodeAvatar(work);
+    const enc = await encodeAvatar(work, ringColor);
     if (!enc || dataUrlBytes(enc.dataUrl) > SELFIE_MAX_BYTES) return { ok: false, reason: 'too-big' };
     return { ok: true, dataUrl: enc.dataUrl, bytes: dataUrlBytes(enc.dataUrl), mime: enc.mime };
   } catch {
@@ -194,5 +244,6 @@ export async function selfieToToon(file: File | Blob | undefined | null, ringCol
   } finally {
     dec?.free();
     work.width = work.height = 0; // drop the pixels
+    mid.width = mid.height = 0;
   }
 }

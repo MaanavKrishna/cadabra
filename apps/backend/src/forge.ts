@@ -100,6 +100,8 @@ export function pctFor(step: string, prev: number): number {
 }
 
 const POST_TIMEOUT_MS = 3000;
+/** Max extra wait for in-flight art at the very end of a forge. */
+const ART_FINAL_WAIT_MS = 2000;
 
 type Status = 'running' | 'ready' | 'fallback' | 'dropped';
 
@@ -189,6 +191,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
     let lastResolved = now();
     let wake: () => void = () => {};
     const pending: Promise<unknown>[] = [];
+    const artPending: Promise<unknown>[] = [];
     const kick = () => wake();
 
     const resolved = () => status.every((s) => s !== 'running');
@@ -218,7 +221,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
       if (winner !== i) return;
       const p = pitches[i]!;
       const run = (spec: Parameters<typeof artForSpec>[0], only: Parameters<typeof artForSpec>[4]) => {
-        pending.push(doArt(spec, artTo(i), artDeadline(), familySafe, only).catch((e: unknown) => log('art failed', (e as Error)?.message)));
+        artPending.push(doArt(spec, artTo(i), artDeadline(), familySafe, only).catch((e: unknown) => log('art failed', (e as Error)?.message)));
       };
       if (!artStarted.key) {
         artStarted.key = true;
@@ -324,6 +327,8 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
       });
     }
     await within(Promise.allSettled(pending).then(() => queue), Math.max(0, job.hardStop - now()), undefined);
+    // Art is best effort: wait for it at most 2 s so a slow or hung image provider never holds the forge lock.
+    await within(Promise.allSettled(artPending).then(() => queue), Math.min(ART_FINAL_WAIT_MS, Math.max(0, job.hardStop - now())), undefined);
     return result;
   } finally {
     await within(deps.done().catch(() => {}), 1000, undefined);

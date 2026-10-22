@@ -51,7 +51,12 @@ async function invoke(modelId: string, body: Record<string, unknown>, timeoutMs:
     return Buffer.from(b64, 'base64');
   } catch (e) {
     const name = (e as { name?: string })?.name ?? 'Error';
-    if (UNAVAILABLE.has(name)) { trip(name); throw new ArtSkipped('unavailable'); }
+    if (UNAVAILABLE.has(name)) {
+      // Only the generation model decides provider health; a remove-background failure must not disable art.
+      if (modelId === MODELS.image) trip(name);
+      else log(`${modelId} failed (${name})`);
+      throw new ArtSkipped('unavailable');
+    }
     throw e;
   }
 }
@@ -96,8 +101,14 @@ export async function sprite(prompt: string, style: string, o: GenOpts): Promise
   const full = `${prompt}, ${style}, single centered game sprite, plain background, no text`;
   await allowed(full, o.familySafe ?? true);
   const raw = await invoke(MODELS.image, { prompt: full, aspect_ratio: '1:1', output_format: 'png' }, remaining(o));
-  const cut = await invoke(MODELS.removeBg, { image: Buffer.from(raw).toString('base64'), output_format: 'png' }, remaining(o));
-  return store(o.specId, o.key ?? 'sprite', cut);
+  let out = raw;
+  try {
+    out = await invoke(MODELS.removeBg, { image: Buffer.from(raw).toString('base64'), output_format: 'png' }, remaining(o));
+  } catch (e) {
+    // Background removal is an enhancement: keep the raw image, say which model failed.
+    log(`remove-background (${MODELS.removeBg}) failed, using raw sprite:`, (e as Error)?.name);
+  }
+  return store(o.specId, o.key ?? 'sprite', out);
 }
 
 type ArtSpec = Pick<GameSpec, 'id'> & { theme: Pick<Theme, 'palette' | 'artStyle' | 'keyArtPrompt' | 'sprites'> };
