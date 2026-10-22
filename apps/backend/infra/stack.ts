@@ -8,6 +8,7 @@ import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { CfnGuardrail, CfnGuardrailVersion } from 'aws-cdk-lib/aws-bedrock';
 import { BlockPublicAccess, Bucket } from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,28 @@ export class CadabraStack extends Stack {
       ],
     });
 
+    const blockedMsg = 'That idea cannot be used in a family-friendly game.';
+    const strength = 'MEDIUM';
+    const guardrail = new CfnGuardrail(this, 'Guardrail', {
+      name: 'cadabra-family-safe',
+      description: 'Cadabra family-safe content filters for player input and generated text',
+      blockedInputMessaging: blockedMsg,
+      blockedOutputsMessaging: blockedMsg,
+      contentPolicyConfig: {
+        filtersConfig: [
+          ...['HATE', 'INSULTS', 'SEXUAL', 'VIOLENCE', 'MISCONDUCT'].map((type) => ({
+            type, inputStrength: strength, outputStrength: strength,
+          })),
+          { type: 'PROMPT_ATTACK', inputStrength: 'MEDIUM', outputStrength: 'NONE' },
+        ],
+      },
+      wordPolicyConfig: { managedWordListsConfig: [{ type: 'PROFANITY' }] },
+    });
+    const guardrailVersion = new CfnGuardrailVersion(this, 'GuardrailV1', {
+      guardrailIdentifier: guardrail.attrGuardrailId,
+      description: 'v1 family-safe',
+    });
+
     const reserved = Number(this.node.tryGetContext('reservedConcurrency') ?? 20);
     const fn = new NodejsFunction(this, 'WsFn', {
       entry: fileURLToPath(new URL('../src/handlers/ws.ts', import.meta.url)),
@@ -57,11 +80,31 @@ export class CadabraStack extends Stack {
       timeout: Duration.seconds(10),
       // Cap blast radius; set -c reservedConcurrency=0 on low-quota accounts to skip.
       reservedConcurrentExecutions: reserved > 0 ? reserved : undefined,
-      environment: { TABLE_NAME: table.tableName },
+      environment: {
+        TABLE_NAME: table.tableName,
+        GUARDRAIL_ID: guardrail.attrGuardrailId,
+        GUARDRAIL_VERSION: guardrailVersion.attrVersion,
+      },
       bundling: { minify: true, sourceMap: true, target: 'node22' },
     });
     // Least privilege: only the item operations the handler uses.
     table.grant(fn, 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:UpdateItem', 'dynamodb:Query');
+
+    // Bedrock: Converse/Invoke on Anthropic (ap-south-1 profiles route to other regions, so any-region
+    // foundation-model ARNs are needed alongside the profile ARN), Stability image models (us-west-2), Guardrails, Polly.
+    fn.addToRolePolicy(new PolicyStatement({
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream', 'bedrock:Converse', 'bedrock:ConverseStream'],
+      resources: [
+        'arn:aws:bedrock:*::foundation-model/anthropic.*',
+        'arn:aws:bedrock:*::foundation-model/stability.*',
+        `arn:aws:bedrock:*:${this.account}:inference-profile/*anthropic.*`,
+      ],
+    }));
+    fn.addToRolePolicy(new PolicyStatement({
+      actions: ['bedrock:ApplyGuardrail'],
+      resources: [guardrail.attrGuardrailArn],
+    }));
+    fn.addToRolePolicy(new PolicyStatement({ actions: ['polly:SynthesizeSpeech'], resources: ['*'] }));
 
     const integ = new WebSocketLambdaIntegration('WsInteg', fn);
     const api = new WebSocketApi(this, 'WsApi', {
@@ -80,6 +123,8 @@ export class CadabraStack extends Stack {
       })],
     }));
 
+    new CfnOutput(this, 'GuardrailId', { value: guardrail.attrGuardrailId });
+    new CfnOutput(this, 'GuardrailVersion', { value: guardrailVersion.attrVersion });
     new CfnOutput(this, 'WsUrl', { value: stage.url });
     new CfnOutput(this, 'ControllerUrl', { value: `https://${cdn.distributionDomainName}` });
     new CfnOutput(this, 'ControllerBucket', { value: site.bucketName });
