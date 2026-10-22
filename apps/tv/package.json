@@ -9,6 +9,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@cadabra/engine": "*",
+    "@cadabra/render": "*",
+    "@cadabra/spec": "*",
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {
