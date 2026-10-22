@@ -68,7 +68,7 @@ async function lightItems(ctx: StoreCtx, household: string) {
       TableName: ctx.table, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :g)',
       ExpressionAttributeValues: { ':pk': pk(household), ':g': 'GAME#' },
       ProjectionExpression: LIGHT.replace('title', '#t').replace('hook', '#h'), ExpressionAttributeNames: LIGHT_NAMES,
-      ExclusiveStartKey: key,
+      ExclusiveStartKey: key, ConsistentRead: true,
     }));
     out.push(...(r.Items ?? []));
     key = r.LastEvaluatedKey;
