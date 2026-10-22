@@ -47,12 +47,28 @@ export function mountController(
   let tilt: Axes = { x: 0, y: 0 };
   const buttons: Record<string, boolean> = Object.fromEntries(buttonIds.map((id) => [id, false]));
 
-  const emitContinuous = () => {
+  const hasContinuous = hasAxes || hasTilt || buttonIds.length > 0;
+  let dead = false;
+  const frame = (): InputFrame => {
     const f: InputFrame = { t: now() };
     if (hasAxes) f.axes = { ...axes };
     if (hasTilt) f.tilt = { ...tilt };
     if (buttonIds.length) f.buttons = { ...buttons };
-    onFrame(f);
+    return f;
+  };
+  const emitContinuous = () => { if (!dead) onFrame(frame()); };
+  const isActive = () => axes.x !== 0 || axes.y !== 0 || tilt.x !== 0 || tilt.y !== 0 || buttonIds.some((id) => buttons[id]);
+  const zero = () => {
+    axes = { x: 0, y: 0 };
+    tilt = { x: 0, y: 0 };
+    for (const id of buttonIds) buttons[id] = false;
+  };
+  /** Drop every held input (focus lost, tab hidden). One zeroed frame stops the transport keepalive. */
+  const releaseAll = () => {
+    for (const p of parts) p.release?.();
+    const was = isActive();
+    zero();
+    if (was) emitContinuous();
   };
   const press = () => haptic(PRESS_HAPTIC_MS);
 
@@ -77,16 +93,16 @@ export function mountController(
         break;
       }
       case 'swipe':
-        part = createSwipe({ id: w.id, onSwipe: (d) => { press(); onFrame({ t: now(), swipe: d }); } });
+        part = createSwipe({ id: w.id, onSwipe: (d) => { if (dead) return; press(); onFrame({ t: now(), swipe: d }); } });
         break;
       case 'draw':
-        part = createDraw({ id: w.id, prompt: w.prompt, onPress: press, onDone: (png) => onFrame({ t: now(), draw: png }) });
+        part = createDraw({ id: w.id, prompt: w.prompt, onPress: press, onDone: (png) => { if (!dead) onFrame({ t: now(), draw: png }); } });
         break;
       case 'vote':
-        part = createVote({ id: w.id, options: w.options, onPress: press, onVote: (i) => onFrame({ t: now(), vote: i }) });
+        part = createVote({ id: w.id, options: w.options, onPress: press, onVote: (i) => { if (!dead) onFrame({ t: now(), vote: i }); } });
         break;
       case 'text':
-        part = createText({ id: w.id, placeholder: w.placeholder, onPress: press, onSend: (s) => onFrame({ t: now(), text: s }) });
+        part = createText({ id: w.id, placeholder: w.placeholder, onPress: press, onSend: (s) => { if (!dead) onFrame({ t: now(), text: s }); } });
         break;
       default:
         continue;
@@ -104,8 +120,20 @@ export function mountController(
   root.append(...[panelZone, actionZone, stickZone].filter((z) => z.childElementCount > 0));
   host.appendChild(root);
 
+  const onBlur = () => releaseAll();
+  const onVis = () => { if (document.visibilityState === 'hidden') releaseAll(); };
+  globalThis.addEventListener?.('blur', onBlur);
+  document.addEventListener('visibilitychange', onVis);
+
   return () => {
+    if (dead) return;
+    globalThis.removeEventListener?.('blur', onBlur);
+    document.removeEventListener('visibilitychange', onVis);
+    for (const p of parts) p.release?.();
+    dead = true; // widget callbacks during teardown are ignored
     for (const p of parts) p.destroy();
     root.remove();
+    // Unmounted mid-hold: always send one zeroed frame so nothing stays pressed on the TV.
+    if (hasContinuous) { zero(); onFrame(frame()); }
   };
 }

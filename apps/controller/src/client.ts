@@ -7,7 +7,7 @@ export interface ControllerClient {
   join(code: string, name: string): Promise<{ playerId: string }>;
   send(msg: PeerMsg): boolean;
   sendInput(frame: InputFrame): void;
-  on(ev: 'msg' | 'mode' | 'tv.left' | 'tv.back' | 'error', cb: (...a: any[]) => void): void;
+  on(ev: 'msg' | 'mode' | 'tv.left' | 'tv.back' | 'error' | 'link', cb: (...a: any[]) => void): void;
   close(): void;
 }
 

@@ -17,6 +17,8 @@ export interface WidgetEnv {
 
 export interface Widget {
   el: HTMLElement;
+  /** Drop any held/deflected state silently (no callbacks); the owner emits the zeroed frame. */
+  release?(): void;
   destroy(): void;
 }
 

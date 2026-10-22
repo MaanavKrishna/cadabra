@@ -192,14 +192,18 @@ describe('couchpad', () => {
     const left: string[] = []; const joined: string[] = [];
     host.on('left', (id: string) => left.push(id));
     host.on('player', (id: string) => joined.push(id));
+    const link: string[] = [];
+    client.on('link', (s: string) => link.push(s));
     const sockets = backend.sockets.length;
     backend.sockets.at(-1)!.drop(); // the phone's socket
     await tick(0);
+    expect(link).toEqual(['down']);
     expect(left).toEqual([playerId]);
     expect(host.players().get(playerId)?.connected).toBe(false);
     await tick(3000);
     expect(backend.sockets.length).toBeGreaterThan(sockets);
     expect(joined).toContain(playerId);
+    expect(link).toEqual(['down', 'up']);
     expect(host.players().get(playerId)?.connected).toBe(true);
     expect(host.players().size).toBe(1);
     await tick(200);

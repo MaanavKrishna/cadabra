@@ -136,5 +136,5 @@ export function createDraw(o: DrawOpts): Widget {
   offs.push(on(pad, 'pointerup', end), on(pad, 'pointercancel', end));
   let ro: ResizeObserver | undefined;
   if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(fit); ro.observe(pad); }
-  return { el: root, destroy: () => { offs.forEach((f) => f()); ro?.disconnect(); } };
+  return { el: root, release: () => { curId = undefined; cur = undefined; }, destroy: () => { offs.forEach((f) => f()); ro?.disconnect(); } };
 }

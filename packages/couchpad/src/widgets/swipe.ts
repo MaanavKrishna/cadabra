@@ -42,6 +42,7 @@ export function createSwipe(o: SwipeOpts): Widget {
       if (d) { start.fired = true; fire(d); }
     }),
   ];
+  const reset = () => { start = undefined; root.classList.remove('is-active'); };
   const end = (e: PointerEvent) => {
     if (!start || e.pointerId !== start.id) return;
     if (!start.fired) {
@@ -51,6 +52,8 @@ export function createSwipe(o: SwipeOpts): Widget {
     start = undefined;
     root.classList.remove('is-active');
   };
-  offs.push(on(root, 'pointerup', end), on(root, 'pointercancel', end));
-  return { el: root, destroy: () => offs.forEach((f) => f()) };
+  // A cancelled gesture (scroll, system UI, palm) never fires a swipe.
+  const cancel = (e: PointerEvent) => { if (start && e.pointerId === start.id) reset(); };
+  offs.push(on(root, 'pointerup', end), on(root, 'pointercancel', cancel), on(root, 'lostpointercapture', cancel));
+  return { el: root, release: reset, destroy: () => offs.forEach((f) => f()) };
 }

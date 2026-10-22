@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import { SCREEN_NAMES, type InputFrame, type PeerMsg, type ScreenName } from '@cadabra/spec';
+import { SCREEN_NAMES, parseScreenData, replyMsg, type InputFrame, type ParsedScreen, type PeerMsg } from '@cadabra/spec';
 import type { ControllerClient } from './client';
 import { CODE_LEN, normalizeCode } from './code';
-import { asObj, type AnyScreen, type Reply, type ScreenData } from './protocol';
+import type { SendReply } from './protocol';
 import { applyTheme } from './theme';
 import { avatarUrl } from './avatars';
 import { JoinScreen } from './screens/join';
@@ -11,6 +11,7 @@ import { StormScreen, VoteScreen } from './screens/storm';
 import { PlayScreen, WarmupScreen } from './screens/play';
 import { RemixScreen, ResultsScreen, TweakScreen } from './screens/after';
 import { Mark } from './ui/kit';
+import { ScreenBoundary } from './ui/boundary';
 
 const NAME_KEY = 'cadabra.name';
 const RELAY_BANNER_DELAY_MS = 6000;
@@ -25,11 +26,21 @@ const JOIN_ERRORS: Record<string, string> = {
 const load = (k: string) => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 
-/** Pure router: a TV PeerMsg → the screen to show (or null to ignore). */
-export function routeMessage(msg: PeerMsg): AnyScreen | null {
+const WAITING: ParsedScreen = { name: 'wait', data: { message: 'Waiting for the TV…', sub: 'Hang tight, the next screen is on its way.' } };
+const ERROR_BANNER_MS = 4000;
+
+/**
+ * Pure router: a TV PeerMsg → the screen to show, or null to ignore it.
+ * Payloads are validated per screen; a bad payload shows the waiting state instead of crashing.
+ */
+export function routeMessage(msg: PeerMsg): ParsedScreen | null {
   if (msg.t !== 'screen' || !(SCREEN_NAMES as readonly string[]).includes(msg.name)) return null;
-  return { name: msg.name, data: asObj(msg.data) };
+  const r = parseScreenData(msg.name, msg.data);
+  if (r.ok) return r.screen;
+  return r.reason === 'reply' ? null : WAITING;
 }
+
+const themeOf = (data: unknown) => (data && typeof data === 'object' ? (data as { themeVars?: unknown }).themeVars : undefined);
 
 export function App({ client, initialCode, autoJoinName }: { client: ControllerClient; initialCode: string; autoJoinName?: string }) {
   const [code, setCode] = useState(normalizeCode(initialCode));
@@ -38,7 +49,12 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
   const [joined, setJoined] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [screen, setScreen] = useState<AnyScreen>({ name: 'join', data: {} });
+  const [screen, setScreen] = useState<ParsedScreen>({ name: 'join', data: {} });
+  const [seq, setSeq] = useState(0);
+  const [linkDown, setLinkDown] = useState(false);
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  const [netError, setNetError] = useState(false);
+  const errTimer = useRef<ReturnType<typeof setTimeout>>();
   const [tvAway, setTvAway] = useState(false);
   const [relayBanner, setRelayBanner] = useState(false);
   const relayTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -53,13 +69,29 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
     client.on('msg', (m: PeerMsg) => {
       const next = routeMessage(m);
       if (!next) return;
-      applyTheme(next.data.themeVars);
+      if (m.t === 'screen') applyTheme(themeOf(m.data));
       setScreen(next);
+      setSeq((n) => n + 1);
     });
+    client.on('error', () => {
+      setNetError(true);
+      clearTimeout(errTimer.current);
+      errTimer.current = setTimeout(() => setNetError(false), ERROR_BANNER_MS);
+    });
+    client.on('link', (state: 'up' | 'down') => setLinkDown(state === 'down'));
+    const goOffline = () => setOffline(true);
+    const goOnline = () => setOffline(false);
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
     client.on('tv.left', () => setTvAway(true));
     client.on('tv.back', () => setTvAway(false));
     client.on('mode', armRelay);
-    return () => clearTimeout(relayTimer.current);
+    return () => {
+      clearTimeout(relayTimer.current);
+      clearTimeout(errTimer.current);
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
   }, [client]);
 
   useEffect(() => {
@@ -79,6 +111,7 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
       joinedRef.current = true;
       setJoined(true);
       setScreen((s) => (s.name === 'join' ? { name: 'wait', data: {} } : s));
+      setSeq((n) => n + 1);
       if (client.mode === 'relay') {
         clearTimeout(relayTimer.current);
         relayTimer.current = setTimeout(() => setRelayBanner(joinedRef.current && client.mode === 'relay'), RELAY_BANNER_DELAY_MS);
@@ -92,12 +125,14 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
 
   useEffect(() => { if (autoJoinName) void join(); }, []);
 
-  const reply: Reply = useCallback((n, data) => { client.send({ t: 'screen', name: n as ScreenName, data }); }, [client]);
+  const reply: SendReply = useCallback((r) => {
+    try { client.send(replyMsg(r)); } catch (e) { console.warn('[controller] invalid reply dropped', e); }
+  }, [client]);
   const onFrame = useCallback((f: InputFrame) => client.sendInput(f), [client]);
 
   const showJoin = !joined || screen.name === 'join';
-  const d = screen.data as any;
   const url = avatarUrl(avatar);
+  const reconnecting = joined && (linkDown || offline);
 
   return (
     <div class={`app ${showJoin ? 'is-menu' : ''} on-${showJoin ? 'join' : screen.name}`}>
@@ -107,7 +142,15 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
           <span class="spinner" /> TV disconnected. Hang tight, we'll reconnect automatically.
         </div>
       )}
-      {!tvAway && relayBanner && joined && (
+      {!tvAway && reconnecting && (
+        <div class="banner" data-banner="reconnecting" role="status">
+          <span class="spinner" /> {offline ? "You're offline. Reconnecting when your Wi‑Fi is back…" : 'Connection dropped. Reconnecting…'}
+        </div>
+      )}
+      {!tvAway && !reconnecting && netError && (
+        <div class="banner" data-banner="error" role="status">Hmm, a message didn't get through. Retrying…</div>
+      )}
+      {!tvAway && !reconnecting && !netError && relayBanner && joined && (
         <div class="banner subtle" data-banner="relay" role="status">Playing over the internet · tiny bit of lag</div>
       )}
       {!showJoin && screen.name !== 'play' && (
@@ -120,6 +163,7 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
         </div>
       )}
       <main class="stage" key={showJoin ? 'join' : screen.name}>
+        <ScreenBoundary resetKey={seq} fallback={<WaitScreen data={WAITING.data} name={name} avatar={avatar} />}>
         {showJoin ? (
           <JoinScreen
             code={code} name={name} busy={busy} error={error}
@@ -127,17 +171,27 @@ export function App({ client, initialCode, autoJoinName }: { client: ControllerC
             onName={(v) => { setName(v); setError(''); }}
             onSubmit={join}
           />
-        ) : screen.name === 'avatar' ? <AvatarScreen data={d as ScreenData['avatar']} reply={reply} avatar={avatar} setAvatar={setAvatar} />
-          : screen.name === 'storm' ? <StormScreen data={d} reply={reply} />
-          : screen.name === 'vote' ? <VoteScreen data={d} reply={reply} />
-          : screen.name === 'warmup' ? <WarmupScreen data={d} reply={reply} onFrame={onFrame} />
-          : screen.name === 'play' ? <PlayScreen data={d} onFrame={onFrame} />
-          : screen.name === 'results' ? <ResultsScreen data={d} reply={reply} />
-          : screen.name === 'remix' ? <RemixScreen data={d} reply={reply} />
-          : screen.name === 'tweak' ? <TweakScreen data={d} />
-          : screen.name === 'blocked' ? <BlockedScreen data={d} />
-          : <WaitScreen data={d} name={name} avatar={avatar} />}
+        ) : renderScreen(screen, { reply, onFrame, name, avatar, setAvatar })}
+        </ScreenBoundary>
       </main>
     </div>
   );
+}
+
+interface Ctx { reply: SendReply; onFrame(f: InputFrame): void; name: string; avatar?: string; setAvatar(a: string): void }
+
+function renderScreen(s: ParsedScreen, c: Ctx) {
+  switch (s.name) {
+    case 'avatar': return <AvatarScreen data={s.data} reply={c.reply} avatar={c.avatar} setAvatar={c.setAvatar} />;
+    case 'storm': return <StormScreen data={s.data} reply={c.reply} />;
+    case 'vote': return <VoteScreen data={s.data} reply={c.reply} />;
+    case 'warmup': return <WarmupScreen data={s.data} reply={c.reply} onFrame={c.onFrame} />;
+    case 'play': return <PlayScreen data={s.data} onFrame={c.onFrame} />;
+    case 'results': return <ResultsScreen data={s.data} reply={c.reply} />;
+    case 'remix': return <RemixScreen data={s.data} reply={c.reply} />;
+    case 'tweak': return <TweakScreen data={s.data} />;
+    case 'blocked': return <BlockedScreen data={s.data} />;
+    case 'wait': return <WaitScreen data={s.data} name={c.name} avatar={c.avatar} />;
+    default: return <WaitScreen data={{}} name={c.name} avatar={c.avatar} />;
+  }
 }

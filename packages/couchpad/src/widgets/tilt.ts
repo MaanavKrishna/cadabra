@@ -1,6 +1,6 @@
 // Tilt: device orientation mapped to {x,y} in [-1,1]. iOS needs a tap to grant permission
 // ("Enable tilt"); if denied or unavailable, a joystick takes over and drives the same field.
-import { clamp, el, on, type Axes, type Widget } from './core';
+import { clamp, el, haptic, on, type Axes, type Widget } from './core';
 import { createJoystick } from './joystick';
 
 export interface TiltOpts {
@@ -35,12 +35,14 @@ export function createTilt(o: TiltOpts): Widget {
   let child: Widget | undefined;
   const offs: (() => void)[] = [];
   let probe: ReturnType<typeof setTimeout> | undefined;
+  let last: Axes = { x: 0, y: 0 };
+  const emit = (a: Axes) => { last = a; o.onChange(a); };
 
   const fallback = (why: string) => {
     if (probe) clearTimeout(probe);
     offs.splice(0).forEach((f) => f());
     root.replaceChildren();
-    child = createJoystick({ id: o.id, onChange: o.onChange, onPress: o.onPress });
+    child = createJoystick({ id: o.id, onChange: emit, onPress: o.onPress });
     root.append(el('div', 'cp-tilt-note', {}, why), child.el);
   };
 
@@ -53,15 +55,26 @@ export function createTilt(o: TiltOpts): Widget {
     root.append(level, el('div', 'cp-tilt-note', {}, 'Tilt your phone to steer'), recenter);
     let base: { beta: number; gamma: number } | undefined;
     let latest = { beta: 0, gamma: 0 };
-    offs.push(on(recenter, 'click', () => { base = { ...latest }; o.onPress?.(); }));
+    // Recenter is a UI action, not a game press: a light local tick only.
+    offs.push(on(recenter, 'click', () => { base = { ...latest }; haptic(8); }));
+    // After a rotation the old rest pose is meaningless: zero now, recalibrate on the next event.
+    const recalibrate = () => {
+      base = undefined;
+      bubble.style.transform = 'translate(-50%, -50%)';
+      if (last.x !== 0 || last.y !== 0) emit({ x: 0, y: 0 });
+    };
+    offs.push(on(globalThis as any, 'orientationchange', recalibrate));
+    const so = (globalThis as any).screen?.orientation as EventTarget | undefined;
+    if (so?.addEventListener) offs.push(on(so, 'change', recalibrate));
     offs.push(on<DeviceOrientationEvent>(globalThis as any, 'deviceorientation', (e) => {
       if (e.beta == null || e.gamma == null) return;
       if (probe) { clearTimeout(probe); probe = undefined; }
       latest = { beta: e.beta, gamma: e.gamma };
+      const calibrating = !base;
       base ??= { ...latest };
       const a = tiltAxes(e.beta, e.gamma, base, screenAngle(), o.range);
       bubble.style.transform = `translate(-50%, -50%) translate(${a.x * 38}px, ${a.y * 38}px)`;
-      o.onChange(a);
+      if (calibrating || a.x !== last.x || a.y !== last.y) emit(a);
     }));
     probe = setTimeout(() => fallback('Tilt not available, use the stick'), o.probeMs ?? 1500);
   };
@@ -85,6 +98,12 @@ export function createTilt(o: TiltOpts): Widget {
 
   return {
     el: root,
-    destroy: () => { if (probe) clearTimeout(probe); offs.forEach((f) => f()); child?.destroy(); },
+    release: () => { child?.release?.(); last = { x: 0, y: 0 }; },
+    destroy: () => {
+      if (probe) clearTimeout(probe);
+      offs.forEach((f) => f());
+      child?.destroy();
+      if (last.x !== 0 || last.y !== 0) emit({ x: 0, y: 0 });
+    },
   };
 }

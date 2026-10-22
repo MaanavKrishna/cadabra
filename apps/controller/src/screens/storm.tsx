@@ -1,13 +1,13 @@
 import { useState } from 'preact/hooks';
-import type { PitchOption, Reply, ScreenData } from '../protocol';
+import { cssUrl, type PitchOption, type ScreenData, type SendReply } from '../protocol';
 import { Btn, Countdown, Eyebrow } from '../ui/kit';
 import { TextSend } from '../ui/text-send';
 
 const SPARKS = ['Lava floor', 'Space cats', 'Ninja kitchen', 'Robot zoo'];
 
-export function StormScreen({ data, reply }: { data: ScreenData['storm']; reply: Reply }) {
+export function StormScreen({ data, reply }: { data: ScreenData['storm']; reply: SendReply }) {
   const [ideas, setIdeas] = useState<string[]>([]);
-  const send = (idea: string) => { reply('storm', { idea }); setIdeas((l) => [idea, ...l].slice(0, 8)); };
+  const send = (idea: string) => { reply({ reply: 'storm.add', idea }); setIdeas((l) => [idea, ...l].slice(0, 8)); };
   return (
     <section class="screen screen-storm" data-screen="storm">
       <div class="screen-head row">
@@ -28,11 +28,11 @@ export function StormScreen({ data, reply }: { data: ScreenData['storm']; reply:
   );
 }
 
-const opt = (o: PitchOption | string): PitchOption => (typeof o === 'string' ? { title: o } : o);
+const opt = (o: PitchOption): Exclude<PitchOption, string> => (typeof o === 'string' ? { title: o } : o);
 
-export function VoteScreen({ data, reply }: { data: ScreenData['vote']; reply: Reply }) {
+export function VoteScreen({ data, reply }: { data: ScreenData['vote']; reply: SendReply }) {
   const [pick, setPick] = useState<number>();
-  const options = (data.options ?? []).map(opt).slice(0, 6);
+  const options = data.options.map(opt);
   return (
     <section class="screen screen-vote" data-screen="vote">
       <div class="screen-head row">
@@ -50,8 +50,8 @@ export function VoteScreen({ data, reply }: { data: ScreenData['vote']; reply: R
             role="radio"
             aria-checked={pick === i}
             class={`pitch ${pick === i ? 'is-on' : ''}`}
-            style={o.art ? { '--art': `url("${o.art}")` } : undefined}
-            onClick={() => { setPick(i); navigator.vibrate?.(15); reply('vote', { vote: i }); }}
+            style={o.art ? { '--art': cssUrl(o.art) } : undefined}
+            onClick={() => { setPick(i); navigator.vibrate?.(15); reply({ reply: 'vote.cast', vote: i }); }}
           >
             <span class="pitch-art" aria-hidden="true" />
             <span class="pitch-badge">{String.fromCharCode(65 + i)}</span>

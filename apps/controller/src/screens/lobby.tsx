@@ -1,10 +1,10 @@
 import { useState } from 'preact/hooks';
 import { AVATARS, avatarUrl } from '../avatars';
-import type { Reply, ScreenData } from '../protocol';
+import type { ScreenData, SendReply } from '../protocol';
 import { Btn, Eyebrow, Mark } from '../ui/kit';
 
 export function AvatarScreen({ data, reply, avatar, setAvatar }: {
-  data: ScreenData['avatar']; reply: Reply; avatar?: string; setAvatar(a: string): void;
+  data: ScreenData['avatar']; reply: SendReply; avatar?: string; setAvatar(a: string): void;
 }) {
   const [pick, setPick] = useState(avatar);
   const [locked, setLocked] = useState(false);
@@ -43,7 +43,7 @@ export function AvatarScreen({ data, reply, avatar, setAvatar }: {
         <Btn
           class="wide"
           disabled={!pick || locked}
-          onClick={() => { if (!pick) return; setLocked(true); setAvatar(pick); reply('avatar', { avatar: pick }); }}
+          onClick={() => { if (!pick) return; setLocked(true); setAvatar(pick); reply({ reply: 'avatar.pick', avatar: pick }); }}
         >
           {locked ? 'Locked in ✓' : 'Lock in'}
         </Btn>

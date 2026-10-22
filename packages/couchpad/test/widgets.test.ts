@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InputFrame } from '@cadabra/spec';
 import { mountController } from '../src/widgets';
+import { CouchClient, CouchHost } from '../src/index';
+import { FakeBackend, FakeRTC, MemStorage, resetFakes } from './fakes';
 
 const rect = (el: Element, w = 200, h = 200) => {
   (el as HTMLElement).getBoundingClientRect = () =>
@@ -17,6 +19,7 @@ const ptr = (el: Element, type: string, x = 0, y = 0, pointerId = 1) => {
 let host: HTMLElement;
 let frames: InputFrame[];
 let unmount: () => void;
+const host_el = () => host;
 beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -121,5 +124,99 @@ describe('couchpad widgets', () => {
     expect(host.children.length).toBeGreaterThan(0);
     off();
     expect(host.children.length).toBe(0);
+  });
+
+  it('unmount while a button is held emits a release, and the keepalive stops', async () => {
+    vi.useFakeTimers();
+    try {
+      resetFakes();
+      const backend = new FakeBackend();
+      const host = new CouchHost({ wsUrl: 'wss://x', household: 'h', WebSocket: backend.WebSocket as any, RTCPeerConnection: FakeRTC as any, storage: new MemStorage() });
+      const created = host.create();
+      await vi.advanceTimersByTimeAsync(0);
+      const { code } = await created;
+      const client = new CouchClient({ wsUrl: 'wss://x', WebSocket: backend.WebSocket as any, RTCPeerConnection: FakeRTC as any, storage: new MemStorage(), random: () => 0.5 });
+      const joined = client.join(code, 'Ana');
+      await vi.advanceTimersByTimeAsync(0);
+      await joined;
+      await vi.advanceTimersByTimeAsync(100);
+      const got: InputFrame[] = [];
+      host.on('input', (_id: string, f: InputFrame) => got.push(f));
+
+      const off = mountController(host_el(), [{ kind: 'hold', id: 'a', label: 'A' }], (f) => client.sendInput(f), { now: () => Date.now() });
+      ptr(document.querySelector('[data-widget="a"]')!, 'pointerdown', 1, 1);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(got.at(-1)!.buttons).toEqual({ a: true });
+      off(); // unmounted mid-hold (e.g. the TV switched screens)
+      await vi.advanceTimersByTimeAsync(100);
+      expect(got.at(-1)!.buttons).toEqual({ a: false });
+      const n = got.length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(got.length).toBe(n);
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('window blur and a hidden tab release everything', () => {
+    unmount = mountController(host, [{ kind: 'joystick', id: 'm' }, { kind: 'button', id: 'b', label: 'B' }], (f) => frames.push(f));
+    const pad = host.querySelector('.cp-joystick')!;
+    rect(pad);
+    ptr(pad, 'pointerdown', 100, 100);
+    ptr(pad, 'pointermove', 200, 100);
+    ptr(host.querySelector('[data-widget="b"]')!, 'pointerdown', 1, 1, 2);
+    expect(frames.at(-1)).toMatchObject({ axes: { x: 1, y: 0 }, buttons: { b: true } });
+    window.dispatchEvent(new Event('blur'));
+    expect(frames.at(-1)).toMatchObject({ axes: { x: 0, y: 0 }, buttons: { b: false } });
+    expect(host.querySelector('.cp-btn.is-down')).toBeNull();
+    // press again, then hide the tab
+    ptr(host.querySelector('[data-widget="b"]')!, 'pointerdown', 1, 1, 3);
+    expect(frames.at(-1)!.buttons).toEqual({ b: true });
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(frames.at(-1)!.buttons).toEqual({ b: false });
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  it('tilt recalibrates after a screen rotation', () => {
+    (globalThis as any).DeviceOrientationEvent = class {}; // Android-style: no permission prompt
+    unmount = mountController(host, [{ kind: 'tilt', id: 'lean' }], (f) => frames.push(f));
+    const orient = (beta: number, gamma: number) => {
+      const e = new Event('deviceorientation');
+      Object.assign(e, { beta, gamma });
+      window.dispatchEvent(e);
+    };
+    orient(10, 0); // first event = rest pose
+    expect(frames.at(-1)!.tilt).toEqual({ x: 0, y: 0 });
+    orient(10, 15);
+    expect(frames.at(-1)!.tilt!.x).toBeCloseTo(0.5, 5);
+    window.dispatchEvent(new Event('orientationchange'));
+    expect(frames.at(-1)!.tilt).toEqual({ x: 0, y: 0 }); // zeroed while recalibrating
+    orient(40, 15); // new rest pose after rotating
+    expect(frames.at(-1)!.tilt).toEqual({ x: 0, y: 0 });
+    orient(40, 30);
+    expect(frames.at(-1)!.tilt!.x).toBeCloseTo(0.5, 5);
+    unmount();
+    expect(frames.at(-1)!.tilt).toEqual({ x: 0, y: 0 });
+  });
+
+  it('swipe ignores pointercancel', () => {
+    unmount = mountController(host, [{ kind: 'swipe', id: 's' }], (f) => frames.push(f));
+    const pad = host.querySelector('.cp-swipe')!;
+    ptr(pad, 'pointerdown', 100, 100);
+    ptr(pad, 'pointercancel', 100, 10);
+    ptr(pad, 'pointerup', 100, 10);
+    expect(frames.filter((f) => f.swipe)).toHaveLength(0);
+    ptr(pad, 'pointerdown', 100, 100);
+    ptr(pad, 'pointermove', 160, 100);
+    expect(frames.filter((f) => f.swipe).map((f) => f.swipe)).toEqual(['right']);
+  });
+
+  it('joystick exposes accessible role and value', () => {
+    unmount = mountController(host, [{ kind: 'joystick', id: 'm' }], () => {});
+    const pad = host.querySelector('.cp-joystick')!;
+    expect(pad.getAttribute('role')).toBe('application');
+    expect(pad.getAttribute('aria-roledescription')).toBe('joystick');
   });
 });

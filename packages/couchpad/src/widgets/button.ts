@@ -37,5 +37,6 @@ export function createButton(o: ButtonOpts): Widget {
     set(false);
   };
   offs.push(on(root, 'pointerup', up), on(root, 'pointercancel', up), on(root, 'lostpointercapture', up));
-  return { el: root, destroy: () => offs.forEach((f) => f()) };
+  const release = () => { pointers.clear(); root.classList.remove('is-down'); };
+  return { el: root, release, destroy: () => offs.forEach((f) => f()) };
 }

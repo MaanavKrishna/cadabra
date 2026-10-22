@@ -3,6 +3,7 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import type { InputFrame, PeerMsg } from '@cadabra/spec';
 import { App } from '../src/app';
+import { ScreenBoundary } from '../src/ui/boundary';
 import { normalizeCode, codeFromUrl } from '../src/code';
 import type { ControllerClient } from '../src/client';
 
@@ -92,3 +93,65 @@ describe('screen routing', () => {
     expect(root.querySelector('[data-banner="tv-left"]')).toBeNull();
   });
 });
+
+async function joinedApp() {
+  act(() => render(<App client={client} initialCode="BCDF" />, root));
+  act(() => type(root.querySelector('input[name="name"]') as HTMLInputElement, 'Maya'));
+  act(() => { (root.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { cancelable: true })); });
+  await flush();
+}
+
+describe('validated screen data', () => {
+  it('a null vote option shows the waiting state instead of crashing', async () => {
+    await joinedApp();
+    act(() => client.emit('msg', { t: 'screen', name: 'vote', data: { options: [null, 'B'] } }));
+    expect(root.querySelector('[data-screen="vote"]')).toBeNull();
+    expect(root.querySelector('[data-screen="wait"]')!.textContent).toContain('Waiting for the TV');
+  });
+
+  it('a null standings entry shows the waiting state instead of crashing', async () => {
+    await joinedApp();
+    act(() => client.emit('msg', { t: 'screen', name: 'results', data: { rank: 1, standings: [null] } }));
+    expect(root.querySelector('[data-screen="results"]')).toBeNull();
+    expect(root.querySelector('[data-screen="wait"]')).toBeTruthy();
+    // the next valid screen recovers
+    act(() => client.emit('msg', { t: 'screen', name: 'results', data: { rank: 2, standings: [{ name: 'Ana', score: 3 }] } }));
+    expect(root.querySelector('[data-screen="results"]')!.textContent).toContain('Ana');
+  });
+
+  it('unsafe art urls are rejected', async () => {
+    await joinedApp();
+    act(() => client.emit('msg', { t: 'screen', name: 'vote', data: { options: [{ title: 'x', art: 'javascript:alert(1)' }] } }));
+    expect(root.querySelector('[data-screen="vote"]')).toBeNull();
+  });
+
+  it('replies carry a distinct kind and echoed replies are ignored', async () => {
+    await joinedApp();
+    act(() => client.emit('msg', { t: 'screen', name: 'vote', data: { options: ['Lava', 'Ocean'] } }));
+    act(() => (root.querySelectorAll('.pitch')[1] as HTMLButtonElement).click());
+    expect(client.sent.at(-1)).toEqual({ t: 'screen', name: 'vote', data: { reply: 'vote.cast', vote: 1 } });
+    act(() => client.emit('msg', { t: 'screen', name: 'storm', data: { reply: 'storm.add', idea: 'x' } }));
+    expect(root.querySelector('[data-screen="vote"]')).toBeTruthy();
+  });
+
+  it('the error boundary catches a crashing screen', () => {
+    const Boom = () => { throw new Error('boom'); };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    act(() => render(<ScreenBoundary fallback={<p data-fallback>waiting</p>}><Boom /></ScreenBoundary>, root));
+    expect(root.querySelector('[data-fallback]')).toBeTruthy();
+    spy.mockRestore();
+  });
+});
+
+describe('connection banners', () => {
+  it('shows a banner on client errors and while the phone reconnects', async () => {
+    await joinedApp();
+    act(() => client.emit('error', 'room.targetGone'));
+    expect(root.querySelector('[data-banner="error"]')).toBeTruthy();
+    act(() => client.emit('link', 'down'));
+    expect(root.querySelector('[data-banner="reconnecting"]')).toBeTruthy();
+    act(() => client.emit('link', 'up'));
+    expect(root.querySelector('[data-banner="reconnecting"]')).toBeNull();
+  });
+});
+

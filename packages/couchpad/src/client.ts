@@ -45,7 +45,8 @@ export const KEEPALIVE_MS = 100;
 export const RELEASE_REPEAT_MS = 30;
 export const RELIABLE_QUEUE_MAX = 64;
 
-type ClientEvent = 'msg' | 'mode' | 'tv.left' | 'tv.back' | 'error';
+/** 'link' fires 'down' when the phone's own socket drops after joining, 'up' once it has rejoined. */
+type ClientEvent = 'msg' | 'mode' | 'tv.left' | 'tv.back' | 'error' | 'link';
 
 const isActive = (f: InputFrame) =>
   Object.values(f.buttons ?? {}).some(Boolean)
@@ -57,6 +58,7 @@ export class CouchClient implements Transport {
   private code?: string;
   private name = '';
   private joined = false;
+  private linkDown = false;
   private sig: Signaling;
   private peer?: Peer;
   private ev = new Emitter();
@@ -88,7 +90,10 @@ export class CouchClient implements Transport {
       url: o.wsUrl, WebSocket: o.WebSocket, clock: this.clock, random: o.random,
       onOpen: () => this.sendJoin(),
       onMessage: (m) => this.onWire(m),
-      onDown: () => { this.joined = false; },
+      onDown: () => {
+        if (this.joined && !this.linkDown) { this.linkDown = true; this.ev.emit('link', 'down'); }
+        this.joined = false;
+      },
     });
   }
 
@@ -130,6 +135,7 @@ export class CouchClient implements Transport {
   private teardown() {
     this.sig.close();
     this.joined = false;
+    this.linkDown = false;
     this.peer?.close();
     this.peer = undefined;
     for (const k of ['pendingTimer', 'keepTimer', 'repeatTimer'] as const) {
@@ -156,6 +162,7 @@ export class CouchClient implements Transport {
       case 'room.joined': {
         this.playerId = m.playerId;
         this.joined = true;
+        if (this.linkDown) { this.linkDown = false; this.ev.emit('link', 'up'); }
         try { this.storage.setItem(this.code!, m.token); } catch { /* storage full/blocked */ }
         const w = this.joinWait; this.joinWait = undefined;
         if (w) { this.clock.clearTimeout(w.timer); w.resolve({ playerId: m.playerId }); }

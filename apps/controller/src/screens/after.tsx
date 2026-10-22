@@ -1,12 +1,12 @@
 import { useState } from 'preact/hooks';
 import { avatarUrl } from '../avatars';
-import type { Reply, ScreenData } from '../protocol';
+import type { ScreenData, SendReply } from '../protocol';
 import { Btn, Eyebrow, Mark } from '../ui/kit';
 import { TextSend } from '../ui/text-send';
 
 const ordinal = (n: number) => `${n}${['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) || n % 10 > 3 ? 0 : n % 10]}`;
 
-export function ResultsScreen({ data, reply }: { data: ScreenData['results']; reply: Reply }) {
+export function ResultsScreen({ data, reply }: { data: ScreenData['results']; reply: SendReply }) {
   const rank = data.rank;
   const standings = (data.standings ?? []).slice(0, 4);
   const [sent, setSent] = useState<string>();
@@ -39,17 +39,17 @@ export function ResultsScreen({ data, reply }: { data: ScreenData['results']; re
         </ol>
       )}
       <div class="dock two">
-        <Btn variant="glass" disabled={!!sent} onClick={() => { setSent('remix'); reply('results', { action: 'remix' }); }}>Remix it</Btn>
-        <Btn disabled={!!sent} onClick={() => { setSent('again'); reply('results', { action: 'again' }); }}>Play again</Btn>
+        <Btn variant="glass" disabled={!!sent} onClick={() => { setSent('remix'); reply({ reply: 'results.pick', action: 'remix' }); }}>Remix it</Btn>
+        <Btn disabled={!!sent} onClick={() => { setSent('again'); reply({ reply: 'results.pick', action: 'again' }); }}>Play again</Btn>
       </div>
       {sent && <p class="hint center">Sent! The TV will decide with everyone.</p>}
     </section>
   );
 }
 
-export function RemixScreen({ data, reply }: { data: ScreenData['remix']; reply: Reply }) {
+export function RemixScreen({ data, reply }: { data: ScreenData['remix']; reply: SendReply }) {
   const [sent, setSent] = useState<string[]>([]);
-  const send = (remix: string) => { reply('remix', { remix }); setSent((l) => [remix, ...l].slice(0, 5)); };
+  const send = (remix: string) => { reply({ reply: 'remix.add', remix }); setSent((l) => [remix, ...l].slice(0, 5)); };
   return (
     <section class="screen screen-remix" data-screen="remix">
       <div class="screen-head">

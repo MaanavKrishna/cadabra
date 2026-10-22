@@ -22,7 +22,9 @@ export function toAxes(dx: number, dy: number, radius: number, deadzone = 0.08):
 }
 
 export function createJoystick(o: JoystickOpts): Widget {
-  const root = el('div', 'cp-joystick', { 'data-widget': o.id, role: 'slider', 'aria-label': 'Joystick' });
+  const root = el('div', 'cp-joystick', {
+    'data-widget': o.id, role: 'application', 'aria-roledescription': 'joystick', 'aria-label': 'Joystick',
+  });
   const glow = el('div', 'cp-joystick-glow');
   const ring = el('div', 'cp-joystick-ring');
   const knob = el('div', 'cp-joystick-knob');
@@ -35,6 +37,7 @@ export function createJoystick(o: JoystickOpts): Widget {
 
   const render = (a: Axes) => {
     const m = Math.hypot(a.x, a.y);
+    root.setAttribute('aria-valuetext', `x ${a.x.toFixed(2)}, y ${a.y.toFixed(2)}`);
     knob.style.transform = `translate(-50%, -50%) translate(${a.x * travel}px, ${a.y * travel}px)`;
     glow.style.opacity = String(clamp(m * 1.1, 0, 1));
     glow.style.transform = `rotate(${Math.atan2(a.y, a.x) * 180 / Math.PI + 90}deg)`;
@@ -64,13 +67,19 @@ export function createJoystick(o: JoystickOpts): Widget {
     }),
     on<PointerEvent>(root, 'pointermove', (e) => { if (e.pointerId === active) move(e); }),
   ];
-  const release = (e: PointerEvent) => {
+  const up = (e: PointerEvent) => {
     if (e.pointerId !== active) return;
     active = undefined;
     root.classList.remove('is-active');
     emit({ x: 0, y: 0 });
   };
-  offs.push(on(root, 'pointerup', release), on(root, 'pointercancel', release), on(root, 'lostpointercapture', release));
+  offs.push(on(root, 'pointerup', up), on(root, 'pointercancel', up), on(root, 'lostpointercapture', up));
   render(last);
-  return { el: root, destroy: () => offs.forEach((f) => f()) };
+  const release = () => {
+    active = undefined;
+    root.classList.remove('is-active');
+    last = { x: 0, y: 0 };
+    render(last);
+  };
+  return { el: root, release, destroy: () => offs.forEach((f) => f()) };
 }
