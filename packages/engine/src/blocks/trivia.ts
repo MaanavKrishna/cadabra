@@ -3,22 +3,18 @@ import type { BlockCtx, BlockDef } from '../block';
 import { clamp, stateOf } from './util';
 
 export const triviaQuestionSchema = z.object({
-  q: z.string().min(1).max(200),
-  options: z.tuple([z.string().min(1).max(80), z.string().min(1).max(80), z.string().min(1).max(80), z.string().min(1).max(80)]),
-  answer: z.number().int().min(0).max(3),
+  q: z.string().min(1).max(200).describe('Question text.'),
+  options: z.tuple([z.string().min(1).max(80), z.string().min(1).max(80), z.string().min(1).max(80), z.string().min(1).max(80)]).describe('Exactly four answer options.'),
+  answer: z.number().int().min(0).max(3).describe('Index (0-3) of the correct option.'),
 });
 export type TriviaQuestion = z.infer<typeof triviaQuestionSchema>;
 
 export const triviaSchema = z.object({
-  /** AI-filled. Empty: the block asks the host for a 'trivia-gen' judgement and falls back to a built-in bank. */
-  questions: z.array(triviaQuestionSchema).max(30),
-  secondsPerQuestion: z.number().min(5).max(30),
-  /** Points for a correct answer in the first half of the question's time. */
-  pointsFast: z.number().int().min(1).max(20),
-  /** Points for a correct answer after that. */
-  pointsSlow: z.number().int().min(0).max(20),
-  /** Ask the generator for questions about the players themselves (names in the payload). */
-  aboutPlayers: z.boolean(),
+  questions: z.array(triviaQuestionSchema).max(30).describe("AI-filled. Empty: the block asks the host for a 'trivia-gen' judgement and falls back to a built-in bank."),
+  secondsPerQuestion: z.number().min(5).max(30).describe('Seconds to answer each question.'),
+  pointsFast: z.number().int().min(1).max(20).describe("Points for a correct answer in the first half of the question's time."),
+  pointsSlow: z.number().int().min(0).max(20).describe('Points for a correct answer after that.'),
+  aboutPlayers: z.boolean().describe('Ask the generator for questions about the players themselves (names in the payload).'),
 });
 export type TriviaParams = z.infer<typeof triviaSchema>;
 

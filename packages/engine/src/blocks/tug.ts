@@ -3,21 +3,14 @@ import type { BlockCtx, BlockDef } from '../block';
 import { AVATAR_R, clamp, pressed, stateOf } from './util';
 
 export const tugSchema = z.object({
-  /** mash: tap to pull. rhythm: taps on the beat pull hardest. hold: hold to pull while stamina lasts. */
-  mode: z.enum(['mash', 'rhythm', 'hold']),
-  /** Distance the knot travels from the centre line to either team's win line and back, px. */
-  ropeLength: z.number().min(200).max(1200),
-  /** Rope speed one tap adds (px/s), averaged over the team so uneven teams are fair. */
-  forcePerTap: z.number().min(5).max(200),
-  /** Stamina lost per tap (mash/rhythm) or per second held (hold); 0 = tireless. */
-  fatigue: z.number().min(0).max(1),
-  rhythmBpm: z.number().min(40).max(200),
-  /** Sim second at which pulls get stronger (sudden death). */
-  suddenDeathAtSec: z.number().min(5).max(120),
-  /** Controller button / hold id used to pull (swipes also pull). */
-  pullButton: z.string().min(1).max(32),
-  /** Points to every member of a team that drags the knot over its line. */
-  winPoints: z.number().int().min(1).max(20),
+  mode: z.enum(['mash', 'rhythm', 'hold']).describe('mash: tap to pull. rhythm: taps on the beat pull hardest. hold: hold to pull while stamina lasts.'),
+  ropeLength: z.number().min(200).max(1200).describe("Distance the knot travels from the centre line to either team's win line and back, px."),
+  forcePerTap: z.number().min(5).max(200).describe('Rope speed one tap adds (px/s), averaged over the team so uneven teams are fair.'),
+  fatigue: z.number().min(0).max(1).describe('Stamina lost per tap (mash/rhythm) or per second held (hold); 0 = tireless.'),
+  rhythmBpm: z.number().min(40).max(200).describe('Beat tempo for rhythm mode, beats per minute.'),
+  suddenDeathAtSec: z.number().min(5).max(120).describe('Sim second at which pulls get stronger (sudden death).'),
+  pullButton: z.string().min(1).max(32).describe('Controller button / hold id used to pull (swipes also pull).'),
+  winPoints: z.number().int().min(1).max(20).describe('Points to every member of a team that drags the knot over its line.'),
 });
 export type TugParams = z.infer<typeof tugSchema>;
 

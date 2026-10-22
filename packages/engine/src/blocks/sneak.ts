@@ -7,30 +7,20 @@ import {
 } from './util';
 
 export const sneakSchema = z.object({
-  /** Sprite key for the guard (bear, grandma, cat...). */
-  guardSprite: z.string().min(1).max(40),
-  /** sleeper: dozes until noise wakes it. patrol: walks a loop, sees ahead. watcher: stands still, sweeps its gaze. */
-  guardKind: z.enum(['sleeper', 'patrol', 'watcher']),
-  guardCount: z.number().int().min(1).max(4),
-  /** Noise a guard tolerates before it wakes. */
-  noiseLimit: z.number().min(10).max(1000),
-  /** Noise per second of full-speed movement right next to a guard (falls off with distance). */
-  noisePerMove: z.number().min(1).max(500),
-  noiseDecayPerSec: z.number().min(0).max(500),
-  /** Movement farther than this from a guard makes no noise for it, px. */
-  hearingRadius: z.number().min(100).max(1200),
-  /** Controller hold/button id: while held, avatars creep (slower, ~silent, invisible to calm guards). */
-  tiptoeButton: z.string().min(1).max(32),
-  tiptoeSpeedFactor: z.number().min(0.1).max(1),
-  /** How long a woken guard stays awake (after a short wind-up telegraph), s. */
-  wakeDurationSec: z.number().min(1).max(15),
-  /** Points lost by whoever woke the guard, and by anyone it then catches moving. */
-  wakePenalty: z.number().int().min(0).max(20),
-  /** Full angle of the guard's vision cone, degrees. */
-  visionConeDeg: z.number().min(15).max(180),
-  visionRange: z.number().min(80).max(1000),
-  /** Points per few seconds spent creeping close to a calm guard (0 = off). */
-  daringPoints: z.number().int().min(0).max(10),
+  guardSprite: z.string().min(1).max(40).describe('Sprite key for the guard (bear, grandma, cat...).'),
+  guardKind: z.enum(['sleeper', 'patrol', 'watcher']).describe('sleeper: dozes until noise wakes it. patrol: walks a loop, sees ahead. watcher: stands still, sweeps its gaze.'),
+  guardCount: z.number().int().min(1).max(4).describe('Number of guards.'),
+  noiseLimit: z.number().min(10).max(1000).describe('Noise a guard tolerates before it wakes.'),
+  noisePerMove: z.number().min(1).max(500).describe('Noise per second of full-speed movement right next to a guard (falls off with distance).'),
+  noiseDecayPerSec: z.number().min(0).max(500).describe('Noise a calm guard forgets per second.'),
+  hearingRadius: z.number().min(100).max(1200).describe('Movement farther than this from a guard makes no noise for it, px.'),
+  tiptoeButton: z.string().min(1).max(32).describe('Controller hold/button id: while held, avatars creep (slower, ~silent, invisible to calm guards).'),
+  tiptoeSpeedFactor: z.number().min(0.1).max(1).describe('Top-speed multiplier while tiptoeing.'),
+  wakeDurationSec: z.number().min(1).max(15).describe('How long a woken guard stays awake (after a short wind-up telegraph), s.'),
+  wakePenalty: z.number().int().min(0).max(20).describe('Points lost by whoever woke the guard, and by anyone it then catches moving.'),
+  visionConeDeg: z.number().min(15).max(180).describe("Full angle of the guard's vision cone, degrees."),
+  visionRange: z.number().min(80).max(1000).describe('How far a guard sees, px.'),
+  daringPoints: z.number().int().min(0).max(10).describe('Points per few seconds spent creeping close to a calm guard (0 = off).'),
 });
 export type SneakParams = z.infer<typeof sneakSchema>;
 
@@ -161,7 +151,12 @@ function penalize(ctx: BlockCtx<SneakParams>, id: string, reason: string): numbe
   return n;
 }
 
-function wake(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity): void {
+/**
+ * The guard starts waking: it turns to the culprit and telegraphs (sneak.waking). The
+ * penalty and sneak.woke only land once the wind-up is over (fullyAwake), so even a
+ * sight-triggered wake gives everyone WINDUP_SEC to freeze.
+ */
+function wake(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity): void {
   // blame the biggest noise-maker (ties: join order)
   let culprit = '', best = -1;
   for (const p of ctx.players) {
@@ -175,15 +170,22 @@ function wake(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity): void
   g.stirring = true;
   const ce = ctx.entityOf(culprit);
   if (ce) g.facing = Math.atan2(ce.y - ent.y, ce.x - ent.x);
+  ctx.emit({ type: 'sneak.waking', player: culprit, data: { guard: ent.id, guardKind: ctx.params.guardKind, windupSec: WINDUP_SEC } });
+  ctx.fx({ kind: 'sfx', name: 'wake' });
+  ctx.fx({ kind: 'particles', preset: 'burst', x: ent.x, y: ent.y - ent.r });
+}
+
+/** End of the wind-up: the guard is awake, the culprit pays and sneak.woke fires. */
+function fullyAwake(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity): void {
+  g.phase = 'awake';
+  const culprit = g.culprit;
   const count = (s.wakes.get(culprit) ?? 0) + 1;
   s.wakes.set(culprit, count);
   s.dare.set(culprit, 0);
   const penalty = penalize(ctx, culprit, 'sneak.woke');
   ctx.emit({ type: 'sneak.woke', player: culprit, data: { guard: ent.id, guardKind: ctx.params.guardKind, count, penalty } });
-  ctx.fx({ kind: 'sfx', name: 'wake' });
   ctx.fx({ kind: 'flash', color: '#ff3b30' });
   ctx.fx({ kind: 'shake', strength: 0.4 });
-  ctx.fx({ kind: 'particles', preset: 'burst', x: ent.x, y: ent.y - ent.r });
 }
 
 function moveGuard(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity, dt: number): void {
@@ -284,7 +286,7 @@ export const sneak: BlockDef<SneakParams> = {
           g.contrib.set(p.id, (g.contrib.get(p.id) ?? 0) + add);
         }
         if (g.level >= 1) {
-          wake(ctx, s, g, ent);
+          wake(ctx, g, ent);
         } else {
           const before = g.level;
           g.level = Math.max(0, g.level - decay);
@@ -300,7 +302,7 @@ export const sneak: BlockDef<SneakParams> = {
         }
       } else {
         // live-safe: the end is derived from current params (a shorter wakeDurationSec ends it now)
-        if (g.phase === 'waking' && ctx.time >= g.wokeAt + WINDUP_SEC) g.phase = 'awake';
+        if (g.phase === 'waking' && ctx.time >= g.wokeAt + WINDUP_SEC) fullyAwake(ctx, s, g, ent);
         if (ctx.time >= g.wokeAt + WINDUP_SEC + P.wakeDurationSec) {
           g.phase = 'calm';
           g.level = 0;

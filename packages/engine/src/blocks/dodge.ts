@@ -11,35 +11,24 @@ const PATTERNS = ['rain', 'sweep', 'chase', 'ring'] as const;
 type Pattern = (typeof PATTERNS)[number];
 
 export const dodgeSchema = z.object({
-  hazardSprite: z.string().min(1).max(40),
-  pattern: z.enum(PATTERNS),
-  /** Waves per second at the start (scaled per pattern: sweeps and rings are bigger). */
-  startRate: z.number().min(0.1).max(10),
-  /** Added to the wave rate every second. */
-  rampPerSec: z.number().min(0).max(0.5),
-  maxRate: z.number().min(0.5).max(20),
-  /**
-   * Minimum warning before a hazard can hurt anyone (never below 400 ms). The block
-   * lengthens it per hazard when the slowest/largest avatar needs longer to escape.
-   */
-  telegraphMs: z.number().int().min(400).max(3000),
-  hazardSpeed: z.number().min(60).max(900),
-  hazardRadius: z.number().min(8).max(80),
-  onHit: z.enum(['eliminate', 'losePoints', 'stun']),
-  /** Points lost per hit when onHit is losePoints (score never drops below 0). */
-  hitPenalty: z.number().int().min(0).max(50),
-  stunSec: z.number().min(0.3).max(5),
-  /** Grace period after a hit (with stun: at least stunSec + 0.5 s), so no double hits. */
-  invulnSec: z.number().min(0.3).max(5),
-  /** Points for every surviveEverySec without being hit. */
-  survivePoints: z.number().int().min(0).max(10),
-  surviveEverySec: z.number().min(0.5).max(10),
-  /** Points for an armed hazard passing close without hitting. */
-  nearMissPoints: z.number().int().min(0).max(10),
-  /** Circles where hazards can't hurt you; they relocate every safeZoneShiftSec. */
-  safeZones: z.number().int().min(0).max(4),
-  safeZoneRadius: z.number().min(40).max(200),
-  safeZoneShiftSec: z.number().min(3).max(60),
+  hazardSprite: z.string().min(1).max(40).describe('Sprite key for hazards (art resolved by the renderer).'),
+  pattern: z.enum(PATTERNS).describe('rain: drops from above; sweep: walls with gaps; chase: slow homing hunters; ring: bullet rings from a point.'),
+  startRate: z.number().min(0.1).max(10).describe('Waves per second at the start (scaled per pattern: sweeps and rings are bigger).'),
+  rampPerSec: z.number().min(0).max(0.5).describe('Added to the wave rate every second.'),
+  maxRate: z.number().min(0.5).max(20).describe('Cap on the wave rate, waves per second.'),
+  telegraphMs: z.number().int().min(400).max(3000).describe('Minimum warning before a hazard can hurt anyone (never below 400 ms). The block lengthens it per hazard when the slowest/largest avatar needs longer to escape.'),
+  hazardSpeed: z.number().min(60).max(900).describe('Hazard speed, px/s.'),
+  hazardRadius: z.number().min(8).max(80).describe('Hazard size, px.'),
+  onHit: z.enum(['eliminate', 'losePoints', 'stun']).describe('What a hit does: eliminate the player, lose hitPenalty points, or stun for stunSec.'),
+  hitPenalty: z.number().int().min(0).max(50).describe('Points lost per hit when onHit is losePoints (score never drops below 0).'),
+  stunSec: z.number().min(0.3).max(5).describe('Stun length when onHit is stun, s.'),
+  invulnSec: z.number().min(0.3).max(5).describe('Grace period after a hit (with stun: at least stunSec + 0.5 s), so no double hits.'),
+  survivePoints: z.number().int().min(0).max(10).describe('Points for every surviveEverySec without being hit.'),
+  surviveEverySec: z.number().min(0.5).max(10).describe('Seconds between survival payouts.'),
+  nearMissPoints: z.number().int().min(0).max(10).describe('Points for an armed hazard passing close without hitting.'),
+  safeZones: z.number().int().min(0).max(4).describe("Circles where hazards can't hurt you; they relocate every safeZoneShiftSec."),
+  safeZoneRadius: z.number().min(40).max(200).describe('Safe zone size, px.'),
+  safeZoneShiftSec: z.number().min(3).max(60).describe('Seconds between safe zone moves.'),
 });
 export type DodgeParams = z.infer<typeof dodgeSchema>;
 

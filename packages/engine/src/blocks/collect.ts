@@ -6,26 +6,20 @@ import {
 } from './util';
 
 export const collectSchema = z.object({
-  /** Sprite key for items (art resolved by the renderer). */
-  itemSprite: z.string().min(1).max(40),
-  spawnEverySec: z.number().min(0.2).max(999),
-  maxItems: z.number().int().min(1).max(40),
-  pointsPerItem: z.number().int().min(1).max(100),
-  itemRadius: z.number().min(8).max(48),
-  /** Items are carried and only score when brought to the goal. */
-  carryToGoal: z.boolean(),
-  /** Goal centre as a fraction of arena width / height. */
-  goalX: z.number().min(0).max(1),
-  goalY: z.number().min(0).max(1),
-  goalRadius: z.number().min(30).max(240),
-  /** Most items one player can carry at once. */
-  carryMax: z.number().int().min(1).max(10),
-  /** Ramming a player steals one carried item (carry mode) or pointsPerItem points. */
-  stealOnBump: z.boolean(),
-  /** After a steal the thief can't steal again, and can't be robbed, for this long. */
-  stealCooldownSec: z.number().min(0.3).max(10),
-  goldenChance: z.number().min(0).max(1),
-  goldenMultiplier: z.number().min(1).max(10),
+  itemSprite: z.string().min(1).max(40).describe('Sprite key for items (art resolved by the renderer).'),
+  spawnEverySec: z.number().min(0.2).max(999).describe('Seconds between item spawns.'),
+  maxItems: z.number().int().min(1).max(40).describe('Most items on the field at once.'),
+  pointsPerItem: z.number().int().min(1).max(100).describe('Points per item (on pickup, or at the goal in carry mode).'),
+  itemRadius: z.number().min(8).max(48).describe('Item size, px.'),
+  carryToGoal: z.boolean().describe('Items are carried and only score when brought to the goal.'),
+  goalX: z.number().min(0).max(1).describe('Goal centre X as a fraction of arena width (carry mode).'),
+  goalY: z.number().min(0).max(1).describe('Goal centre Y as a fraction of arena height (carry mode).'),
+  goalRadius: z.number().min(30).max(240).describe('Goal size, px (carry mode).'),
+  carryMax: z.number().int().min(1).max(10).describe('Most items one player can carry at once.'),
+  stealOnBump: z.boolean().describe('Ramming a player steals one carried item (carry mode) or pointsPerItem points.'),
+  stealCooldownSec: z.number().min(0.3).max(10).describe("After a steal the thief can't steal again, and can't be robbed, for this long."),
+  goldenChance: z.number().min(0).max(1).describe('Chance (0..1) that a spawned item is golden.'),
+  goldenMultiplier: z.number().min(1).max(10).describe('Golden items are worth this many times pointsPerItem.'),
 });
 export type CollectParams = z.infer<typeof collectSchema>;
 

@@ -185,7 +185,8 @@ describe('sneak', () => {
     const ctx = probe.ctx();
     let woke = false;
     for (let i = 0; i < 12 * SPS; i++) {
-      if (!woke && evs(rt, 'sneak.woke').length > 0) {
+      // freeze on the wind-up telegraph (sneak.waking): the warning is the time to stop
+      if (!woke && evs(rt, 'sneak.waking').length > 0) {
         woke = true;
         // p1 stands right next to the culprit, so it is in the guard's cone too
         const a = ctx.entityOf('p0')!, b = ctx.entityOf('p1')!;
@@ -202,6 +203,38 @@ describe('sneak', () => {
     expect(caught.map((e) => e.player)).toContain('p1');
     expect(caught.map((e) => e.player)).not.toContain('p0');
     expect(caught.map((e) => e.player)).not.toContain('p2');
+  });
+
+  test.each(['patrol', 'watcher'] as const)('%s sight wake gives >= 0.75 s warning before any penalty', (guardKind) => {
+    const probe = makeProbe();
+    const rt = runtime(makeSpec([{ block: 'sneak', params: { guardKind } }, { block: 'probe', params: {} }]), makePlayers(1), 1, [probe.def]);
+    const ctx = probe.ctx();
+    ctx.score('p0', 10, 'seed');
+    const guard = () => rt.snapshot().entities.find((e) => e.kind === 'guard')!;
+    // stand right in front of the guard and keep moving (no tiptoe): sight wakes it
+    let wakingAt = -1;
+    for (let i = 0; i < 10 * SPS; i++) {
+      const g = ctx.world.get(guard().id)!;
+      const a = ctx.entityOf('p0')!;
+      if (wakingAt < 0) {
+        const f = g.props.facing as number;
+        a.x = g.x + Math.cos(f) * 150;
+        a.y = g.y + Math.sin(f) * 150;
+      }
+      rt.input('p0', wiggle(i));
+      rt.step();
+      if (wakingAt < 0 && guard().props.waking) wakingAt = rt.time;
+      if (wakingAt >= 0 && rt.time > wakingAt + 2) break;
+    }
+    expect(wakingAt).toBeGreaterThan(0);
+    const warnAt = evs(rt, 'sneak.waking')[0]!.t; // event clock (pre-step time)
+    const penalties = rt.events.filter((e) => e.type === 'score' && (e.data!.delta as number) < 0);
+    expect(penalties.length).toBeGreaterThan(0);
+    for (const e of penalties) expect(e.t).toBeGreaterThanOrEqual(warnAt + 0.75 - 1e-9);
+    const woke = evs(rt, 'sneak.woke');
+    expect(woke).toHaveLength(1);
+    expect(woke[0]!.t).toBeGreaterThanOrEqual(warnAt + 0.75 - 1e-9);
+    expect(wakingAt - warnAt).toBeLessThanOrEqual(1 / SPS + 1e-9); // the guard shows it at once
   });
 
   test('live applyParams wakeDurationSec shortens a wake already in progress', () => {
@@ -388,6 +421,17 @@ describe('draw-judge', () => {
     expect(rt.pendingJudgements()).toHaveLength(0);
     expect(score('p0')).toBe(15);
     expect(score('p1')).toBe(8);
+  });
+
+  test('judgement entries flag bots so the backend can skip AI calls for them', () => {
+    const players = [...makePlayers(1), { id: 'b1', name: 'Captain Crumbs', avatar: 'bot:0', isBot: true, connected: true, score: 0 }];
+    const rt = runtime(drawSpec(), players);
+    rt.input('p0', { t: 0, draw: PNG });
+    rt.input('b1', { t: 0, draw: PNG });
+    rt.step();
+    rt.step();
+    const entries = (rt.pendingJudgements()[0]!.payload as { entries: { playerId: string; bot: boolean }[] }).entries;
+    expect(entries.map((e) => [e.playerId, e.bot])).toEqual([['p0', false], ['b1', true]]);
   });
 
   test('players who did not draw are not judged and score nothing', () => {

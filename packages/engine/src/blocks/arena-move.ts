@@ -6,26 +6,18 @@ import {
 } from './util';
 
 export const arenaMoveSchema = z.object({
-  /** Top speed in px/s. */
-  speed: z.number().min(60).max(600),
-  /** How fast velocity reaches the stick direction, px/s². */
-  accel: z.number().min(200).max(8000),
-  /** Velocity decay per second when the stick is released (0 = ice, 20 = instant stop). */
-  friction: z.number().min(0).max(20),
-  /** Walls bounce (true) or stop (false) avatars. */
-  bounceWalls: z.boolean(),
-  /** Avatars push each other apart (needed for bump/steal mechanics). */
-  collidePlayers: z.boolean(),
-  /** Controller button id that dashes; '' disables dashing. */
-  dashButton: z.string().max(32),
-  dashCooldownSec: z.number().min(0.2).max(10),
-  /** Dash speed as a multiple of `speed`. */
-  dashPower: z.number().min(1.2).max(4),
-  dashMs: z.number().min(80).max(600),
-  input: z.enum(['joystick', 'tilt']),
-  /** Tilt gain: phones are rarely tilted fully, so a modest tilt reaches top speed. */
-  tiltSensitivity: z.number().min(0.5).max(4),
-  avatarScale: z.number().min(0.5).max(2.5),
+  speed: z.number().min(60).max(600).describe('Top speed in px/s.'),
+  accel: z.number().min(200).max(8000).describe('How fast velocity reaches the stick direction, px/s².'),
+  friction: z.number().min(0).max(20).describe('Velocity decay per second when the stick is released (0 = ice, 20 = instant stop).'),
+  bounceWalls: z.boolean().describe('Walls bounce (true) or stop (false) avatars.'),
+  collidePlayers: z.boolean().describe('Avatars push each other apart (needed for bump/steal mechanics).'),
+  dashButton: z.string().max(32).describe("Controller button id that dashes; '' disables dashing."),
+  dashCooldownSec: z.number().min(0.2).max(10).describe('Seconds between dashes.'),
+  dashPower: z.number().min(1.2).max(4).describe('Dash speed as a multiple of `speed`.'),
+  dashMs: z.number().min(80).max(600).describe('Dash duration, ms.'),
+  input: z.enum(['joystick', 'tilt']).describe('Steering source: phone joystick or phone tilt.'),
+  tiltSensitivity: z.number().min(0.5).max(4).describe('Tilt gain: phones are rarely tilted fully, so a modest tilt reaches top speed.'),
+  avatarScale: z.number().min(0.5).max(2.5).describe('Avatar size multiplier (bigger = easier to bump, harder to dodge).'),
 });
 export type ArenaMoveParams = z.infer<typeof arenaMoveSchema>;
 

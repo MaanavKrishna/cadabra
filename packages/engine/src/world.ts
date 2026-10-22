@@ -80,6 +80,11 @@ export class World {
     return this.entities.get(id);
   }
 
+  /** Number of live entities, O(1). */
+  get size(): number {
+    return this.entities.size;
+  }
+
   /** All entities in spawn (id) order. */
   all(): Entity[] {
     return [...this.entities.values()];

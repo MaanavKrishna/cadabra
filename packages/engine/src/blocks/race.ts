@@ -5,32 +5,23 @@ import type { Entity } from '../world';
 import { AVATAR_R, boostOf, clamp, isStunned, pressed, stateOf } from './util';
 
 export const raceSchema = z.object({
-  /** Lanes drawn on screen; players share lanes round-robin when there are more players. */
-  laneCount: z.number().int().min(1).max(8),
-  /** Length of one lap in track units (px of running at speed 1). */
-  trackLength: z.number().min(1000).max(20000),
-  laps: z.number().int().min(1).max(10),
-  /** Scoring gates per lap (each worth checkpointPoints). */
-  checkpointCount: z.number().int().min(0).max(10),
-  checkpointPoints: z.number().int().min(0).max(10),
-  /** Each lap is two legs: runner 1 must hand the baton to runner 2 in the handoff zone. */
-  relay: z.boolean(),
-  batonPassButton: z.string().min(1).max(32),
-  /** Obstacles per lap = round(obstacleDensity * 10); identical layout in every lane. */
-  obstacleDensity: z.number().min(0).max(1),
-  /** Speed pads per lap (same positions in every lane). */
-  boostPads: z.number().int().min(0).max(6),
-  /** true: tap runButton (or swipe right) to run; false: hold runButton / push the stick right. */
-  mashToRun: z.boolean(),
-  runButton: z.string().min(1).max(32),
-  jumpButton: z.string().min(1).max(32),
-  /** Top running speed, track units per second. */
-  runSpeed: z.number().min(80).max(900),
-  /** Speed gained per tap as a fraction of runSpeed (mash mode). */
-  mashPower: z.number().min(0.05).max(0.5),
-  stumbleSec: z.number().min(0.2).max(3),
-  padBoost: z.number().min(1.1).max(3),
-  padBoostSec: z.number().min(0.3).max(5),
+  laneCount: z.number().int().min(1).max(8).describe('Lanes drawn on screen; players share lanes round-robin when there are more players.'),
+  trackLength: z.number().min(1000).max(20000).describe('Length of one lap in track units (px of running at speed 1).'),
+  laps: z.number().int().min(1).max(10).describe('Laps per heat.'),
+  checkpointCount: z.number().int().min(0).max(10).describe('Scoring gates per lap (each worth checkpointPoints).'),
+  checkpointPoints: z.number().int().min(0).max(10).describe('Points per checkpoint passed.'),
+  relay: z.boolean().describe('Each lap is two legs: runner 1 must hand the baton to runner 2 in the handoff zone.'),
+  batonPassButton: z.string().min(1).max(32).describe('Controller button id that hands over the baton (relay).'),
+  obstacleDensity: z.number().min(0).max(1).describe('Obstacles per lap = round(obstacleDensity * 10); identical layout in every lane.'),
+  boostPads: z.number().int().min(0).max(6).describe('Speed pads per lap (same positions in every lane).'),
+  mashToRun: z.boolean().describe('true: tap runButton (or swipe right) to run; false: hold runButton / push the stick right.'),
+  runButton: z.string().min(1).max(32).describe('Controller button id used to run (tap or hold, see mashToRun).'),
+  jumpButton: z.string().min(1).max(32).describe('Controller button id that jumps obstacles (swipe up also jumps).'),
+  runSpeed: z.number().min(80).max(900).describe('Top running speed, track units per second.'),
+  mashPower: z.number().min(0.05).max(0.5).describe('Speed gained per tap as a fraction of runSpeed (mash mode).'),
+  stumbleSec: z.number().min(0.2).max(3).describe('Seconds a runner stumbles after hitting an obstacle.'),
+  padBoost: z.number().min(1.1).max(3).describe('Speed multiplier from a speed pad.'),
+  padBoostSec: z.number().min(0.3).max(5).describe('How long a speed pad boost lasts, s.'),
 });
 export type RaceParams = z.infer<typeof raceSchema>;
 

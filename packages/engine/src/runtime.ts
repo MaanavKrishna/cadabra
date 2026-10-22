@@ -125,6 +125,11 @@ export class GameRuntime {
     return Math.max(0, this.spec.durationSec - this.time);
   }
 
+  /** Live entity count, O(1) (playtest budget checks; no snapshot copy). */
+  get entityCount(): number {
+    return this.world.size;
+  }
+
   /** Append-only event log (copy). */
   get events(): readonly GameEvent[] {
     return [...this.log];

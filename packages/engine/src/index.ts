@@ -6,3 +6,6 @@ export * from './registry';
 export * from './runtime';
 export * from './blocks/index';
 export * from './judgements';
+export * from './bots';
+export * from './playtest';
+export * from './catalog';

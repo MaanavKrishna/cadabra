@@ -3,12 +3,10 @@ import type { BlockCtx, BlockDef } from '../block';
 import { clamp, stateOf } from './util';
 
 export const drawJudgeSchema = z.object({
-  /** What everyone draws (the AI fills it from the game's ingredients). */
-  prompt: z.string().min(1).max(80),
-  drawSec: z.number().min(10).max(120),
-  rounds: z.number().int().min(1).max(5),
-  /** Voice of the AI judge's roasts. */
-  judgeStyle: z.enum(['kind', 'savage', 'absurd']),
+  prompt: z.string().min(1).max(80).describe("What everyone draws (the AI fills it from the game's ingredients)."),
+  drawSec: z.number().min(10).max(120).describe('Seconds to draw each round.'),
+  rounds: z.number().int().min(1).max(5).describe('Number of draw-and-judge rounds.'),
+  judgeStyle: z.enum(['kind', 'savage', 'absurd']).describe("Voice of the AI judge's roasts."),
 });
 export type DrawJudgeParams = z.infer<typeof drawJudgeSchema>;
 
@@ -25,7 +23,8 @@ export interface DrawJudgementPayload {
   round: number;
   prompt: string;
   judgeStyle: DrawJudgeParams['judgeStyle'];
-  entries: { playerId: string; name: string; image: string }[];
+  /** `bot` entries are bot scribbles: the backend scores them locally instead of calling the AI. */
+  entries: { playerId: string; name: string; image: string; bot: boolean }[];
 }
 
 type Phase = 'drawing' | 'judging' | 'reveal' | 'done';
@@ -104,7 +103,7 @@ function endDrawing(ctx: BlockCtx<DrawJudgeParams>, s: State): void {
   const entries: DrawJudgementPayload['entries'] = [];
   for (const p of ctx.players) {
     const image = s.subs.get(p.id);
-    if (image !== undefined) entries.push({ playerId: p.id, name: p.name, image });
+    if (image !== undefined) entries.push({ playerId: p.id, name: p.name, image, bot: p.isBot });
   }
   const payload: DrawJudgementPayload = { round: s.round, prompt: P.prompt, judgeStyle: P.judgeStyle, entries };
   s.judgeId = ctx.requestJudgement('draw', payload);
