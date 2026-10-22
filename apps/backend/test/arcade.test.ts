@@ -5,6 +5,7 @@ import { ClientToBackendSchema, FALLBACK_SPECS, type GameSpec } from '@cadabra/s
 import { ARCADE_CAP, MAX_GAME_BYTES, handleArcade, saveUnplayed } from '../src/arcade';
 
 /** Minimal in-memory DynamoDB document client covering the commands arcade.ts uses. */
+let queryLimit: number | undefined;
 function fakeDb() {
   const items = new Map<string, Record<string, any>>();
   const k = (key: any) => `${key.pk}|${key.sk}`;
@@ -35,7 +36,14 @@ function fakeDb() {
       }
       if (c instanceof QueryCommand) {
         const pk = i.ExpressionAttributeValues[':pk'], g = i.ExpressionAttributeValues[':g'];
-        return { Items: [...items.values()].filter((x) => x.pk === pk && x.sk.startsWith(g)).map((x) => { const { spec, art, ...rest } = x; return rest; }) };
+        const all = [...items.values()].filter((x) => x.pk === pk && x.sk.startsWith(g)).sort((a, b) => (a.sk < b.sk ? -1 : 1));
+        const from = i.ExclusiveStartKey ? all.findIndex((x) => x.sk === i.ExclusiveStartKey.sk) + 1 : 0;
+        const page = all.slice(from, from + (queryLimit ?? all.length));
+        const more = from + page.length < all.length;
+        return {
+          Items: page.map((x) => { const { spec, art, ...rest } = x; return rest; }),
+          LastEvaluatedKey: more ? { pk, sk: page[page.length - 1]!.sk } : undefined,
+        };
       }
       throw new Error('unexpected ' + c.constructor.name);
     },
@@ -119,9 +127,12 @@ describe('arcade', () => {
   test('invalid and oversize specs are rejected', async () => {
     const { db, ctx, sent } = setup();
     await handleArcade(ctx, 'tv', msg({ t: 'arcade.save', household: 'hh1', spec: { nope: 1 } }));
-    const art = { sprites: Object.fromEntries(Array.from({ length: 3 }, (_, i) => [`s${i}`, 'data:image/png;base64,' + 'A'.repeat(MAX_GAME_BYTES / 2)])) };
+    const art = { sprites: Object.fromEntries(Array.from({ length: 3 }, (_, i) => [`s${i}`, 'https://x.test/' + 'a'.repeat(MAX_GAME_BYTES / 2)])) };
     await handleArcade(ctx, 'tv', msg({ t: 'arcade.save', household: 'hh1', spec: spec('big'), art }));
-    expect(sent.map((s) => s.t)).toEqual(['error', 'error']);
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.save', household: 'hh1', spec: spec('d'), art: { keyArt: 'data:image/png;base64,AAAA' } }));
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.played', household: 'hh1', specId: 'd', spec: spec('d'), art: { keyArt: 'data:image/png;base64,AAAA' } }));
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.played', household: 'hh1', specId: 'other', spec: spec('mismatch') }));
+    expect(sent.map((s) => s.t)).toEqual(['error', 'error', 'error', 'error', 'error']);
     expect([...db.items.keys()].some((x) => x.startsWith('HH#'))).toBe(false);
   });
 
@@ -136,6 +147,50 @@ describe('arcade', () => {
     await handleArcade(ctx, 'tv', msg({ t: 'arcade.delete', household: 'hh1', specId: 'g1' }));
     await handleArcade(ctx, 'tv', msg({ t: 'arcade.play', household: 'hh1', specId: 'g1' }));
     expect(last(sent).t).toBe('error');
+  });
+
+  test('50 played games + a new loser: total stays 50, loser listed, oldest played evicted', async () => {
+    const { ctx, sent, tick } = setup();
+    for (let i = 0; i < ARCADE_CAP; i++) {
+      await handleArcade(ctx, 'tv', msg({ t: 'arcade.played', household: 'hh1', specId: `p${i}`, spec: spec(`p${i}`) }));
+      tick();
+    }
+    expect(await saveUnplayed(ctx, 'hh1', spec('loser'))).toBe(true);
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.list', household: 'hh1' }));
+    const ids = last(sent).games.map((g: any) => g.id);
+    expect(ids).toHaveLength(ARCADE_CAP);
+    expect(ids).toContain('loser');
+    expect(ids).not.toContain('p0');
+    expect(ids).toContain('p1');
+  });
+
+  test('over the cap evicts unplayed before played', async () => {
+    const { ctx, sent, tick } = setup();
+    await saveUnplayed(ctx, 'hh1', spec('oldU')); tick();
+    for (let i = 0; i < ARCADE_CAP; i++) {
+      await handleArcade(ctx, 'tv', msg({ t: 'arcade.played', household: 'hh1', specId: `p${i}`, spec: spec(`p${i}`) }));
+      tick();
+    }
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.list', household: 'hh1' }));
+    const ids = last(sent).games.map((g: any) => g.id);
+    expect(ids).not.toContain('oldU');
+    expect(ids).toContain('p0');
+  });
+
+  test('list paginates through DynamoDB pages', async () => {
+    const { ctx, sent } = setup();
+    for (let i = 0; i < 7; i++) await saveUnplayed(ctx, 'hh1', spec(`u${i}`));
+    queryLimit = 2;
+    try { await handleArcade(ctx, 'tv', msg({ t: 'arcade.list', household: 'hh1' })); } finally { queryLimit = undefined; }
+    expect(last(sent).games).toHaveLength(7);
+  });
+
+  test('delete cannot reach another household', async () => {
+    const { db, ctx } = setup();
+    await saveUnplayed(ctx, 'hh2', spec('theirs'));
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.delete', household: 'hh2', specId: 'theirs' }));
+    await handleArcade(ctx, 'tv', msg({ t: 'arcade.delete', household: 'hh1', specId: 'theirs' }));
+    expect(db.items.has('HH#hh2|GAME#theirs')).toBe(true);
   });
 
   test('capped at 50, dropping the oldest unplayed', async () => {

@@ -7,7 +7,7 @@ import type { Ctx } from './rooms';
 /** Max games kept per household; the oldest unplayed / least recently played fall off. */
 export const ARCADE_CAP = 50;
 /** Max serialized size of {spec, art} accepted for one game. */
-export const MAX_GAME_BYTES = 300_000;
+export const MAX_GAME_BYTES = 100_000;
 /** arcade.game replies above this drop data: art (API GW caps server->client messages at 128 KB). */
 const MAX_REPLY_BYTES = 120_000;
 
@@ -30,6 +30,10 @@ const bad = (ctx: Ctx, conn: string, message: string) => post(ctx, conn, { t: 'e
 export function prepareGame(specIn: unknown, art: ArcadeArt | undefined): { spec: GameSpec; art: ArcadeArt | undefined } | string {
   const r = parseSpec(specIn);
   if (!r.ok) return `invalid spec: ${r.errors[0]}`;
+  // Art is https URLs only (data: images would bloat items and list reads; the art pipeline hosts images on S3/CloudFront).
+  // This also keeps every item far below DynamoDB's 400 KB limit, on create and on the art-update path alike.
+  const urls = [art?.keyArt, ...Object.values(art?.sprites ?? {})].filter((u): u is string => u !== undefined);
+  if (urls.some((u) => !isHttps(u))) return 'art must be https urls';
   if (Buffer.byteLength(JSON.stringify({ spec: r.spec, art: art ?? null })) > MAX_GAME_BYTES) return 'game too large';
   return { spec: r.spec, art };
 }
@@ -54,7 +58,7 @@ export async function putGame(
     if (isCondFail(e)) return false;
     throw e;
   }
-  await trim(ctx, household, spec.id).catch(() => {});
+  await trim(ctx, household, spec.id).catch((e) => console.warn('[arcade] trim failed', (e as Error)?.name, (e as Error)?.message));
   return true;
 }
 
@@ -80,12 +84,24 @@ async function lightItems(ctx: StoreCtx, household: string) {
 const sorted = (items: Record<string, any>[]) => [...items].sort((a, b) =>
   Number(!!a.unplayed) - Number(!!b.unplayed) || (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0) || (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
+/**
+ * Keep at most ARCADE_CAP games, counting `keepId` (the item just saved, never evicted). Over the cap,
+ * evict the oldest unplayed first, then the oldest played. (Reads stay light: art is https URLs only.)
+ */
+export function evictionOrder(items: Record<string, any>[], keepId: string, cap = ARCADE_CAP): string[] {
+  const over = items.length - cap;
+  if (over <= 0) return [];
+  const rest = items.filter((i) => i.sk !== sk(keepId));
+  const unplayed = rest.filter((i) => i.unplayed).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  const played = rest.filter((i) => !i.unplayed).sort((a, b) => (a.lastPlayed ?? 0) - (b.lastPlayed ?? 0));
+  return [...unplayed, ...played].slice(0, over).map((i) => i.sk as string);
+}
+
 async function trim(ctx: StoreCtx, household: string, keepId: string) {
-  const all = sorted(await lightItems(ctx, household));
-  const drop = all.slice(ARCADE_CAP).filter((i) => i.sk !== sk(keepId));
+  const drop = evictionOrder(await lightItems(ctx, household), keepId);
   for (let i = 0; i < drop.length; i += 25) {
     await ctx.ddb.send(new BatchWriteCommand({
-      RequestItems: { [ctx.table]: drop.slice(i, i + 25).map((d) => ({ DeleteRequest: { Key: { pk: pk(household), sk: d.sk } } })) },
+      RequestItems: { [ctx.table]: drop.slice(i, i + 25).map((d) => ({ DeleteRequest: { Key: { pk: pk(household), sk: d } } })) },
     }));
   }
 }
@@ -118,7 +134,7 @@ async function bump(ctx: StoreCtx, household: string, id: string): Promise<boole
 export async function markPlayed(ctx: StoreCtx, household: string, id: string, spec?: GameSpec, art?: ArcadeArt) {
   if (await bump(ctx, household, id)) return;
   if (!spec) return;
-  if (!(await putGame(ctx, household, { ...spec, id }, art, { played: true }))) await bump(ctx, household, id);
+  if (!(await putGame(ctx, household, spec, art, { played: true }))) await bump(ctx, household, id);
 }
 
 /** Forge hook: store a losing pitch's spec as an unplayed entry (never overwrites). */
@@ -159,7 +175,10 @@ export async function handleArcade(ctx: Ctx, conn: string, m: ArcadeMsg) {
   if (m.t === 'arcade.played' && m.spec === undefined) return void (await markPlayed(ctx, hh, m.specId));
   const p = prepareGame(m.spec, m.art);
   if (typeof p === 'string') return void (await bad(ctx, conn, p));
-  if (m.t === 'arcade.played') return void (await markPlayed(ctx, hh, m.specId, p.spec, p.art));
+  if (m.t === 'arcade.played') {
+    if (p.spec.id !== m.specId) return void (await bad(ctx, conn, 'specId does not match spec.id'));
+    return void (await markPlayed(ctx, hh, m.specId, p.spec, p.art));
+  }
   if (await putGame(ctx, hh, p.spec, p.art, { played: false })) return;
   // Already saved: refresh the art only.
   if (p.art) {
