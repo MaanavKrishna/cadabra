@@ -18,8 +18,8 @@
   "teams": 0,
   "durationSec": 90,
   "blocks": [
-    { "block": "sneak", "params": { "watcher": "bear", "noiseRadius": 220, "sleepCycleSec": 12, "tiptoeSpeedMul": 0.4 } },
-    { "block": "collect", "params": { "item": "ladoo", "count": 24, "respawnSec": 5, "points": 1 } }
+    { "block": "sneak", "params": { "guardSprite": "bear", "guardKind": "sleeper", "hearingRadius": 320, "tiptoeButton": "tiptoe", "tiptoeSpeedFactor": 0.4, "wakeDurationSec": 5 } },
+    { "block": "collect", "params": { "itemSprite": "ladoo", "maxItems": 24, "spawnEverySec": 1.5, "pointsPerItem": 1 } }
   ],
   "modifiers": [],
   "win": { "type": "highScore" },

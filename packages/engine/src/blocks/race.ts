@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { InputFrame } from '@cadabra/spec';
-import type { BlockCtx, BlockDef } from '../block';
+import type { BlockCtx, BlockDef, RequiredControl } from '../block';
 import type { Entity } from '../world';
 import { AVATAR_R, boostOf, clamp, isStunned, pressed, stateOf } from './util';
 
@@ -377,6 +377,19 @@ export const race: BlockDef<RaceParams> = {
   },
   controls: ['button', 'swipe', 'joystick'],
   arenaKinds: ['lanes'],
+  requiredControls: (p) => {
+    const out: RequiredControl[] = [
+      p.mashToRun
+        ? { kind: 'button', id: p.runButton, param: 'runButton', alt: [{ kind: 'hold', id: p.runButton }, { kind: 'swipe', id: '' }] }
+        : { kind: 'hold', id: p.runButton, param: 'runButton', alt: [{ kind: 'button', id: p.runButton }, { kind: 'joystick', id: '' }, { kind: 'tilt', id: '' }] },
+    ];
+    // obstacles need jumping
+    if (Math.round(p.obstacleDensity * 10) > 0) {
+      out.push({ kind: 'button', id: p.jumpButton, param: 'jumpButton', alt: [{ kind: 'hold', id: p.jumpButton }, { kind: 'swipe', id: '' }] });
+    }
+    if (p.relay) out.push({ kind: 'button', id: p.batonPassButton, param: 'batonPassButton', alt: [{ kind: 'hold', id: p.batonPassButton }] });
+    return out;
+  },
 
   setup(ctx) {
     const s = S(ctx);

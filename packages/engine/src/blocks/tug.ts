@@ -146,6 +146,11 @@ export const tug: BlockDef<TugParams> = {
   },
   controls: ['button', 'hold', 'swipe'],
   arenaKinds: ['tug'],
+  requiredControls: (p) => [
+    p.mode === 'hold'
+      ? { kind: 'hold', id: p.pullButton, param: 'pullButton', alt: [{ kind: 'button', id: p.pullButton }] }
+      : { kind: 'button', id: p.pullButton, param: 'pullButton', alt: [{ kind: 'hold', id: p.pullButton }, { kind: 'swipe', id: '' }] },
+  ],
 
   setup(ctx) {
     if (ctx.spec.teams !== 2) {

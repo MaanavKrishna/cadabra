@@ -159,6 +159,7 @@ export const drawJudge: BlockDef<DrawJudgeParams> = {
   },
   controls: ['draw'],
   arenaKinds: ['canvas'],
+  requiredControls: () => [{ kind: 'draw', id: '' }],
 
   setup(ctx) {
     const s = S(ctx);

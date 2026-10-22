@@ -192,6 +192,7 @@ export const trivia: BlockDef<TriviaParams> = {
   },
   controls: ['vote'],
   arenaKinds: ['quiz'],
+  requiredControls: () => [{ kind: 'vote', id: '' }],
 
   setup(ctx) {
     const s = S(ctx);

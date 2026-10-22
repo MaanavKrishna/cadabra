@@ -83,6 +83,8 @@ describe('playtest (brief)', () => {
     expect(r.ok).toBe(false);
     expect(r.stats.scoringPlayers).toBeLessThan(2);
     expect(has(r.reasons, 'scoringPlayers')).toBe(true);
+    // the reason names the culprit block and how many bots it knocked out
+    expect(has(r.reasons, 'scoringPlayers', 'dodge (', 'eliminations', '4 of 4 bots were eliminated')).toBe(true);
   });
 
   test('missing joystick widget for arena-move fails', () => {
@@ -159,6 +161,27 @@ describe('playtest (gate rules)', () => {
     const r = playtest({ ...heist, durationSec: 30 }, reg());
     expect(r.ok).toBe(false);
     expect(has(r.reasons, 'spec', 'durationSec')).toBe(true);
+  });
+
+  test('unknown or misspelt block params fail, listing the known names', () => {
+    const spec = makeSpec([{ block: 'sneak', params: { watcher: 'bear', tiptoeButton: 'tiptoe' } }], [
+      { kind: 'joystick', id: 'move' },
+      { kind: 'hold', id: 'tiptoe', label: 'Tiptoe' },
+    ]);
+    const r = playtest(spec, reg());
+    expect(r.ok).toBe(false);
+    expect(r.reasons).toHaveLength(1);
+    expect(r.reasons[0]).toMatch(/^unknown param "watcher" for block sneak \(known: guardSprite, guardKind, .*tiptoeButton.*\)$/);
+  });
+
+  test('a non-block constructor error is prefixed "runtime setup failed:"', () => {
+    let calls = 0;
+    // valid for playtest's static check, invalid when the runtime parses it again
+    const fickle = stub('fickle', { paramsSchema: z.object({}).refine(() => calls++ === 0, 'changed its mind') });
+    const r = playtest(makeSpec([{ block: 'collect', params: {} }, { block: 'fickle', params: {} }]), reg([fickle]));
+    expect(r.ok).toBe(false);
+    expect(r.reasons).toHaveLength(1);
+    expect(r.reasons[0]).toMatch(/^runtime setup failed: invalid params for block fickle/);
   });
 
   test('unknown block fails', () => {

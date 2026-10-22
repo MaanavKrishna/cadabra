@@ -184,6 +184,14 @@ describe('GameRuntime', () => {
     expect(() => makeRuntime(makeSpec({ blocks: [{ block: 'test-scorer', params: { points: 'x' } }] }))).toThrow(/test-scorer/);
   });
 
+  test('unknown param keys are rejected at construction and in applyParams (no silent strip)', () => {
+    expect(() => makeRuntime(makeSpec({ blocks: [{ block: 'test-scorer', params: { pointz: 2 } }] }))).toThrow(
+      /unknown param "pointz" for block test-scorer \(known: .*points.*\)/,
+    );
+    const rt = makeRuntime();
+    expect(() => rt.applyParams(0, { pointz: 2 })).toThrow(/unknown param "pointz"/);
+  });
+
   test('snapshot is a safe copy', () => {
     const rt = makeRuntime();
     stepN(rt, 1);

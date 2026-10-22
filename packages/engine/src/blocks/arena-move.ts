@@ -106,6 +106,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
   },
   controls: ['joystick', 'tilt', 'button'],
   arenaKinds: ['topdown'],
+  requiredControls: (p) => [{ kind: p.input, id: '', param: 'input' }],
 
   setup(ctx) {
     ensureAvatars(ctx as BlockCtx<unknown>, 'arena-move', AVATAR_R * ctx.params.avatarScale);

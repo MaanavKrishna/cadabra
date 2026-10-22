@@ -199,6 +199,7 @@ export const collect: BlockDef<CollectParams> = {
   },
   controls: ['joystick'],
   arenaKinds: ['topdown'],
+  requiredControls: () => [{ kind: 'joystick', id: '', alt: [{ kind: 'tilt', id: '' }] }],
 
   setup(ctx) {
     const s = S(ctx);

@@ -524,6 +524,7 @@ export const dodge: BlockDef<DodgeParams> = {
   },
   controls: ['joystick'],
   arenaKinds: ['topdown'],
+  requiredControls: () => [{ kind: 'joystick', id: '', alt: [{ kind: 'tilt', id: '' }] }],
 
   setup(ctx) {
     const s = S(ctx);

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { BlockUse, GameSpec, InputFrame } from '@cadabra/spec';
 import type { BlockCtx, BlockDef, JudgementKind, Player } from './block';
 import { FxQueue, type FxEvent, type GameEvent } from './fx';
@@ -45,7 +46,28 @@ interface ActiveBlock {
   ctx: BlockCtx<unknown>;
 }
 
-function parseParams(def: BlockDef, params: Record<string, unknown>): unknown {
+/** Param names a block accepts: its object schema's keys (else its defaults' keys). */
+export function paramKeys(def: BlockDef): string[] {
+  const schema = def.paramsSchema as unknown;
+  if (schema instanceof z.ZodObject) return Object.keys(schema.shape as object);
+  return Object.keys((def.defaults ?? {}) as object);
+}
+
+/**
+ * AI-readable errors for keys `params` sets that the block does not have (zod would strip
+ * them silently, so a misspelt param would play on its default).
+ */
+export function unknownParamErrors(def: BlockDef, params: Record<string, unknown>): string[] {
+  const known = paramKeys(def);
+  return Object.keys(params)
+    .filter((k) => !known.includes(k))
+    .map((k) => `unknown param "${k}" for block ${def.id} (known: ${known.join(', ')})`);
+}
+
+/** Validate a block's params strictly: unknown keys are errors, then the schema decides. */
+function parseParams(def: BlockDef, params: Record<string, unknown>, patch: Record<string, unknown> = params): unknown {
+  const unknown = unknownParamErrors(def, patch);
+  if (unknown.length > 0) throw new Error(unknown.join('; '));
   const r = def.paramsSchema.safeParse(params);
   if (!r.success) {
     const issues = r.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
@@ -96,7 +118,7 @@ export class GameRuntime {
     for (const use of uses) {
       const def = registry.get(use.block);
       if (!def) throw new Error(`unknown block: ${use.block}`);
-      const params = parseParams(def, { ...(def.defaults as object), ...use.params });
+      const params = parseParams(def, { ...(def.defaults as object), ...use.params }, use.params);
       const ab = { def, ctx: undefined as unknown as BlockCtx<unknown> };
       ab.ctx = this.makeCtx(params, ab);
       this.blocks.push(ab);
@@ -282,7 +304,7 @@ export class GameRuntime {
   applyParams(blockIndex: number, patch: Record<string, unknown>): void {
     const b = this.blocks[blockIndex];
     if (!b) throw new Error(`applyParams: no block at index ${blockIndex}`);
-    b.ctx.params = parseParams(b.def, { ...(b.ctx.params as object), ...patch });
+    b.ctx.params = parseParams(b.def, { ...(b.ctx.params as object), ...patch }, patch);
   }
 
   // ---------- internals ----------

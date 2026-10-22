@@ -45,13 +45,31 @@ export interface BlockCtx<P> {
   cancelJudgement(id: string): void;
 }
 
+/**
+ * A controller widget a block cannot be played without. `id` is the widget id the phone
+ * sends (buttons[id]); '' means any widget of that kind. `param` names the block param the
+ * requirement comes from. `alt` lists other widgets that would do instead (any one of them).
+ */
+export interface RequiredControl {
+  kind: ControlWidget['kind'];
+  id: string;
+  param?: string;
+  alt?: { kind: ControlWidget['kind']; id: string }[];
+}
+
 export interface BlockDef<P = any> {
   id: string;
   name: string;
   summary: string;
   paramsSchema: z.ZodType<P>;
   defaults: P;
+  /** Every widget kind the block understands (not all are required: see requiredControls). */
   controls: ControlWidget['kind'][];
+  /**
+   * The widgets this block needs for these params (playtest rejects specs without them).
+   * Absent: any one widget of a kind in `controls` will do.
+   */
+  requiredControls?(params: P): RequiredControl[];
   arenaKinds: GameSpec['arena']['kind'][];
   setup(ctx: BlockCtx<P>): void;
   update(ctx: BlockCtx<P>, dt: number): void;

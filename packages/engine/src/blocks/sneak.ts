@@ -233,6 +233,10 @@ export const sneak: BlockDef<SneakParams> = {
   },
   controls: ['joystick', 'hold', 'button'],
   arenaKinds: ['topdown'],
+  requiredControls: (p) => [
+    { kind: 'joystick', id: '', alt: [{ kind: 'tilt', id: '' }] },
+    { kind: 'hold', id: p.tiptoeButton, param: 'tiptoeButton', alt: [{ kind: 'button', id: p.tiptoeButton }] },
+  ],
 
   setup(ctx) {
     const s = S(ctx);

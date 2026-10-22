@@ -1,10 +1,10 @@
 import { parseSpec, type ControlWidget, type GameSpec } from '@cadabra/spec';
-import type { BlockDef } from './block';
+import type { BlockCtx, BlockDef, RequiredControl } from './block';
 import { driveBots, makeBots } from './bots';
 import { stubJudgement } from './judgements';
 import { BlockRegistry } from './registry';
 import { Rng } from './rng';
-import { GameRuntime, STEPS_PER_SEC } from './runtime';
+import { GameRuntime, STEPS_PER_SEC, unknownParamErrors } from './runtime';
 
 export interface PlaytestReport {
   ok: boolean;
@@ -27,72 +27,25 @@ export const MAX_WALL_MS = 3000;
 /** A round may not end before this fraction of durationSec unless its win type ends early by design. */
 export const MIN_END_FRACTION = 0.8;
 
-type Kind = ControlWidget['kind'];
-/** One way to satisfy a requirement: a widget of `kind` (with this id, if given). */
-interface Alt {
-  kind: Kind;
-  id?: string;
-}
-interface Need {
-  alts: Alt[];
-  why: string;
+/** Requirements for `def` with these params: its own requiredControls, else any widget of a kind in `controls`. */
+function requiredControls(def: BlockDef, params: unknown): RequiredControl[] {
+  if (def.requiredControls) return def.requiredControls(params);
+  const [first, ...rest] = def.controls;
+  if (!first) return [];
+  return [{ kind: first, id: '', alt: rest.map((kind) => ({ kind, id: '' })) }];
 }
 
-const MOVE: Alt[] = [{ kind: 'joystick' }, { kind: 'tilt' }];
-const named = (id: string, ...kinds: Kind[]): Alt[] => kinds.map((kind) => ({ kind, id }));
+const widget = (c: { kind: ControlWidget['kind']; id: string }) => `a ${c.kind} widget${c.id ? ` with id "${c.id}"` : ''}`;
 
-/**
- * Controller widgets each built-in block cannot be played without, given its params.
- * (BlockDef.controls lists every kind a block understands; this is the minimum it needs.)
- * Button-ish widgets match by id: the phone sends buttons[widget.id].
- */
-const REQUIRED: Record<string, (p: Record<string, unknown>) => Need[]> = {
-  'arena-move': (p) => [
-    p.input === 'tilt'
-      ? { alts: [{ kind: 'tilt' }], why: 'a tilt widget (params.input = "tilt")' }
-      : { alts: [{ kind: 'joystick' }], why: 'a joystick widget (params.input = "joystick")' },
-  ],
-  collect: () => [{ alts: MOVE, why: 'a joystick or tilt widget to move' }],
-  dodge: () => [{ alts: MOVE, why: 'a joystick or tilt widget to move' }],
-  sneak: (p) => [
-    { alts: MOVE, why: 'a joystick or tilt widget to move' },
-    { alts: named(String(p.tiptoeButton), 'hold', 'button'), why: `a hold or button widget with id "${String(p.tiptoeButton)}" (params.tiptoeButton)` },
-  ],
-  race: (p) => {
-    const run = String(p.runButton);
-    const out: Need[] = [
-      p.mashToRun
-        ? { alts: [...named(run, 'button', 'hold'), { kind: 'swipe' }], why: `a button widget with id "${run}" (params.runButton) or a swipe widget to run` }
-        : { alts: [...named(run, 'hold', 'button'), ...MOVE], why: `a hold widget with id "${run}" (params.runButton) or a joystick/tilt widget to run` },
-    ];
-    if (Math.round(Number(p.obstacleDensity) * 10) > 0) {
-      const jump = String(p.jumpButton);
-      out.push({ alts: [...named(jump, 'button', 'hold'), { kind: 'swipe' }], why: `a button widget with id "${jump}" (params.jumpButton) or a swipe widget to jump obstacles` });
-    }
-    if (p.relay) {
-      const pass = String(p.batonPassButton);
-      out.push({ alts: named(pass, 'button', 'hold'), why: `a button widget with id "${pass}" (params.batonPassButton) for relay handoffs` });
-    }
-    return out;
-  },
-  tug: (p) => {
-    const pull = String(p.pullButton);
-    return [
-      p.mode === 'hold'
-        ? { alts: named(pull, 'hold', 'button'), why: `a hold widget with id "${pull}" (params.pullButton)` }
-        : { alts: [...named(pull, 'button', 'hold'), { kind: 'swipe' }], why: `a button widget with id "${pull}" (params.pullButton) or a swipe widget to pull` },
-    ];
-  },
-  'draw-judge': () => [{ alts: [{ kind: 'draw' }], why: 'a draw widget' }],
-  trivia: () => [{ alts: [{ kind: 'vote' }], why: 'a vote widget' }],
-};
+/** "a hold widget with id "tiptoe" (params.tiptoeButton) or a button widget with id "tiptoe"" */
+function describeNeed(c: RequiredControl): string {
+  const main = `${widget(c)}${c.param ? ` (params.${c.param})` : ''}`;
+  return [main, ...(c.alt ?? []).map(widget)].join(' or ');
+}
 
-function requiredControls(def: BlockDef, params: Record<string, unknown>): Need[] {
-  const known = REQUIRED[def.id];
-  if (known) return known(params);
-  // custom blocks: at least one widget of a kind the block understands
-  if (def.controls.length === 0) return [];
-  return [{ alts: def.controls.map((kind) => ({ kind })), why: `one of: ${def.controls.join(', ')}` }];
+function satisfied(c: RequiredControl, controller: ControlWidget[]): boolean {
+  const alts = [{ kind: c.kind, id: c.id }, ...(c.alt ?? [])];
+  return controller.some((w) => alts.some((a) => a.kind === w.kind && (a.id === '' || a.id === w.id)));
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -100,11 +53,38 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 class BlockFault extends Error {}
 
 /** Copy of `def` whose hooks rethrow with the block id, hook and sim time attached. */
-function attributed(def: BlockDef): BlockDef {
+/** Per block: points taken away and players eliminated during the round. */
+type Blame = Map<string, { penalties: number; eliminations: number }>;
+
+/**
+ * Copy of `def` whose hooks rethrow with the block id, hook and sim time attached, and
+ * whose ctx records the penalties and eliminations the block hands out (into `blame`).
+ */
+function attributed(def: BlockDef, blame: Blame): BlockDef {
+  const tracked = new WeakSet<object>();
+  const track = (ctx: BlockCtx<unknown>) => {
+    if (tracked.has(ctx)) return;
+    tracked.add(ctx);
+    const entry = () => {
+      let e = blame.get(def.id);
+      if (!e) blame.set(def.id, (e = { penalties: 0, eliminations: 0 }));
+      return e;
+    };
+    const { score, eliminate } = ctx;
+    ctx.score = (id, delta, reason) => {
+      if (delta < 0) entry().penalties++;
+      score(id, delta, reason);
+    };
+    ctx.eliminate = (id) => {
+      entry().eliminations++;
+      eliminate(id);
+    };
+  };
   const wrap = <F extends (...a: any[]) => any>(hook: string, f: F | undefined): F | undefined => {
     if (!f) return undefined;
     return ((...a: any[]) => {
       try {
+        track(a[0] as BlockCtx<unknown>);
         return f(...a);
       } catch (e) {
         if (e instanceof BlockFault) throw e;
@@ -161,6 +141,7 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
 
   let runnable = true;
   const local = new BlockRegistry();
+  const blame: Blame = new Map();
   for (const use of [...s.blocks, ...s.modifiers]) {
     const def = registry.get(use.block);
     if (!def) {
@@ -168,9 +149,15 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
       runnable = false;
       continue;
     }
-    if (!local.get(def.id)) local.register(attributed(def));
+    if (!local.get(def.id)) local.register(attributed(def, blame));
     if (!def.arenaKinds.includes(s.arena.kind)) {
       reasons.push(`block ${def.id} does not support arena kind "${s.arena.kind}" (supports: ${def.arenaKinds.join(', ')})`);
+    }
+    const unknown = unknownParamErrors(def, use.params);
+    if (unknown.length > 0) {
+      reasons.push(...unknown);
+      runnable = false;
+      continue;
     }
     const r = def.paramsSchema.safeParse({ ...(def.defaults as object), ...use.params });
     if (!r.success) {
@@ -179,9 +166,8 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
       runnable = false;
       continue;
     }
-    for (const need of requiredControls(def, r.data as Record<string, unknown>)) {
-      const met = s.controller.some((w) => need.alts.some((a) => a.kind === w.kind && (a.id === undefined || a.id === w.id)));
-      if (!met) reasons.push(`missing controller widget for ${def.id}: needs ${need.why}`);
+    for (const need of requiredControls(def, r.data)) {
+      if (!satisfied(need, s.controller)) reasons.push(`missing controller widget for ${def.id}: needs ${describeNeed(need)}`);
     }
   }
   if (!runnable) return done();
@@ -194,7 +180,7 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
     rt = new GameRuntime(s, bots, local, seed);
   } catch (e) {
     stats.msWall = now() - t0;
-    reasons.push(message(e));
+    reasons.push(e instanceof BlockFault ? e.message : `runtime setup failed: ${message(e)}`);
     return done();
   }
 
@@ -212,6 +198,7 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
         break;
       }
     }
+    stats.scoringPlayers = rt.result().ranking.filter((p) => p.score > 0).length;
   } catch (e) {
     crashed = true;
     reasons.push(e instanceof BlockFault ? e.message : `exception at t=${rt.time.toFixed(2)}s: ${message(e)}`);
@@ -219,7 +206,6 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
   stats.msWall = now() - t0;
   stats.endedAtSec = rt.time;
   stats.events = rt.events.length;
-  stats.scoringPlayers = rt.result().ranking.filter((p) => p.score > 0).length;
 
   if (stats.msWall > MAX_WALL_MS || timedOut) {
     reasons.push(`wall time ${Math.round(stats.msWall)} ms > ${MAX_WALL_MS} ms: the round is too heavy to simulate (fewer entities or lower spawn rates)`);
@@ -229,7 +215,12 @@ export function playtest(spec: GameSpec, registry: BlockRegistry, opts: Playtest
   }
   if (crashed || timedOut) return done();
   if (stats.scoringPlayers < 2) {
-    reasons.push(`scoringPlayers ${stats.scoringPlayers} < 2: only ${stats.scoringPlayers} of ${n} bots scored; make scoring reachable (easier hazards, more points sources)`);
+    const eliminated = rt.events.filter((e) => e.type === 'eliminated').length;
+    const harsh = [...blame].map(([id, b]) => `${id} (${b.penalties} penalties, ${b.eliminations} eliminations)`);
+    reasons.push(
+      `scoringPlayers ${stats.scoringPlayers} < 2: only ${stats.scoringPlayers} of ${n} bots scored; ${eliminated} of ${n} bots were eliminated; ` +
+        `blocks that penalised or eliminated: ${harsh.length ? harsh.join(', ') : 'none'}; make scoring reachable (easier hazards, smaller penalties, more points sources)`,
+    );
   }
   const early = s.win.type !== 'lastStanding' && s.win.type !== 'firstTo';
   if (early && stats.endedAtSec < s.durationSec * MIN_END_FRACTION) {
