@@ -5,3 +5,6 @@ export { themeVars, hexToNum, playerColor, UI_FONT, DISPLAY_FONT } from './theme
 export { DEFAULT_SPRITES, AVATAR_ART, resolveSprite, avatarArtFor, fallbackShape, type SpriteSource } from './sprites';
 export { DEFAULT_ART_URLS } from './assets';
 export { telegraphState, guardVisual, avatarFx, lerpPos } from './visual';
+export { AvatarAnim, HitStop, advanceAccumulator, depthCompare, depthKey, hitStopFor, type Motion } from './anim';
+export { CameraRig, ZOOM_MAX } from './camera';
+export { easeOutBack, easeInBack, easeOutElastic, easeInOutSine, easeOutCubic, springStep, type Spring } from './ease';

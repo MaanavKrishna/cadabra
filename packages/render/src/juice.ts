@@ -122,16 +122,22 @@ export class JuiceState {
     }
   }
 
-  /** Pixel offset (and tiny roll) for the shaken stage. */
-  shakeOffset(t: number): { x: number; y: number; rot: number } {
+  /** Pixel offset (and tiny roll) for the shaken stage; pass `out` to avoid allocating. */
+  shakeOffset(t: number, out: { x: number; y: number; rot: number } = { x: 0, y: 0, rot: 0 }): { x: number; y: number; rot: number } {
     const k = this.trauma * this.trauma;
-    if (k === 0) return { x: 0, y: 0, rot: 0 };
+    if (k === 0) {
+      out.x = out.y = out.rot = 0;
+      return out;
+    }
     // cheap smooth noise from incommensurate sines
     const s = this.seed;
     const n1 = Math.sin(t * 47 + s) * 0.6 + Math.sin(t * 83 + s * 2) * 0.4;
     const n2 = Math.sin(t * 53 + s * 3) * 0.6 + Math.sin(t * 97 + s * 5) * 0.4;
     const n3 = Math.sin(t * 61 + s * 7);
-    return { x: (n1 || 0.5) * 18 * k, y: (n2 || 0.5) * 14 * k, rot: n3 * 0.012 * k };
+    out.x = (n1 || 0.5) * 18 * k;
+    out.y = (n2 || 0.5) * 14 * k;
+    out.rot = n3 * 0.012 * k;
+    return out;
   }
 }
 

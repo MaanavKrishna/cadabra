@@ -43,6 +43,7 @@ export class Container {
   scale = new Point();
   anchor = new Point();
   pivot = new Point();
+  skew = new Point();
   visible = true;
   alpha = 1;
   rotation = 0;

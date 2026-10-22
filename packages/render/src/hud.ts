@@ -1,5 +1,6 @@
 import { Container, Graphics, Sprite, type Text, type Texture } from 'pixi.js';
 import type { Player } from '@cadabra/engine';
+import { easeOutBack } from './ease';
 import { label } from './entities';
 import { TEAM_COLORS, darken, hexToNum, lighten, playerColor, type Palette } from './theme';
 
@@ -13,6 +14,9 @@ interface Chip {
   x: number;
   shown: number;
   bumpAt: number;
+  born: number;
+  /** A flown-in score popup landed: a bigger bump. */
+  hitAt: number;
   lead?: boolean;
   w?: number;
   fitKey?: string | undefined;
@@ -23,10 +27,6 @@ const SAFE_X = 64; // 5% title-safe of 1280
 const SAFE_Y = 36; // 5% of 720
 const CHIP_H = 56;
 
-function easeOutBack(t: number): number {
-  const k = Math.max(0, Math.min(1, t)) - 1;
-  return 1 + k * k * (2.7 * k + 1.7);
-}
 
 /** Timer, score chips and the snapshot banner. Steady (never shaken), title-safe. */
 export class Hud {
@@ -127,7 +127,7 @@ export class Hud {
         score.anchor.set(1, 0.5);
         root.addChild(bg, avatar, name, score);
         this.root.addChild(root);
-        c = { id: p.id, root, bg, avatar, name, score, x: this.W / 2, shown: p.score, bumpAt: -9 };
+        c = { id: p.id, root, bg, avatar, name, score, x: this.W / 2, shown: p.score, bumpAt: -9, born: vt, hitAt: -9 };
         this.chips.set(p.id, c);
       }
       const color = p.team !== undefined ? TEAM_COLORS[p.team] : playerColor(idx, this.palette);
@@ -168,7 +168,13 @@ export class Hud {
       c.name.visible = w >= 110;
       const target = (this.W - total) / 2 + order.indexOf(p) * (w + gap);
       c.x += (target - c.x) * 0.18;
-      c.root.position.set(c.x, y);
+      // chips rise in with a little overshoot, staggered left to right
+      const rise = easeOutBack((vt - c.born - idx * 0.06) / 0.45);
+      const hb = vt - c.hitAt;
+      const hit = hb < 0.3 ? 1 + 0.12 * Math.sin((hb / 0.3) * Math.PI) : 1;
+      c.root.pivot.set(w / 2, CHIP_H / 2);
+      c.root.position.set(c.x + w / 2, y + CHIP_H / 2 + (1 - rise) * 80);
+      c.root.scale.set(hit);
       const b = vt - c.bumpAt;
       const bump = b < 0.35 ? 1 + 0.35 * Math.sin((b / 0.35) * Math.PI) : 1;
       c.score.scale.set(bump);
@@ -219,6 +225,21 @@ export class Hud {
         this.bannerOutAt = -9;
       }
     } else this.bannerRoot.alpha = 1;
+  }
+
+  /** Screen centre of a player's chip (where big score popups fly); false if none. */
+  chipCenter(id: string, out: { x: number; y: number }): boolean {
+    const c = this.chips.get(id);
+    if (!c || c.w === undefined) return false;
+    out.x = c.x + c.w / 2;
+    out.y = this.H - SAFE_Y - CHIP_H / 2;
+    return true;
+  }
+
+  /** A popup reached this player's chip: punch it. */
+  bump(id: string, vt: number): void {
+    const c = this.chips.get(id);
+    if (c) c.hitAt = vt;
   }
 
   /** Forget the current game's chips and banner (new game). */

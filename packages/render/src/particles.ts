@@ -21,6 +21,24 @@ interface Live {
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
+/** Options for a single custom particle. Reuse one object per caller (no per-call literal). */
+export interface OneOpts {
+  vx?: number;
+  vy?: number;
+  life?: number;
+  s0?: number;
+  grow?: number;
+  spin?: number;
+  gravity?: number;
+  drag?: number;
+  a0?: number;
+  tint?: number;
+  add?: boolean;
+  rot?: number;
+  /** Height / width of the particle (thin streaks); default 1. */
+  aspect?: number;
+}
+
 /**
  * Two ParticleContainers (normal + additive) over one atlas texture, fed from a fixed pool
  * and gated by FxBudget so a burst storm can never sink the frame rate.
@@ -31,6 +49,8 @@ export class ParticleSystem {
   private additive: ParticleContainer;
   private live: Live[] = [];
   private pool: Particle[] = [];
+  /** Spent Live records, reused so steady emission does not allocate. */
+  private spare: Live[] = [];
   private palette: Palette = { bg: '#101030', primary: '#4cc9f0', accent: '#f72585', glow: '#ffd166', text: '#ffffff' };
 
   constructor(private readonly store: TextureStore, readonly budget: FxBudget) {
@@ -66,23 +86,39 @@ export class ParticleSystem {
   }
 
   /** A single custom particle (trails, embers, motes). */
-  one(tex: ParticleTex, x: number, y: number, o: Partial<Omit<Live, 'p' | 'add' | 'age'>> & { tint?: number; add?: boolean; rot?: number }): void {
-    if (this.budget.request(1) === 0) return;
+  one(tex: ParticleTex, x: number, y: number, o: OneOpts): boolean {
+    if (this.budget.request(1) === 0) return false;
     const p = this.take(tex);
     p.x = x;
     p.y = y;
     p.rotation = o.rot ?? 0;
     p.tint = o.tint ?? 0xffffff;
     const s0 = o.s0 ?? 0.5;
-    p.scaleX = p.scaleY = s0;
+    p.scaleX = s0;
+    p.scaleY = s0 * (o.aspect ?? 1);
     const a0 = o.a0 ?? 1;
     p.alpha = a0;
     const add = o.add ?? true;
     (add ? this.additive : this.normal).addParticle(p);
-    this.live.push({
-      p, add, vx: o.vx ?? 0, vy: o.vy ?? 0, age: 0, life: o.life ?? 0.5, s0, grow: o.grow ?? 0, spin: o.spin ?? 0,
-      gravity: o.gravity ?? 0, drag: o.drag ?? 0, a0,
-    });
+    this.track(p, add, o.vx ?? 0, o.vy ?? 0, o.life ?? 0.5, s0, o.grow ?? 0, o.spin ?? 0, o.gravity ?? 0, o.drag ?? 0, a0);
+    return true;
+  }
+
+  private track(p: Particle, add: boolean, vx: number, vy: number, life: number, s0: number, grow: number, spin: number, gravity: number, drag: number, a0: number): void {
+    const o = this.spare.pop() ?? ({} as Live);
+    o.p = p;
+    o.add = add;
+    o.vx = vx;
+    o.vy = vy;
+    o.age = 0;
+    o.life = life;
+    o.s0 = s0;
+    o.grow = grow;
+    o.spin = spin;
+    o.gravity = gravity;
+    o.drag = drag;
+    o.a0 = a0;
+    this.live.push(o);
   }
 
   private take(tex: ParticleTex): Particle {
@@ -109,10 +145,7 @@ export class ParticleSystem {
     p.alpha = a0;
     const add = P.additive === true;
     (add ? this.additive : this.normal).addParticle(p);
-    this.live.push({
-      p, add, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, age: 0, life: rand(P.life[0], P.life[1]), s0,
-      grow: P.grow, spin: (Math.random() - 0.5) * 2 * P.spin, gravity: P.gravity, drag: P.drag, a0,
-    });
+    this.track(p, add, Math.cos(a) * sp, Math.sin(a) * sp, rand(P.life[0], P.life[1]), s0, P.grow, (Math.random() - 0.5) * 2 * P.spin, P.gravity, P.drag, a0);
   }
 
   update(dt: number): void {
@@ -125,6 +158,7 @@ export class ParticleSystem {
       if (k >= 1) {
         (o.add ? this.additive : this.normal).removeParticle(o.p);
         this.pool.push(o.p);
+        this.spare.push(o);
         L[i] = L[L.length - 1]!;
         L.pop();
         dead++;

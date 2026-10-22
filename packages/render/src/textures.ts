@@ -331,6 +331,7 @@ export class TextureStore {
   private loading = new Map<string, Promise<Texture | null>>();
   private failed = new Set<string>();
   private shapes = new Map<string, Texture>();
+  private cones = new Map<number, Texture>();
   /** Cache ids loaded for the current theme's generated art (evicted on the next theme). */
   private themeOwned = new Set<string>();
   private destroyed = false;
@@ -385,6 +386,34 @@ export class TextureStore {
     if (!t) {
       t = Texture.from(drawShape(shape, hexToNum(color), hexToNum(accent)));
       this.shapes.set(k, t);
+    }
+    return t;
+  }
+
+  /**
+   * Soft vision-cone wedge (apex at the left-middle, pointing +x, radius 256 px) with a
+   * radial falloff and blurred edges; white, tinted per use. Cached per whole degree.
+   */
+  cone(halfDeg: number): Texture {
+    const k = Math.max(5, Math.min(85, Math.round(halfDeg)));
+    let t = this.cones.get(k);
+    if (!t) {
+      const R = 256, c = canvas(R, R * 2), g = c.getContext('2d')!;
+      const half = (k * Math.PI) / 180;
+      g.filter = 'blur(5px)';
+      const gr = g.createRadialGradient(0, R, 0, 0, R, R - 8);
+      gr.addColorStop(0, 'rgba(255,255,255,0.75)');
+      gr.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+      gr.addColorStop(0.85, 'rgba(255,255,255,0.18)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(0, R);
+      g.arc(0, R, R - 8, -half, half);
+      g.closePath();
+      g.fill();
+      t = Texture.from(c);
+      this.cones.set(k, t);
     }
     return t;
   }
@@ -446,7 +475,8 @@ export class TextureStore {
     if (src.type === 'shape') return this.shape(src.shape, src.color, src.accent);
     const t = this.art.get(TextureStore.id(src.url, ART_MAX));
     if (t) return t;
-    void this.load(src.url, ART_MAX, src.key.startsWith('art:'));
+    // generated art and player avatar URLs belong to the current theme (evicted on the next)
+    void this.load(src.url, ART_MAX, src.key.startsWith('art:') || src.key.startsWith('avatar-url:'));
     return this.shape(fallback.shape, fallback.color, fallback.accent);
   }
 
@@ -454,6 +484,8 @@ export class TextureStore {
     this.destroyed = true;
     for (const t of this.art.values()) t.destroy(true);
     for (const t of this.shapes.values()) t.destroy(true);
+    for (const t of this.cones.values()) t.destroy(true);
+    this.cones.clear();
     for (const t of Object.values(this.cells)) t.destroy(false);
     this.atlasTex.destroy(true);
     this.art.clear();

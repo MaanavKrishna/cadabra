@@ -105,3 +105,58 @@ describe('entity views are pooled', () => {
     expect(layer.stats).toEqual({ created: 2, reused: 0 });
   });
 });
+
+describe('avatar URL textures are theme-owned', () => {
+  test('a player avatar url is evicted (and freed) on the next theme', async () => {
+    const store = new TextureStore({ loadImage: async () => ({ naturalWidth: 64, naturalHeight: 64 }) as Img });
+    const url = 'https://cdn/avatars/p1.png';
+    const src = resolveSprite('avatar:p1', { art: {}, defaults: {}, palette, avatar: url });
+    expect(src.type === 'url' && src.key).toBe(`avatar-url:${url}`);
+    const fb = { type: 'shape', shape: 'blob', color: '#fff', accent: '#000' } as const;
+    store.beginTheme([]);
+    store.get(src, fb); // kicks off the load
+    await tick();
+    await tick();
+    const t = store.loaded(url)!;
+    expect(t).toBeDefined();
+    store.beginTheme([]);
+    expect(store.loaded(url)).toBeUndefined();
+    expect((t as unknown as { destroyed: boolean }).destroyed).toBe(true);
+  });
+});
+
+describe('8b effects stay within their caps', () => {
+  const ctxAt = (vt: number, degraded = false): FrameCtx => ({
+    palette, art: {}, defaults: {}, players: new Map(), playerIndex: new Map(), time: vt, vt, dt: 1 / 60, degraded,
+  });
+  const runner = (id: number, x: number, props: Entity['props'] = {}): Entity => ({
+    id, kind: 'player', x, y: 300, vx: 0, vy: 0, r: 22, sprite: `avatar:p${id}`, owner: `p${id}`, tags: new Set(), props,
+  });
+  const particles = { emit: () => 0, one: () => true, budget: { active: 0, cap: 250 } };
+
+  test('a dashing player leaves at most 4 afterimages; none when degraded', () => {
+    const store = new TextureStore({ loadImage: async () => ({ naturalWidth: 64, naturalHeight: 64 }) as Img });
+    const layer = new EntityLayer(store, particles as never, 1280, 720);
+    const pos = (e: Entity) => e;
+    let max = 0;
+    for (let f = 0; f < 90; f++) {
+      layer.sync([runner(1, 100 + f * 14, { dashing: true }), runner(2, 900 - f * 14, { dashing: true })], pos, ctxAt(f / 60));
+      max = Math.max(max, layer.trailCount);
+    }
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThanOrEqual(8); // 2 dashers x 4
+    const lazy = new EntityLayer(store, particles as never, 1280, 720);
+    for (let f = 0; f < 60; f++) lazy.sync([runner(1, 100 + f * 14, { dashing: true })], pos, ctxAt(f / 60, true));
+    expect(lazy.trailCount).toBe(0);
+  });
+
+  test('a stunned player shows three orbiting stars, hidden again after', () => {
+    const store = new TextureStore({ loadImage: async () => ({ naturalWidth: 64, naturalHeight: 64 }) as Img });
+    const layer = new EntityLayer(store, particles as never, 1280, 720);
+    const pos = (e: Entity) => e;
+    layer.sync([runner(1, 300, { stunUntil: 1 })], pos, ctxAt(0.5));
+    expect(layer.starsOf(1)).toBe(3);
+    layer.sync([runner(1, 300, { stunUntil: 1 })], pos, ctxAt(1.5));
+    expect(layer.starsOf(1)).toBe(0);
+  });
+});

@@ -1,7 +1,11 @@
-import { Application, Container, FillGradient, Graphics, Sprite, Texture, TilingSprite, type Text } from 'pixi.js';
+import { Application, Container, FillGradient, Graphics, Point, Sprite, Texture, TilingSprite, type Text } from 'pixi.js';
 import type { Entity, FxEvent, GameRuntime, Player } from '@cadabra/engine';
 import type { Theme } from '@cadabra/spec';
+import { Ambience } from './ambience';
+import { HitStop, hitStopFor } from './anim';
 import { DEFAULT_ART_URLS } from './assets';
+import { CameraRig, capShake } from './camera';
+import { arch, easeInOutSine, easeOutBack, easeOutCubic } from './ease';
 import { EntityLayer, label, type FrameCtx } from './entities';
 import { Hud } from './hud';
 import { FxBudget, JuiceState, MAX_PARTICLES } from './juice';
@@ -27,6 +31,10 @@ export interface GameViewOpts {
 const SIM_DT = 1 / 60;
 const PRELOAD_MS = 4000;
 const SHAKE_PAD = 40;
+/** Shake never moves the picture more than this (px). */
+const SHAKE_CAP = 16;
+/** Score jumps of at least this fly up to the HUD chip. */
+const BIG_SCORE = 2;
 
 const DEFAULT_PALETTE: Palette = { bg: '#14102b', primary: '#4cc9f0', accent: '#f72585', glow: '#ffd166', text: '#ffffff' };
 
@@ -70,15 +78,23 @@ function vignetteTexture(): Texture {
 interface Float {
   t: Text;
   at: number;
+  /** Start position, screen px. */
   x: number;
   y: number;
+  /** Player whose HUD chip this popup flies to ('' = just rise and fade). */
+  pid: string;
 }
 
 /**
  * Draws GameRuntime snapshots with PixiJS. Pixi's own ticker paints every display frame;
  * `render()` hands over the newest snapshot (+ fx) and the host loop's interpolation alpha.
- * Contract for the host loop: multiply real frame dt by `timeScale` before feeding the
- * fixed-step accumulator; that is how slow-mo works while the sim stays fixed-step.
+ *
+ * Host-loop contract (the sim always steps by its fixed DT):
+ * - slow-mo: multiply real frame dt by `timeScale` before adding it to the accumulator;
+ * - hit-stop: while `hitStopMs > 0`, do not add to the accumulator at all (the picture holds
+ *   for 50–80 ms on big hits while shake and flash play on).
+ * i.e. `acc = advanceAccumulator(acc, dt, view.timeScale, view.hitStopMs)`, or by hand:
+ * `if (view.hitStopMs <= 0) acc += dt * view.timeScale`.
  */
 export class GameView {
   readonly ready: Promise<void>;
@@ -103,10 +119,27 @@ export class GameView {
   private bg = new Container();
   private bgGrad = new Graphics();
   private floor?: TilingSprite | Sprite;
-  private floorShade = new Graphics();
+  private ambience!: Ambience;
   private blobs: Sprite[] = [];
   private floats: Float[] = [];
-  private floatLayer = new Container();
+  /** Score popups live in screen space so big ones can fly to the HUD. */
+  private popLayer = new Container();
+  private hitStop = new HitStop();
+  private cam: CameraRig;
+  private rt = 0;
+  // scratch (no per-frame allocation)
+  private readonly shakeO = { x: 0, y: 0, rot: 0 };
+  private readonly driftO = { x: 0, y: 0 };
+  private readonly tmpA = new Point();
+  private readonly tmpB = new Point();
+  private readonly tmpC = { x: 0, y: 0 };
+  private readonly playersM = new Map<string, Player>();
+  private readonly indexM = new Map<string, number>();
+  private ctx?: FrameCtx;
+  /** Last fx location (screen px) and when: big moments zoom toward it. */
+  private fxX = 0;
+  private fxY = 0;
+  private fxAt = -9;
   private vignette!: Sprite;
   private finaleGlow!: Sprite;
   private flash!: Sprite;
@@ -131,6 +164,7 @@ export class GameView {
     this.arenaW = opts.arena?.width ?? this.W;
     this.arenaH = opts.arena?.height ?? this.H;
     this.showHud = opts.hud !== false;
+    this.cam = new CameraRig(this.W, this.H);
     this.ready = this.init(canvasParent);
   }
 
@@ -155,7 +189,8 @@ export class GameView {
     this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH);
     this.hud = new Hud(this.W, this.H);
 
-    this.bg.addChild(this.bgGrad, this.floorShade);
+    this.ambience = new Ambience(this.store.cell('glow'), this.W, this.H, SHAKE_PAD);
+    this.bg.addChild(this.bgGrad, this.ambience.light);
     for (let i = 0; i < 3; i++) {
       const s = new Sprite(this.store.cell('glow'));
       s.anchor.set(0.5);
@@ -163,7 +198,9 @@ export class GameView {
       this.blobs.push(s);
       this.bg.addChild(s);
     }
-    this.world.addChild(this.entities.floor, this.entities.bodies, this.particles.view, this.entities.overlay, this.floatLayer);
+    this.bg.addChild(this.ambience.motes);
+    const en = this.entities;
+    this.world.addChild(en.floor, en.glows, en.trails, en.bodies, this.particles.view, en.overlay);
     this.shaker.addChild(this.bg, this.world);
     const vt = vignetteTexture();
     this.vignetteTex = vt;
@@ -180,7 +217,7 @@ export class GameView {
       v.width = this.W;
       v.height = this.H;
     }
-    this.app.stage.addChild(this.shaker, this.vignette, this.finaleGlow, this.flash);
+    this.app.stage.addChild(this.shaker, this.vignette, this.finaleGlow, this.flash, this.popLayer);
     if (this.showHud) this.app.stage.addChild(this.hud.root);
     this.layout();
     this.applyPalette();
@@ -202,8 +239,6 @@ export class GameView {
     const k = Math.min(this.W / this.arenaW, this.H / this.arenaH);
     this.world.scale.set(k);
     this.world.position.set((this.W - this.arenaW * k) / 2, (this.H - this.arenaH * k) / 2);
-    this.shaker.pivot.set(this.W / 2, this.H / 2);
-    this.shaker.position.set(this.W / 2, this.H / 2);
   }
 
   /**
@@ -301,8 +336,8 @@ export class GameView {
     this.grad = grad;
     // floors are toned into the palette so sprites always read on top
     if (this.floor) this.floor.tint = mix(0xffffff, lighten(bg, 0.2), 0.5);
-    this.floorShade.clear();
-    if (this.floor) this.floorShade.rect(-SHAKE_PAD, -SHAKE_PAD, this.W + SHAKE_PAD * 2, this.H + SHAKE_PAD * 2).fill({ color: darken(bg, 0.3), alpha: 0.52 });
+    // lit floor: vignette + palette-tinted light pool, baked once per palette
+    this.ambience.setPalette(p, this.floor !== undefined);
     const cols = [hexToNum(p.primary), hexToNum(p.accent), hexToNum(p.glow)];
     this.blobs.forEach((b, i) => {
       b.tint = cols[i]!;
@@ -333,6 +368,10 @@ export class GameView {
       case 'particles': {
         const n = this.particles.emit(e.preset, e.x, e.y);
         if (e.preset === 'confetti' && n > 0) this.particles.emit('sparkle', e.x, e.y, 0.5);
+        this.toScreen(e.x, e.y, this.tmpC);
+        this.fxX = this.tmpC.x;
+        this.fxY = this.tmpC.y;
+        this.fxAt = this.rt;
         break;
       }
       case 'sfx':
@@ -340,45 +379,87 @@ export class GameView {
         break;
       case 'banner':
         break;
+      case 'shake': {
+        this.juice.apply(e);
+        // big hits freeze the picture for a beat and punch the camera in toward them
+        const stop = hitStopFor(e.strength);
+        if (stop > 0) {
+          this.hitStop.trigger(stop);
+          const near = this.rt - this.fxAt < 0.25;
+          this.cam.punch(0.025 + 0.035 * Math.min(1, e.strength), near ? this.fxX : this.W / 2, near ? this.fxY : this.H / 2, 0.55);
+        }
+        break;
+      }
       default:
         this.juice.apply(e);
     }
   }
 
-  /** "+N" pops over avatars when scores go up. */
+  /** Arena coords -> screen px (ignores the camera's few-% zoom; fine for aiming). */
+  private toScreen(x: number, y: number, out: { x: number; y: number }): void {
+    out.x = this.world.x + x * this.world.scale.x;
+    out.y = this.world.y + y * this.world.scale.y;
+  }
+
+  /** "+N" pops over avatars (and a happy hop) when scores go up; big ones fly to the HUD. */
   private scoreJuice(snap: Snapshot): void {
     for (const p of snap.players) {
       const before = this.scores.get(p.id);
       this.scores.set(p.id, p.score);
       if (before === undefined || p.score === before) continue;
-      const av = snap.entities.find((e) => e.kind === 'player' && e.owner === p.id);
+      let av: Entity | undefined;
+      for (const e of snap.entities) {
+        if ((e.kind === 'player' || e.kind === 'runner') && e.owner === p.id) {
+          av = e;
+          break;
+        }
+      }
       const d = p.score - before;
-      const x = av?.x ?? this.arenaW / 2, y = (av?.y ?? this.arenaH / 2) - (av ? av.r * 3.2 : 0);
-      this.spawnFloat(d > 0 ? `+${d}` : `${d}`, d > 0 ? hexToNum(this.palette.glow) : 0xff6b6b, x, y);
+      const head = this.tmpA;
+      if (av && d > 0) this.entities.cheer(av.id);
+      if (!(av && this.entities.headOf(av.id, head))) head.set(av?.x ?? this.arenaW / 2, (av?.y ?? this.arenaH / 2) - (av ? av.r * 4 : 0));
+      this.world.toGlobal(head, this.tmpB);
+      const fly = d >= BIG_SCORE && this.showHud;
+      this.spawnFloat(d > 0 ? `+${d}` : `${d}`, d > 0 ? hexToNum(this.palette.glow) : 0xff6b6b, this.tmpB.x, this.tmpB.y, fly ? p.id : '');
     }
   }
 
-  private spawnFloat(text: string, color: number, x: number, y: number): void {
-    let f = this.floats.find((o) => !o.t.visible);
+  private spawnFloat(text: string, color: number, x: number, y: number, pid: string): void {
+    let f: Float | undefined;
+    for (const o of this.floats) if (!o.t.visible) f = o;
     if (!f) {
-      if (this.floats.length >= 12) f = this.floats.reduce((a, b) => (a.at < b.at ? a : b));
-      else {
-        f = { t: label('', 30, 0xffffff, { display: true }), at: 0, x: 0, y: 0 };
-        this.floatLayer.addChild(f.t);
+      if (this.floats.length >= 12) {
+        f = this.floats[0]!;
+        for (const o of this.floats) if (o.at < f.at) f = o;
+      } else {
+        f = { t: label('', 34, 0xffffff, { display: true }), at: 0, x: 0, y: 0, pid: '' };
+        this.popLayer.addChild(f.t);
         this.floats.push(f);
       }
     }
     f.t.text = text;
     f.t.style.fill = color;
     f.t.visible = true;
+    f.t.alpha = 1;
+    f.t.scale.set(0);
     f.at = this.vt;
     f.x = x;
     f.y = y;
+    f.pid = pid;
   }
 
   /** Slow-mo factor for the host loop's accumulator (1 = normal speed). */
   get timeScale(): number {
     return this.juice.timeScale;
+  }
+
+  /**
+   * Hit-stop: milliseconds of render freeze left after a big hit. While > 0 the host loop
+   * must not advance its fixed-step accumulator (see the class doc). Counts down in real
+   * render time, never in sim time.
+   */
+  get hitStopMs(): number {
+    return this.hitStop.ms;
   }
 
   /** Smoothed render fps (for the debug overlay). */
@@ -395,18 +476,26 @@ export class GameView {
     const fps = dt > 0 ? 1 / dt : 60;
     this.fpsAvg += (fps - this.fpsAvg) * 0.05;
     this.budget.fpsFeedback(fps, dt);
+    this.rt += dt;
+    // hit-stop freezes everything that moves with the game; shake, flash and camera play on
+    const frozen = this.hitStop.ms > 0;
+    this.hitStop.tick(dt * 1000);
     this.juice.tick(dt);
-    const vdt = dt * this.juice.timeScale;
+    const vdt = frozen ? 0 : dt * this.juice.timeScale;
     this.vt += vdt;
 
     this.animateBackground();
+    this.ambience.update(this.vt, this.budget.degraded);
     const snap = this.snap;
+    let finale = false;
     if (snap) {
-      const players = new Map<string, Player>();
-      const index = new Map<string, number>();
+      const players = this.playersM, index = this.indexM;
+      players.clear();
+      index.clear();
       let leader: string | undefined;
       let best = 0, tie = false;
-      snap.players.forEach((p, i) => {
+      for (let i = 0; i < snap.players.length; i++) {
+        const p = snap.players[i]!;
         players.set(p.id, p);
         index.set(p.id, i);
         if (p.score > best) {
@@ -414,24 +503,51 @@ export class GameView {
           leader = p.id;
           tie = false;
         } else if (p.score === best && best > 0) tie = true;
+      }
+      const ctx = this.ctx ?? (this.ctx = {
+        palette: this.palette, art: this.art, defaults: this.defaults, players, playerIndex: index, time: 0, vt: 0, dt: 0, degraded: false,
       });
-      const ctx: FrameCtx = {
-        palette: this.palette, art: this.art, defaults: this.defaults, players, playerIndex: index,
-        time: snap.time - (1 - this.alpha) * SIM_DT, vt: this.vt, dt: vdt, degraded: this.budget.degraded,
-      };
-      if (leader && !tie) ctx.leader = leader;
-      const a = this.alpha;
-      const pos = (e: Entity) => this.interp.pos(e, a);
-      this.entities.sync(snap.entities, pos, ctx);
-      if (this.showHud) this.hud.update(snap.players, snap.remaining, snap.banner, this.vt, (p) => this.entities.avatarTexture(p, ctx));
-      const finale = snap.remaining > 0 && snap.remaining <= 10;
-      this.finaleGlow.alpha = finale ? 0.18 + 0.14 * Math.sin(this.vt * 6) : Math.max(0, this.finaleGlow.alpha - dt);
+      ctx.palette = this.palette;
+      ctx.art = this.art;
+      ctx.defaults = this.defaults;
+      ctx.time = snap.time - (1 - this.alpha) * SIM_DT;
+      ctx.vt = this.vt;
+      ctx.dt = vdt;
+      ctx.degraded = this.budget.degraded;
+      ctx.leader = leader && !tie ? leader : undefined;
+      this.entities.sync(snap.entities, this.posFn, ctx);
+      if (this.showHud) this.hud.update(snap.players, snap.remaining, snap.banner, this.vt, this.avatarFn);
+      finale = snap.remaining > 0 && snap.remaining <= 10;
+      // the camera leans toward the players during the finale
+      let sx = 0, sy = 0, n = 0;
+      if (finale) {
+        for (const e of snap.entities) {
+          if (e.kind !== 'player' && e.kind !== 'runner') continue;
+          sx += e.x;
+          sy += e.y;
+          n++;
+        }
+      }
+      if (n > 0) this.toScreen(sx / n, sy / n, this.tmpC);
+      else {
+        this.tmpC.x = this.W / 2;
+        this.tmpC.y = this.H / 2;
+      }
+      this.cam.setFinale(finale, this.tmpC.x, this.tmpC.y);
+      this.finaleGlow.alpha = finale ? 0.2 + 0.16 * Math.sin(this.rt * 6) : Math.max(0, this.finaleGlow.alpha - dt);
     }
     this.particles.update(vdt);
     this.animateFloats();
 
-    const o = this.juice.shakeOffset(this.vt);
-    this.shaker.position.set(this.W / 2 + o.x, this.H / 2 + o.y);
+    // camera: eased zoom about the focus + ≤ 2 px drift + capped shake (real time)
+    this.cam.tick(dt);
+    this.cam.drift(this.rt, this.driftO);
+    const o = this.juice.shakeOffset(this.rt, this.shakeO);
+    capShake(o, SHAKE_CAP);
+    const z = this.cam.zoom;
+    this.shaker.pivot.set(this.cam.fx, this.cam.fy);
+    this.shaker.position.set(this.cam.fx + o.x + this.driftO.x, this.cam.fy + o.y + this.driftO.y);
+    this.shaker.scale.set(z);
     this.shaker.rotation = o.rot;
     const fa = this.juice.flashAlpha;
     this.flash.visible = fa > 0.001;
@@ -441,27 +557,55 @@ export class GameView {
     }
   }
 
+  private readonly posO = { x: 0, y: 0 };
+  private readonly posFn = (e: Entity) => this.interp.posInto(e, this.alpha, this.posO);
+  private readonly avatarFn = (p: Player) => this.entities.avatarTexture(p, this.ctx!);
+
   private animateBackground(): void {
     const t = this.vt;
-    this.blobs.forEach((b, i) => {
+    for (let i = 0; i < this.blobs.length; i++) {
+      const b = this.blobs[i]!;
       b.position.set(this.W * (0.25 + 0.5 * ((i * 0.37) % 1)) + Math.sin(t * 0.13 + i * 2) * 160, this.H * (0.3 + 0.4 * (i % 2)) + Math.cos(t * 0.11 + i) * 90);
       b.scale.set(9 + Math.sin(t * 0.2 + i) * 1.5);
-      b.alpha = this.floor ? 0.07 : 0.14;
-    });
+      b.alpha = this.floor ? 0.08 : 0.14;
+    }
     if (this.floor instanceof TilingSprite) this.floor.tilePosition.set(Math.sin(t * 0.05) * 20, t * 2);
   }
 
   private animateFloats(): void {
     for (const f of this.floats) {
       if (!f.t.visible) continue;
-      const k = (this.vt - f.at) / 0.9;
-      if (k >= 1) {
+      const age = this.vt - f.at;
+      const pop = easeOutBack(age / 0.28);
+      if (!f.pid) {
+        const k = age / 0.95;
+        if (k >= 1) {
+          f.t.visible = false;
+          continue;
+        }
+        f.t.position.set(f.x, f.y - easeOutCubic(k) * 56);
+        f.t.scale.set(pop);
+        f.t.alpha = k < 0.65 ? 1 : 1 - (k - 0.65) / 0.35;
+        continue;
+      }
+      // big score: pop, hang, then fly into the player's HUD chip and bump it
+      const rise = easeOutCubic(age / 0.45) * 44;
+      const q = (age - 0.55) / 0.42;
+      if (q < 0) {
+        f.t.position.set(f.x, f.y - rise);
+        f.t.scale.set(pop * 1.3);
+        continue;
+      }
+      const to = this.tmpC;
+      if (!this.hud.chipCenter(f.pid, to) || q >= 1) {
+        if (q >= 1) this.hud.bump(f.pid, this.vt);
         f.t.visible = false;
         continue;
       }
-      f.t.position.set(f.x, f.y - k * 60);
-      f.t.scale.set(k < 0.2 ? 0.6 + 2.5 * k : 1);
-      f.t.alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      const e = easeInOutSine(q);
+      const x0 = f.x, y0 = f.y - 44;
+      f.t.position.set(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e - arch(q) * 70);
+      f.t.scale.set(1.3 - 0.6 * e);
     }
   }
 
@@ -472,6 +616,7 @@ export class GameView {
     this.app.ticker.stop();
     this.particles.destroy();
     this.entities.destroy();
+    this.ambience.destroy();
     this.hud.destroy();
     this.store.destroy();
     this.grad?.destroy();

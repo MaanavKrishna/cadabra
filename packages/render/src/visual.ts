@@ -130,6 +130,21 @@ export class SnapInterp {
     return p0 ? lerpPos(p0, e, alpha) : e;
   }
 
+  /** Same as pos() but written into `out` (no allocation; read it before the next call). */
+  posInto(e: { id: number; x: number; y: number }, alpha: number, out: Pt): Pt {
+    const p0 = this.prev.get(e.id);
+    if (!p0) {
+      out.x = e.x;
+      out.y = e.y;
+      return out;
+    }
+    const dx = e.x - p0.x, dy = e.y - p0.y;
+    const k = dx * dx + dy * dy > TELEPORT_PX * TELEPORT_PX ? 1 : clamp01(alpha);
+    out.x = p0.x + dx * k;
+    out.y = p0.y + dy * k;
+    return out;
+  }
+
   reset(): void {
     this.prev.clear();
     this.cur.clear();
