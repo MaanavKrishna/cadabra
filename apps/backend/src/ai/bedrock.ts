@@ -54,7 +54,8 @@ export interface ConverseOutput {
 
 /** Bedrock failures that mean "this account can't use Claude here" (quota 0, no access, use-case form pending). */
 const ACCOUNT_UNAVAILABLE = new Set(['AccessDeniedException', 'ResourceNotFoundException']);
-const BEDROCK_RETRY_MS = 10 * 60_000;
+const BEDROCK_RETRY_MS = 10 * 60_000; // account/quota problems: slow to resolve
+const BEDROCK_THROTTLE_RETRY_MS = 2 * 60_000; // a throttle may be transient: re-probe Bedrock sooner
 let bedrockDownUntil = 0;
 
 const lastGood = new Map<ConverseRequest['model'], string>();
@@ -69,6 +70,7 @@ async function converseBedrock(req: ConverseRequest): Promise<ConverseOutput> {
   const deadline = Date.now() + req.timeoutMs;
   const attempts: string[] = [];
   let firstErr: unknown;
+  let accountUnavailable = false;
   for (const modelId of chain) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) { attempts.push(`${modelId}: skipped (deadline)`); break; }
@@ -93,6 +95,7 @@ async function converseBedrock(req: ConverseRequest): Promise<ConverseOutput> {
     } catch (e) {
       const name = (e as { name?: string })?.name ?? 'Error';
       attempts.push(`${modelId}: ${name}`);
+      if (ACCOUNT_UNAVAILABLE.has(name)) accountUnavailable = true;
       if (!MODEL_UNAVAILABLE.has(name)) throw e; // throttling, timeout, etc: do not mask by hopping models
       if (cached === modelId) lastGood.delete(req.model);
       firstErr ??= e;
@@ -101,6 +104,7 @@ async function converseBedrock(req: ConverseRequest): Promise<ConverseOutput> {
   }
   const err = (firstErr ?? new Error('bedrock: no model attempted (timeout)')) as Error;
   try { err.message = `${err.message} [chain: ${attempts.join('; ')}]`; } catch { /* readonly */ }
+  if (accountUnavailable) (err as { accountUnavailable?: boolean }).accountUnavailable = true;
   throw err;
 }
 
@@ -121,21 +125,32 @@ export async function converse(req: ConverseRequest): Promise<ConverseOutput> {
       stopReason: r.stopReason, usage: r.usage, modelId: r.modelId, provider: 'anthropic',
     };
   };
+  const viaAnthropicSticky = async (key: string): Promise<ConverseOutput> => {
+    try { return await viaAnthropic(key); } catch (e) {
+      // A non-timeout Anthropic failure must not pin us to a broken provider: try Bedrock next call.
+      if ((e as Error)?.name !== 'TimeoutError') bedrockDownUntil = 0;
+      throw e;
+    }
+  };
   if (Date.now() < bedrockDownUntil) {
     const key = await getApiKey();
-    if (key) return viaAnthropic(key);
+    if (key) return viaAnthropicSticky(key);
     bedrockDownUntil = 0; // no key anymore: go back to Bedrock
   }
   try {
     return await converseBedrock(req);
   } catch (e) {
     const name = (e as { name?: string })?.name ?? 'Error';
-    if (!ACCOUNT_UNAVAILABLE.has(name) && name !== 'ThrottlingException') throw e;
+    const unavailable = ACCOUNT_UNAVAILABLE.has(name) || (e as { accountUnavailable?: boolean })?.accountUnavailable === true;
+    if (!unavailable && name !== 'ThrottlingException') throw e;
     const key = await getApiKey();
     if (!key) throw e;
-    log(`bedrock unavailable (${name}); using anthropic api for ${BEDROCK_RETRY_MS / 60000} min`);
-    bedrockDownUntil = Date.now() + BEDROCK_RETRY_MS;
-    return viaAnthropic(key);
+    // Access/not-found means the account has no Claude on Bedrock yet: stay away 10 min. A bare throttle
+    // (quota 0 or a burst) only gets a 2 min window so a healthy account returns to Bedrock quickly.
+    const windowMs = unavailable ? BEDROCK_RETRY_MS : BEDROCK_THROTTLE_RETRY_MS;
+    log(`bedrock unavailable (${name}); using anthropic api for ${windowMs / 60000} min`);
+    bedrockDownUntil = Date.now() + windowMs;
+    return viaAnthropicSticky(key);
   }
 }
 

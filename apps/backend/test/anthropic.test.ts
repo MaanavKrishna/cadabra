@@ -4,7 +4,12 @@ import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-r
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
 const create = vi.fn();
-vi.mock('@anthropic-ai/sdk', () => ({ default: class { messages = { create }; constructor(public opts: unknown) {} } }));
+const { MockAbort, MockTimeout } = vi.hoisted(() => ({
+  MockAbort: class extends Error {}, MockTimeout: class extends Error {},
+}));
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class { static APIUserAbortError = MockAbort; static APIConnectionTimeoutError = MockTimeout; messages = { create }; constructor(public opts: unknown) {} },
+}));
 
 process.env.AWS_REGION = 'ap-south-1';
 const KEY = 'sk-ant-SECRET-1234567890';
@@ -88,6 +93,104 @@ describe('provider selection', () => {
     br.on(ConverseCommand).resolves({ output: { message: { role: 'assistant', content: [{ text: 'b' }] } }, stopReason: 'end_turn' } as any);
     expect(await converse(req)).toMatchObject({ provider: 'bedrock', text: 'b' });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  test('throttle-triggered fallback only sticks for 2 min', async () => {
+    vi.useFakeTimers();
+    try {
+      br.on(ConverseCommand).rejects(err('ThrottlingException'));
+      create.mockResolvedValue(msg());
+      await converse(req);
+      await converse(req);
+      expect(br.commandCalls(ConverseCommand)).toHaveLength(1);
+      vi.advanceTimersByTime(2 * 60_000 + 1);
+      await converse(req);
+      expect(br.commandCalls(ConverseCommand)).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('access-denied window is still 10 min (not retried at 3 min)', async () => {
+    vi.useFakeTimers();
+    try {
+      br.on(ConverseCommand).rejects(err('AccessDeniedException'));
+      create.mockResolvedValue(msg());
+      await converse(req);
+      const n = br.commandCalls(ConverseCommand).length;
+      vi.advanceTimersByTime(3 * 60_000);
+      await converse(req);
+      expect(br.commandCalls(ConverseCommand)).toHaveLength(n);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('account-unavailable anywhere in the chain falls through, even if first error is Validation', async () => {
+    br.on(ConverseCommand, { modelId: 'anthropic.claude-sonnet-5-5' }).rejects(err('ValidationException'));
+    br.on(ConverseCommand).rejects(err('AccessDeniedException'));
+    create.mockResolvedValue(msg());
+    expect((await converse(req)).provider).toBe('anthropic');
+  });
+
+  test('non-timeout anthropic failure clears the sticky window; timeout keeps it', async () => {
+    br.on(ConverseCommand).rejects(err('AccessDeniedException'));
+    create.mockResolvedValueOnce(msg());
+    await converse(req);
+    const n = br.commandCalls(ConverseCommand).length;
+    create.mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }));
+    await expect(converse(req)).rejects.toThrow('anthropic 500');
+    create.mockResolvedValueOnce(msg());
+    await converse(req); // window cleared: Bedrock probed again
+    expect(br.commandCalls(ConverseCommand).length).toBeGreaterThan(n);
+  });
+
+  test('timeouts map to TimeoutError (SDK classes, no .name)', async () => {
+    for (const E of [MockAbort, MockTimeout]) {
+      _resetModelCache();
+      br.on(ConverseCommand).rejects(err('AccessDeniedException'));
+      create.mockRejectedValueOnce(new E('Request timed out.'));
+      await expect(converse(req)).rejects.toMatchObject({ name: 'TimeoutError' });
+    }
+    _resetModelCache();
+    create.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 400 }));
+    await expect(converse(req)).rejects.toMatchObject({ name: 'AnthropicApiError' });
+  });
+
+  test('thinking is disabled for both roles', async () => {
+    br.on(ConverseCommand).rejects(err('AccessDeniedException'));
+    create.mockResolvedValue(msg());
+    await converse(req);
+    await converse({ ...req, model: 'fast' });
+    for (const c of create.mock.calls) expect(c[0].thinking).toEqual({ type: 'disabled' });
+  });
+
+  test('multi-turn tool_use/tool_result adjacency over 3 turns', () => {
+    const turn = (i: number) => [
+      { role: 'assistant', content: [{ text: 'step' }, { toolUse: { toolUseId: `t${i}`, name: 'patch', input: { i } } }] },
+      { role: 'user', content: [{ toolResult: { toolUseId: `t${i}`, content: [{ json: { ok: true } }] } }] },
+    ];
+    const m = toAnthropicMessages([{ role: 'user', content: [{ text: 'go' }] }, ...turn(1), ...turn(2), ...turn(3)]);
+    expect(m.map((x: any) => x.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user']);
+    for (const i of [1, 2, 3]) {
+      const use = m[i * 2 - 1]!.content.find((b: any) => b.type === 'tool_use');
+      const res = m[i * 2]!.content[0];
+      expect(res).toMatchObject({ type: 'tool_result', tool_use_id: use.id, content: [{ type: 'text', text: '{"ok":true}' }] });
+    }
+  });
+
+  test('failed secret lookup is retried after 60 s', async () => {
+    vi.useFakeTimers();
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
+      process.env.ANTHROPIC_SECRET_ID = 'cadabra/anthropic-api-key';
+      sm.on(GetSecretValueCommand).rejects(err('ResourceNotFoundException'));
+      br.on(ConverseCommand).rejects(err('AccessDeniedException'));
+      create.mockResolvedValue(msg());
+      await expect(converse(req)).rejects.toThrow('AccessDenied');
+      await expect(converse(req)).rejects.toThrow('AccessDenied');
+      expect(sm.commandCalls(GetSecretValueCommand)).toHaveLength(1); // negative cache
+      vi.advanceTimersByTime(60_001);
+      sm.on(GetSecretValueCommand).resolves({ SecretString: KEY });
+      expect((await converse(req)).provider).toBe('anthropic');
+      expect(sm.commandCalls(GetSecretValueCommand)).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
   });
 
   test('unavailability cached 10 min, then Bedrock retried', async () => {

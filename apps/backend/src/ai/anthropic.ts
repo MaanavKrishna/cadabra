@@ -140,25 +140,29 @@ export async function anthropicConverse(
 ): Promise<ReturnType<typeof toConverseResponse> & { modelId: string }> {
   const modelId = ANTHROPIC_MODELS[req.model];
   const tools = toAnthropicTools(req.tools);
+  const signal = AbortSignal.timeout(Math.max(1, req.timeoutMs));
   try {
     const res = await clientFor(key).messages.create({
       model: modelId,
       max_tokens: req.maxTokens ?? 2048,
       system: [{ type: 'text', text: req.system }],
-      messages: toAnthropicMessages(req.messages),
-      ...(tools ? { tools } : {}),
+      messages: toAnthropicMessages(req.messages) as Anthropic.MessageParam[],
+      ...(tools ? { tools: tools as unknown as Anthropic.Tool[] } : {}),
       // Callers resend history as plain text/toolUse blocks (no thinking blocks), so keep thinking off.
-      thinking: req.model === 'fast' ? { type: 'disabled' } : { type: 'between_tools' },
-    } as never, { signal: AbortSignal.timeout(Math.max(1, req.timeoutMs)) }) as unknown as Obj;
+      thinking: { type: 'disabled' },
+    }, { signal }) as unknown as Obj;
     return { ...toConverseResponse(res), modelId };
   } catch (e) {
-    throw sanitize(e, key);
+    throw sanitize(e, key, signal);
   }
 }
 
-function sanitize(e: unknown, key: string): Error {
+function sanitize(e: unknown, key: string, signal: AbortSignal): Error {
   const err = e as { name?: string; status?: number; message?: string };
-  const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError' || err?.name === 'APIUserAbortError' || err?.name === 'APIConnectionTimeoutError';
+  // SDK error classes don't set .name, so detect timeouts by class or by our own signal firing.
+  const isA = (C: unknown) => typeof C === 'function' && e instanceof (C as new (...a: never[]) => object);
+  const isTimeout = signal.aborted || isA(Anthropic.APIUserAbortError) || isA(Anthropic.APIConnectionTimeoutError)
+    || err?.name === 'TimeoutError' || err?.name === 'AbortError';
   const msg = String(err?.message ?? 'error').split(key).join('[redacted]');
   const out = new Error(`anthropic${err?.status ? ` ${err.status}` : ''}: ${msg}`);
   out.name = isTimeout ? 'TimeoutError' : 'AnthropicApiError';
