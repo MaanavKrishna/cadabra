@@ -1,0 +1,28 @@
+{
+  "style": "Style: glossy stylized 3D render, soft studio lighting, bold clean silhouettes, vibrant saturated colors, subtle rim light, like a modern console party game, top-down 3/4 view. Same art style as the first image in this chat.",
+  "layout": "Show exactly 6 separate items in a 3x2 grid on a perfectly flat solid magenta (#FF00FF) background, evenly spaced with wide gaps, no overlap, no drop shadows, no ground plane, no text, no labels.",
+  "sheets": [
+    { "file": "sheet-01-pickups.png", "names": ["coin", "gem", "star", "gift-box", "golden-fish", "ladoo"],
+      "items": "1) a shiny gold coin, 2) a faceted cyan gem, 3) a chunky golden star, 4) a red gift box with gold ribbon, 5) a golden fish treat, 6) a golden round Indian ladoo sweet" },
+    { "file": "sheet-02-hazards.png", "names": ["fireball", "spiky-ball", "falling-rock", "ice-shard", "bomb", "lava"],
+      "items": "1) a blazing fireball, 2) a purple spiked ball, 3) a cracked grey boulder, 4) a sharp blue ice shard, 5) a cartoon black bomb with lit fuse, 6) a glowing lava blob puddle" },
+    { "file": "sheet-03-guards.png", "names": ["bear-sleep", "bear-awake", "robot-patrol", "owl-watcher", "dragon-sleep", "grandma-guard"],
+      "items": "1) a sleeping cartoon brown bear curled up, 2) the same bear awake and roaring angrily, 3) a round security patrol robot with a red eye, 4) a wide-eyed owl watching, 5) a sleeping cute green dragon curled up, 6) a cartoon grandma holding a rolling pin, alert" },
+    { "file": "sheet-04-props.png", "names": ["boost-pad", "baton", "finish-flag", "checkpoint-ring", "crate", "hurdle"],
+      "items": "1) a glossy blue boost pad tile with glowing chevron arrows, 2) a wooden relay baton, 3) a checkered finish flag on a pole, 4) a glowing golden checkpoint ring, 5) a wooden obstacle crate, 6) a red and white striped hurdle" },
+    { "file": "sheet-05-goals.png", "names": ["rope-segment", "rope-marker", "goal-basket", "treasure-chest", "banner-red", "banner-blue"],
+      "items": "1) a short straight segment of thick braided tug-of-war rope, horizontal, 2) a red ribbon knot marker, 3) a woven goal basket, 4) an open treasure chest with gold, 5) a red team pennant banner, 6) a blue team pennant banner" },
+    { "file": "sheet-06-avatars-a.png", "names": ["avatar-penguin", "avatar-cat", "avatar-robot", "avatar-astronaut", "avatar-dragon", "avatar-fox"],
+      "items": "cute chibi player characters, full body, facing camera: 1) a penguin, 2) an orange cat, 3) a friendly little robot, 4) a kid astronaut, 5) a baby dragon, 6) a fox" },
+    { "file": "sheet-07-avatars-b.png", "names": ["avatar-panda", "avatar-bunny", "avatar-monkey", "avatar-chef", "avatar-ninja", "avatar-unicorn"],
+      "items": "cute chibi player characters, full body, facing camera: 1) a panda, 2) a white bunny, 3) a monkey, 4) a little chef with a hat, 5) a little ninja, 6) a unicorn" },
+    { "file": "sheet-08-fx.png", "names": ["fx-sparkle", "fx-smoke", "fx-splash", "fx-confetti", "fx-starburst", "fx-glow"],
+      "items": "simple game particle effect sprites, white and light colors: 1) a four-point sparkle, 2) a soft round smoke puff, 3) a water splash, 4) a few colorful confetti pieces clustered, 5) a cartoon star burst impact, 6) a soft glowing orb" }
+  ],
+  "floors": [
+    { "file": "floor-kitchen.png", "prompt": "Seamless tileable top-down texture of warm kitchen floor tiles for a cozy 2D party game, glossy stylized 3D render, soft lighting, no objects, no text, fills the entire square" },
+    { "file": "floor-grass.png", "prompt": "Seamless tileable top-down texture of lush cartoon grass for a 2D party game, glossy stylized 3D render, soft lighting, no objects, no text, fills the entire square" },
+    { "file": "floor-ice.png", "prompt": "Seamless tileable top-down texture of shiny blue ice with subtle cracks for a 2D party game, glossy stylized 3D render, no objects, no text, fills the entire square" },
+    { "file": "floor-volcanic.png", "prompt": "Seamless tileable top-down texture of dark volcanic rock with faint glowing orange cracks for a 2D party game, glossy stylized 3D render, no objects, no text, fills the entire square" }
+  ]
+}
