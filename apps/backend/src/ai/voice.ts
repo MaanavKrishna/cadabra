@@ -26,11 +26,21 @@ const urlFor = (key: string): string => {
   return `${base}/${key}`;
 };
 
+/** Voices that failed in this container: skip them until the container recycles. */
+const badVoices = new Set<string>();
+/** Test hook. */
+export const _resetVoice = (): void => badVoices.clear();
+
+/** A miss is only NotFound/404; any other S3 error (throttle, access) propagates instead of re-synthesizing blindly. */
 async function exists(bucket: string, key: string): Promise<boolean> {
   try {
     await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: AbortSignal.timeout(3000) });
     return true;
-  } catch { return false; }
+  } catch (e) {
+    const err = e as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) return false;
+    throw e;
+  }
 }
 
 async function synth(voice: string, text: string): Promise<Uint8Array> {
@@ -50,20 +60,30 @@ export async function speak(text: string): Promise<string> {
   const clean = text.replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
   if (!clean) throw new Error('speak: empty text');
   const preferred = process.env.HOST_VOICE || DEFAULT_VOICE;
-  const voices = preferred === FALLBACK_VOICE ? [preferred] : [preferred, FALLBACK_VOICE];
+  const all = preferred === FALLBACK_VOICE ? [preferred] : [preferred, FALLBACK_VOICE];
+  const voices = all.filter((v) => !badVoices.has(v));
+  if (!voices.length) voices.push(FALLBACK_VOICE); // everything marked bad: still try once
   let lastErr: unknown;
   for (const voice of voices) {
     const key = voiceKey(voice, clean);
     if (await exists(bucket, key)) return urlFor(key);
+    let bytes: Uint8Array;
     try {
-      const bytes = await synth(voice, clean);
+      bytes = await synth(voice, clean);
+    } catch (e) {
+      lastErr = e;
+      if (voice !== FALLBACK_VOICE) badVoices.add(voice); // synth failure only (not an S3 problem)
+      log(`voice ${voice} failed:`, (e as Error)?.name);
+      continue;
+    }
+    try {
       await s3.send(new PutObjectCommand({
         Bucket: bucket, Key: key, Body: bytes, ContentType: 'audio/mpeg', CacheControl: 'public, max-age=31536000, immutable',
       }));
       return urlFor(key);
     } catch (e) {
       lastErr = e;
-      log(`voice ${voice} failed:`, (e as Error)?.name);
+      log('voice cache write failed:', (e as Error)?.name);
     }
   }
   throw lastErr;

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InputFrame } from '@cadabra/spec';
 import { mountController } from '../src/widgets';
+import { EXPORT_SIZE, exportJpeg } from '../src/widgets/draw';
 import { CouchClient, CouchHost } from '../src/index';
 import { FakeBackend, FakeRTC, MemStorage, resetFakes } from './fakes';
 
@@ -83,7 +84,7 @@ describe('couchpad widgets', () => {
     expect(frames.at(-1)!.tilt!.x).toBeCloseTo(1, 5);
   });
 
-  it('draw exports png dataURL under 200 KB', () => {
+  it('draw export stays under 25 KB (PNG fallback without canvas)', () => {
     unmount = mountController(host, [{ kind: 'draw', id: 'doodle', prompt: 'Draw a hat' }], (f) => frames.push(f));
     const pad = host.querySelector('.cp-draw-pad')!;
     rect(pad, 360, 360);
@@ -99,9 +100,31 @@ describe('couchpad widgets', () => {
     done.click();
     const f = frames.find((x) => x.draw)!;
     expect(f.draw!.startsWith('data:image/png;base64,')).toBe(true);
-    expect(f.draw!.length).toBeLessThan(200 * 1024);
+    expect(f.draw!.length * 0.75).toBeLessThan(25 * 1024);
     const bin = atob(f.draw!.slice('data:image/png;base64,'.length));
     expect([...bin.slice(0, 8)].map((c) => c.charCodeAt(0))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  it('draw export uses JPEG <= 256 px and lowers quality until <= 25 KB', () => {
+    const calls: number[] = [];
+    const ctx = new Proxy({}, { get: () => () => {}, set: () => true });
+    const orig = document.createElement.bind(document);
+    const spy = vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      const e = orig(tag);
+      if (tag === 'canvas') {
+        (e as any).getContext = () => ctx;
+        (e as any).toDataURL = (_t: string, q: number) => { calls.push(q); return 'data:image/jpeg;base64,' + 'A'.repeat(q > 0.5 ? 60000 : 20000); };
+      }
+      return e;
+    }) as any);
+    try {
+      const strokes = [{ c: 1, pts: [0.1, 0.1, 0.9, 0.9] }];
+      const url = exportJpeg(strokes)!;
+      expect(url.startsWith('data:image/jpeg')).toBe(true);
+      expect(calls).toEqual([0.7, 0.55, 0.4]);
+      expect(url.length * 0.75).toBeLessThanOrEqual(25 * 1024);
+      expect(EXPORT_SIZE).toBeLessThanOrEqual(256);
+    } finally { spy.mockRestore(); }
   });
 
   it('text caps at 40 chars and vote emits the option index', () => {

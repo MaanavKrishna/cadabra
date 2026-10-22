@@ -1,9 +1,14 @@
-// Doodle pad: strokes are kept as vectors and rasterized to a 320x320 4-bit PNG on "Done",
-// so the exported dataURL is always well under the 200 KB transport cap.
+// Doodle pad: strokes are kept as vectors. On "Done" they are exported as a <= 256 px JPEG (quality ~0.7, lowered
+// until <= 25 KB) so the drawing fits one relay frame, the backend request and the AI judge's image budget.
+// Without a usable canvas (tests, odd WebViews) a 128 px 4-bit PNG (~11 KB) is exported instead.
 import { capture, el, on, type Widget } from './core';
 import { encodeIndexedPng } from './png';
 
-export const DRAW_SIZE = 320;
+export const DRAW_SIZE = 128; // PNG fallback raster size
+export const EXPORT_SIZE = 256; // JPEG long side
+export const MAX_EXPORT_BYTES = 25 * 1024;
+const JPEG_QUALITIES = [0.7, 0.55, 0.4, 0.3, 0.2];
+const PAD_BG = '#14141f';
 export const DRAW_COLORS = ['#ffffff', '#ff4d6d', '#ffd166', '#4cc9f0'];
 const BRUSH = 0.03; // stroke width as a fraction of the pad
 
@@ -38,6 +43,41 @@ export function rasterize(strokes: Stroke[], size = DRAW_SIZE): Uint8Array {
     }
   }
   return px;
+}
+
+const approxBytes = (dataUrl: string) => Math.floor(((dataUrl.length - dataUrl.indexOf(',') - 1) * 3) / 4);
+
+/** JPEG <= 25 KB from the vector strokes, or undefined when canvas export is unavailable. */
+export function exportJpeg(strokes: Stroke[]): string | undefined {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = EXPORT_SIZE;
+    const g = c.getContext('2d');
+    if (!g) return undefined;
+    g.fillStyle = PAD_BG;
+    g.fillRect(0, 0, EXPORT_SIZE, EXPORT_SIZE);
+    g.lineCap = g.lineJoin = 'round';
+    g.lineWidth = BRUSH * EXPORT_SIZE;
+    for (const s of strokes) {
+      const p = s.pts;
+      g.strokeStyle = DRAW_COLORS[s.c - 1]!;
+      g.beginPath();
+      g.moveTo(p[0]! * EXPORT_SIZE, p[1]! * EXPORT_SIZE);
+      if (p.length === 2) g.lineTo(p[0]! * EXPORT_SIZE + 0.01, p[1]! * EXPORT_SIZE);
+      for (let i = 2; i + 1 < p.length; i += 2) g.lineTo(p[i]! * EXPORT_SIZE, p[i + 1]! * EXPORT_SIZE);
+      g.stroke();
+    }
+    for (const q of JPEG_QUALITIES) {
+      const url = c.toDataURL('image/jpeg', q);
+      if (!url.startsWith('data:image/jpeg')) return undefined;
+      if (approxBytes(url) <= MAX_EXPORT_BYTES) return url;
+    }
+  } catch { /* fall through to PNG */ }
+  return undefined;
+}
+
+export function exportDrawing(strokes: Stroke[]): string {
+  return exportJpeg(strokes) ?? encodeIndexedPng(DRAW_SIZE, DRAW_SIZE, rasterize(strokes, DRAW_SIZE), DRAW_COLORS);
 }
 
 export function createDraw(o: DrawOpts): Widget {
@@ -123,7 +163,7 @@ export function createDraw(o: DrawOpts): Widget {
     on(clear, 'click', () => { strokes.length = 0; redraw(); o.onPress?.(); }),
     on(done, 'click', () => {
       o.onPress?.();
-      o.onDone(encodeIndexedPng(DRAW_SIZE, DRAW_SIZE, rasterize(strokes), DRAW_COLORS));
+      o.onDone(exportDrawing(strokes));
       root.classList.add('is-sent');
     }),
     ...swEls.map((b, i) => on(b, 'click', () => {

@@ -45,11 +45,11 @@ const S = (ctx: object) =>
   stateOf<State>(states, ctx, () => ({ phase: 'drawing', round: 1, phaseAt: 0, subs: new Map(), lastWinner: '', botAt: new Map() }));
 
 /** Sim seconds a round waits for the AI judge before scoring everyone equally. */
-export const JUDGE_TIMEOUT_SEC = 8;
+export const JUDGE_TIMEOUT_SEC = 12;
 /** Points each submitted drawing gets when the judge times out (or answers nonsense). */
 export const TIMEOUT_SCORE = 5;
 const REVEAL_SEC = 4;
-const MAX_IMAGE_CHARS = 2_000_000;
+const MAX_IMAGE_CHARS = 40_000;
 const MAX_ROAST = 160;
 /** What bots "draw": a 1×1 transparent PNG. */
 export const BOT_DRAWING =

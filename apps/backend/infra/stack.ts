@@ -4,7 +4,8 @@ import { WebSocketApi, WebSocketStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { WebSocketLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
 import {
-  CachePolicy, Distribution, ResponseHeadersPolicy, ViewerProtocolPolicy,
+  AllowedMethods, CachePolicy, Distribution, Function as CfFunction, FunctionCode, FunctionEventType, FunctionRuntime,
+  ResponseHeadersPolicy, ViewerProtocolPolicy,
 } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
@@ -40,6 +41,18 @@ export class CadabraStack extends Stack {
         origin: S3BucketOrigin.withOriginAccessControl(assets),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: CachePolicy.CACHING_OPTIMIZED,
+        allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        // Only voice/* and art/* are public; everything else in the bucket is refused at the edge.
+        functionAssociations: [{
+          eventType: FunctionEventType.VIEWER_REQUEST,
+          function: new CfFunction(this, 'AssetsPrefixGuard', {
+            runtime: FunctionRuntime.JS_2_0,
+            code: FunctionCode.fromInline(
+              "function handler(event){var u=event.request.uri;" +
+              "if(u.indexOf('..')>=0||(u.indexOf('/voice/')!==0&&u.indexOf('/art/')!==0)){return {statusCode:403,statusDescription:'Forbidden'};}" +
+              "return event.request;}"),
+          }),
+        }],
         responseHeadersPolicy: new ResponseHeadersPolicy(this, 'AssetsCors', {
           corsBehavior: {
             accessControlAllowOrigins: ['*'],

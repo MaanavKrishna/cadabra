@@ -2,6 +2,7 @@ import type { BackendToClient, ClientToBackend, RoomSettings } from '@cadabra/sp
 import { hostLine, offlineJudgement, resolveJudgement, roast, tidyLine } from './ai/host';
 import { screenOutput } from './ai/bedrock';
 import { speak } from './ai/voice';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { Ctx } from './rooms';
 import { isTvOf } from './forge-room';
 
@@ -9,6 +10,12 @@ export type HostMsg = Extract<ClientToBackend, { t: 'host.say' | 'host.roast' | 
 /** Event for the Host Lambda (invoked async by the ws handler). */
 export interface HostEvent { conn: string; endpoint: string; msg: HostMsg }
 export const HOST_MSG_TYPES = new Set<string>(['host.say', 'host.roast', 'judge.request']);
+
+/** judge.request payloads above this (serialized) are rejected: WS messages cap at 128 KB, async invokes at 256 KB. */
+export const MAX_JUDGE_PAYLOAD_BYTES = 110_000;
+/** Per-room cap per kind of request (counters live on the room META item). */
+export const HOST_LIMITS = { 'host.roast': 5, 'judge.request': 15, 'host.say': 60 } as const;
+const COUNTER = { 'host.roast': 'rlRoast', 'judge.request': 'rlJudge', 'host.say': 'rlSay' } as const;
 
 const log = (...a: unknown[]) => console.warn('[host-room]', ...a);
 const personalityOf = (m: { personality?: RoomSettings['hostPersonality'] }) => m.personality ?? 'cheeky';
@@ -58,11 +65,32 @@ export async function requestHost(ctx: Ctx, conn: string, m: HostMsg, opts: {
   if (!(await isTvOf(ctx, conn, m.code))) {
     return reply({ t: 'error', code: 'room.badRequest', message: 'only the room TV can ask the host' });
   }
+  if (m.t === 'judge.request' && Buffer.byteLength(JSON.stringify(m.payload ?? null)) > MAX_JUDGE_PAYLOAD_BYTES) {
+    return reply({ t: 'error', code: 'room.badRequest', message: 'judge payload too large' });
+  }
+  if (!(await takeBudget(ctx, m.code, m.t))) return reply({ t: 'error', code: 'room.rateLimited' });
   try {
     await opts.invoke({ conn, endpoint: opts.endpoint, msg: m });
   } catch (e) {
     log('invoke failed', (e as Error)?.name);
     if (m.t === 'judge.request') await reply({ t: 'judge.result', id: m.id, result: offlineJudgement(m.kind, m.payload) });
     else if (m.t === 'host.say' && m.text) await reply({ t: 'host.audio', id: m.id, text: m.text });
+  }
+}
+
+/** Atomically count one request against the room's budget; false once the cap is reached. */
+async function takeBudget(ctx: Ctx, code: string, kind: keyof typeof HOST_LIMITS): Promise<boolean> {
+  try {
+    await ctx.ddb.send(new UpdateCommand({
+      TableName: ctx.table, Key: { pk: `ROOM#${code}`, sk: 'META' },
+      UpdateExpression: 'ADD #c :one',
+      ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(#c) OR #c < :max)',
+      ExpressionAttributeNames: { '#c': COUNTER[kind] },
+      ExpressionAttributeValues: { ':one': 1, ':max': HOST_LIMITS[kind] },
+    }));
+    return true;
+  } catch (e) {
+    if ((e as { name?: string })?.name === 'ConditionalCheckFailedException') return false;
+    throw e;
   }
 }

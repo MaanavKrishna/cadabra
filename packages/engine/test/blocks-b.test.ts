@@ -373,7 +373,7 @@ describe('draw-judge', () => {
   const drawSpec = (params: Record<string, unknown> = {}) =>
     makeSpec([{ block: 'draw-judge', params: { drawSec: 20, rounds: 3, ...params } }], 'canvas', { durationSec: 120 });
 
-  test('round waits for judgement and applies scores; times out after 8 s with equal scores', () => {
+  test('round waits for judgement and applies scores; times out after 12 s with equal scores', () => {
     const rt = runtime(drawSpec(), makePlayers(2));
     rt.input('p0', { t: 0, draw: PNG });
     rt.input('p1', { t: 0, draw: PNG });
@@ -406,7 +406,7 @@ describe('draw-judge', () => {
       ['p1', 'Bold use of nothing.'],
     ]);
 
-    // round 2: nobody resolves -> timeout after 8 s, equal scores
+    // round 2: nobody resolves -> timeout after 12 s, equal scores
     let i = 0;
     while (rt.pendingJudgements().length === 0 && i++ < 10 * SPS) {
       rt.input('p0', { t: i, draw: PNG });
@@ -414,7 +414,7 @@ describe('draw-judge', () => {
       rt.step();
     }
     expect(rt.pendingJudgements()).toHaveLength(1);
-    steps(rt, 8 * SPS - 2);
+    steps(rt, 12 * SPS - 2);
     expect(evs(rt, 'draw.timeout')).toHaveLength(0);
     steps(rt, 2);
     expect(evs(rt, 'draw.timeout')).toHaveLength(1);

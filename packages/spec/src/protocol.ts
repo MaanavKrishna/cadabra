@@ -26,6 +26,8 @@ export const BackendErrorCodeSchema = z.enum([
   'room.notFound', 'room.full', 'room.badRequest', 'room.notInRoom', 'room.targetGone', 'room.badToken',
   // Forge (Task 16)
   'forge.busy', 'forge.badVote',
+  // Host voice / judgements (Task 18)
+  'room.rateLimited',
 ]);
 export type BackendErrorCode = z.infer<typeof BackendErrorCodeSchema>;
 
