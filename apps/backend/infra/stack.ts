@@ -1,4 +1,5 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { WebSocketApi, WebSocketStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { WebSocketLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -40,9 +41,13 @@ export class CadabraStack extends Stack {
         origin: S3BucketOrigin.withOriginAccessControl(site),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       },
-      errorResponses: [{ httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' }],
+      errorResponses: [
+        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html' },
+        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' },
+      ],
     });
 
+    const reserved = Number(this.node.tryGetContext('reservedConcurrency') ?? 20);
     const fn = new NodejsFunction(this, 'WsFn', {
       entry: fileURLToPath(new URL('../src/handlers/ws.ts', import.meta.url)),
       handler: 'handler',
@@ -50,11 +55,13 @@ export class CadabraStack extends Stack {
       architecture: Architecture.ARM_64,
       memorySize: 256,
       timeout: Duration.seconds(10),
+      // Cap blast radius; set -c reservedConcurrency=0 on low-quota accounts to skip.
+      reservedConcurrentExecutions: reserved > 0 ? reserved : undefined,
       environment: { TABLE_NAME: table.tableName },
       bundling: { minify: true, sourceMap: true, target: 'node22' },
     });
     // Least privilege: only the item operations the handler uses.
-    table.grant(fn, 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:Query');
+    table.grant(fn, 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:UpdateItem', 'dynamodb:Query');
 
     const integ = new WebSocketLambdaIntegration('WsInteg', fn);
     const api = new WebSocketApi(this, 'WsApi', {
@@ -63,6 +70,9 @@ export class CadabraStack extends Stack {
       defaultRouteOptions: { integration: integ },
     });
     const stage = new WebSocketStage(this, 'Prod', { webSocketApi: api, stageName: 'prod', autoDeploy: true });
+    (stage.node.defaultChild as CfnStage).defaultRouteSettings = {
+      throttlingRateLimit: 50, throttlingBurstLimit: 100,
+    };
     fn.addToRolePolicy(new PolicyStatement({
       actions: ['execute-api:ManageConnections'],
       resources: [this.formatArn({

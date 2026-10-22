@@ -5,7 +5,7 @@ import {
 } from '@aws-sdk/client-apigatewaymanagementapi';
 import type { APIGatewayProxyResult, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
 import { ClientToBackendSchema } from '@cadabra/spec';
-import { createRoom, disconnect, forward, joinRoom, type Ctx } from '../rooms';
+import { createRoom, disconnect, forward, joinRoom, resumeRoom, type Ctx } from '../rooms';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -43,12 +43,15 @@ export async function handler(event: APIGatewayProxyWebsocketEventV2): Promise<A
   try { raw = JSON.parse(event.body ?? ''); } catch { raw = undefined; }
   const parsed = ClientToBackendSchema.safeParse(raw);
   if (!parsed.success) {
-    await ctx.send(connectionId, { t: 'error', code: 'room.badRequest', message: 'invalid message' });
+    try {
+      await ctx.send(connectionId, { t: 'error', code: 'room.badRequest', message: 'invalid message' });
+    } catch { /* best-effort */ }
     return ok();
   }
   const m = parsed.data;
   switch (m.t) {
     case 'room.create': await createRoom(ctx, connectionId, m.household); break;
+    case 'room.resume': await resumeRoom(ctx, connectionId, m); break;
     case 'room.join': await joinRoom(ctx, connectionId, m); break;
     case 'signal':
     case 'relay': await forward(ctx, connectionId, m); break;

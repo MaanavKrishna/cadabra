@@ -21,7 +21,7 @@ export const ROOM_CODE_RE = /^[BCDFGHJKLMNPQRSTVWXZA]{4}$/;
 export const MAX_PLAYERS = 4;
 
 export const BackendErrorCodeSchema = z.enum([
-  'room.notFound', 'room.full', 'room.badRequest', 'room.notInRoom', 'room.targetGone',
+  'room.notFound', 'room.full', 'room.badRequest', 'room.notInRoom', 'room.targetGone', 'room.badToken',
 ]);
 export type BackendErrorCode = z.infer<typeof BackendErrorCodeSchema>;
 
@@ -32,25 +32,31 @@ export const PlayerInfoSchema = z.object({
 });
 export type PlayerInfo = z.infer<typeof PlayerInfoSchema>;
 
+const NoControlChars = /^[^\u0000-\u001f\u007f-\u009f]*$/;
+
 export const ClientToBackendSchema = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('room.create'), household: z.string().max(64).optional() }),
+  z.object({ t: z.literal('room.create'), household: z.string().max(64).regex(NoControlChars).optional() }),
   z.object({
     t: z.literal('room.join'),
-    code: z.string().length(4),
-    name: z.string().min(1),
-    rejoinToken: z.string().optional(),
+    code: z.string().regex(ROOM_CODE_RE),
+    name: z.string().max(40).regex(NoControlChars),
+    rejoinToken: z.string().max(64).optional(),
   }),
-  z.object({ t: z.literal('signal'), to: z.string(), data: z.unknown() }),
-  z.object({ t: z.literal('relay'), to: z.string().optional(), data: z.unknown() }),
+  z.object({ t: z.literal('room.resume'), code: z.string().regex(ROOM_CODE_RE), tvToken: z.string().max(64) }),
+  z.object({ t: z.literal('signal'), to: z.string().max(32), data: z.unknown() }),
+  z.object({ t: z.literal('relay'), to: z.string().max(32).optional(), data: z.unknown() }),
   z.object({ t: z.literal('ping') }),
 ]);
 export type ClientToBackend = z.infer<typeof ClientToBackendSchema>;
 
 export const BackendToClientSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('room.created'), code: z.string(), tvToken: z.string() }),
+  z.object({ t: z.literal('room.resumed'), players: z.array(PlayerInfoSchema).optional() }),
   z.object({ t: z.literal('room.joined'), playerId: z.string(), token: z.string(), name: z.string() }),
   z.object({ t: z.literal('player.joined'), player: PlayerInfoSchema }),
   z.object({ t: z.literal('player.left'), playerId: z.string() }),
+  z.object({ t: z.literal('tv.left') }),
+  z.object({ t: z.literal('tv.back') }),
   z.object({ t: z.literal('signal'), from: z.string(), data: z.unknown() }),
   z.object({ t: z.literal('relay'), from: z.string(), data: z.unknown() }),
   z.object({ t: z.literal('pong') }),
