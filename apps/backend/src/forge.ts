@@ -1,6 +1,7 @@
 import type { BackendToClient, ForgeIngredient, GameSpec, Pitch, RoomSettings } from '@cadabra/spec';
 import { pickFallback } from '@cadabra/spec';
 import { screen } from './ai/bedrock';
+import { artForSpec } from './ai/art';
 import { design as aiDesign, fallbackPitches, newSpecId, pitch as aiPitch } from './ai/designer';
 import { themedFallback } from './fallback';
 
@@ -16,6 +17,8 @@ export const FORGE_BUDGETS = {
   designMs: 50_000,
   /** Winner must be ready this long after the vote closes (then: fallback). */
   winnerMs: 25_000,
+  /** Art for the winner is abandoned this long after the vote (the TV keeps its default pack). */
+  artMs: 25_000,
   /** How often the room (vote, TV connection) is polled. */
   pollMs: 400,
   /** After every pitch is resolved, wait this long for a vote (to hand losers to the arcade). */
@@ -53,6 +56,8 @@ export interface ForgeDeps {
   design?: typeof aiDesign;
   screen?: typeof screen;
   fallback?: typeof themedFallback;
+  /** Task 17: Stability art for the winner (default: ./ai/art). Never throws; no-ops when no image model is usable. */
+  art?: typeof artForSpec;
   /** Task 24 hook: an AI-designed spec for a pitch the room did not pick (store as an unplayed Arcade entry). */
   onLoserReady?(pitch: Pitch, spec: GameSpec): void | Promise<void>;
   log?(...a: unknown[]): void;
@@ -106,6 +111,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
   const doDesign = deps.design ?? aiDesign;
   const doScreen = deps.screen ?? screen;
   const doFallback = deps.fallback ?? themedFallback;
+  const doArt = deps.art ?? artForSpec;
   const familySafe = job.settings.familySafe;
   const result: ForgeResult = { readies: 0, outcome: {} };
   const phones = job.players.map((p) => p.conn).filter((c): c is string => !!c);
@@ -195,8 +201,35 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
     };
     const sendReady = (i: number, spec: GameSpec, fallback: boolean) => {
       result.readies++;
+      readySpecs[i] = spec;
+      if (winner === i) startArt(i);
       if (winner === i) result.winnerReadyMs = now() - (view.voteAt ?? now());
       return toTv({ t: 'forge.ready', forgeId: job.forgeId, pitchId: pitches[i]!.id, spec, ...(fallback ? { fallback: true } : {}) });
+    };
+    // ---- winner art (Stability): key art starts at the vote from the pitch, sprites once the spec exists.
+    // Both are best effort: no image quota / blocked prompt / late = no message, and the TV uses its default pack.
+    const readySpecs: (GameSpec | undefined)[] = pitches.map(() => undefined);
+    const artStarted = { key: false, sprites: false };
+    const artDeadline = () => Math.min((view.voteAt ?? now()) + B.artMs, job.hardStop - 3000);
+    const artTo = (i: number) => (key: string, url: string) => {
+      void toTv({ t: 'forge.art', forgeId: job.forgeId, pitchId: pitches[i]!.id, key, url });
+    };
+    const startArt = (i: number) => {
+      if (winner !== i) return;
+      const p = pitches[i]!;
+      const run = (spec: Parameters<typeof artForSpec>[0], only: Parameters<typeof artForSpec>[4]) => {
+        pending.push(doArt(spec, artTo(i), artDeadline(), familySafe, only).catch((e: unknown) => log('art failed', (e as Error)?.message)));
+      };
+      if (!artStarted.key) {
+        artStarted.key = true;
+        run({ id: `${job.forgeId}-${p.id}`, theme: { palette: p.palette, artStyle: '', keyArtPrompt: p.keyArtPrompt, sprites: {} } },
+          { keyArt: true, sprites: false });
+      }
+      const spec = readySpecs[i];
+      if (spec && !artStarted.sprites) {
+        artStarted.sprites = true;
+        run(spec, { keyArt: false, sprites: true });
+      }
     };
     const fallbackFor = (i: number) => {
       markDone(i, 'fallback');
@@ -269,6 +302,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
           // The winner always gets the full window after the vote (capped by the hard stop).
           winnerDeadline = Math.min((v.voteAt ?? now()) + B.winnerMs, job.hardStop);
           if (status[w] === 'ready' || status[w] === 'fallback') result.winnerReadyMs = 0;
+          startArt(w);
           pitches.forEach((_, i) => { if (i !== w && status[i] === 'ready') loserReady(i); });
         }
       }

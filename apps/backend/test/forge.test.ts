@@ -9,6 +9,8 @@ import {
 } from '@cadabra/spec';
 
 vi.mock('../src/ai/bedrock', () => ({
+  IMAGE_REGION: 'us-west-2',
+  MODELS: { image: 'img', removeBg: 'rm' },
   converse: vi.fn(async () => { throw new Error('no ai in tests'); }),
   screen: vi.fn(async (text: string) => ({ allowed: !/BADWORD/.test(text), reason: /BADWORD/.test(text) ? 'policy' : undefined })),
   screenOutput: vi.fn(async (text: string) => ({ allowed: !/BADWORD/.test(text), reason: /BADWORD/.test(text) ? 'policy' : undefined })),
@@ -40,6 +42,7 @@ function harness(over: {
   voteAfterMs?: number; winner?: string;
   budgets?: Record<string, number>;
   ingredients?: any[];
+  art?: (...a: any[]) => Promise<void>;
 } = {}) {
   const t0 = Date.now();
   const log: Ev[] = [];
@@ -61,6 +64,7 @@ function harness(over: {
       return { ...r, report: { ok: true, reasons: [], stats: {} as any }, toolCalls: 1 };
     },
     onLoserReady: (p: Pitch) => { losers.push(p.id); },
+    art: over.art ?? (async () => {}),
   };
   const job = {
     code: 'BCDF', forgeId: 'f1', startedAt: t0, hardStop: t0 + 20_000,
@@ -72,6 +76,44 @@ function harness(over: {
   return { log, room, losers, run: () => runForge(job, deps as any), t0 };
 }
 const posts = (log: Ev[], t: string, conn = 'tv1') => log.filter((e) => e.what === `post:${t}` && e.conn === conn);
+
+describe('forge art', () => {
+  test('winner art: key art at the vote, sprites once the spec is ready, only for the winner, posted as forge.art', async () => {
+    const calls: { id: string; only: any; deadline: number }[] = [];
+    const h = harness({
+      voteAfterMs: 100, winner: 'pb',
+      art: async (spec: any, onEach: any, deadline: number, _fs: boolean, only: any) => {
+        calls.push({ id: spec.id, only, deadline });
+        if (only.keyArt) onEach('keyArt', 'https://cdn.test/art/x/keyArt.png');
+        else onEach('imp', 'https://cdn.test/art/x/imp.png');
+      },
+    });
+    await h.run();
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({ id: 'f1-pb', only: { keyArt: true, sprites: false } });
+    expect(calls[1]).toMatchObject({ id: 'ai-pb', only: { keyArt: false, sprites: true } });
+    const art = posts(h.log, 'forge.art');
+    expect(art.map((e) => (e.msg as any).key).sort()).toEqual(['imp', 'keyArt']);
+    for (const e of art) {
+      expect(BackendToClientSchema.safeParse(e.msg).success).toBe(true);
+      expect((e.msg as any).pitchId).toBe('pb');
+    }
+  });
+
+  test('no art message and no delay when the art step does nothing (image provider down)', async () => {
+    const h = harness({ voteAfterMs: 50, winner: 'pa' });
+    const t = Date.now();
+    await h.run();
+    expect(posts(h.log, 'forge.art')).toHaveLength(0);
+    expect(Date.now() - t).toBeLessThan(2500);
+  });
+
+  test('a throwing art step never breaks the forge', async () => {
+    const h = harness({ voteAfterMs: 50, winner: 'pa', art: async () => { throw new Error('boom'); } });
+    await h.run();
+    expect(posts(h.log, 'forge.ready').length).toBe(3);
+  });
+});
 
 describe('forge orchestration', () => {
   test('pitches emitted before designs start', async () => {

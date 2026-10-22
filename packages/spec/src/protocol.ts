@@ -168,5 +168,8 @@ export const BackendToClientSchema = z.discriminatedUnion('t', [
   // ---- Arcade (Task 24) ----
   z.object({ t: z.literal('arcade.items'), games: z.array(ArcadeGameSummarySchema) }),
   z.object({ t: z.literal('arcade.game'), spec: GameSpecSchema, art: ArcadeArtSchema.optional() }),
+  // ---- Art (Task 17): one message per finished image; absent when no image model is available ----
+  /** `key` is 'keyArt' or a sprite key; `url` is https on the assets CDN. `specId` is set once the spec exists. */
+  z.object({ t: z.literal('forge.art'), forgeId: z.string().optional(), pitchId: z.string(), key: z.string().max(64), url: ArtUrlSchema, specId: z.string().max(64).optional() }),
 ]);
 export type BackendToClient = z.infer<typeof BackendToClientSchema>;

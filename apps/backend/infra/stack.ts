@@ -186,9 +186,12 @@ export class CadabraStack extends Stack {
         TABLE_NAME: table.tableName,
         GUARDRAIL_ID: guardrail.attrGuardrailId,
         GUARDRAIL_VERSION: guardrailVersion.attrVersion,
+        ASSETS_BUCKET: assets.bucketName,
+        ASSETS_URL: `https://${assetsCdn.distributionDomainName}`,
       },
       bundling: { minify: true, sourceMap: true, target: 'node22' },
     });
+    assets.grantWrite(forgeFn, 'art/*');
     table.grant(forgeFn, 'dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem');
     grantAi(forgeFn);
     forgeFn.grantInvoke(fn);
