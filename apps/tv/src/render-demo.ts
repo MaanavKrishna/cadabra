@@ -4,44 +4,9 @@
  * (&bots=1..8 sets the bot count, default 4; &dur=N shortens the round to N s)
  */
 import { BlockRegistry, GameRuntime, Rng, driveBots, makeBots, registerBuiltins, stubJudgement, DT } from '@cadabra/engine';
-import type { BlockUse, GameSpec } from '@cadabra/spec';
+import type { GameSpec } from '@cadabra/spec';
 import { GameView, advanceAccumulator } from '@cadabra/render';
-import heistJson from '../../../packages/spec/test/fixtures/heist.json';
-
-const heist = heistJson as unknown as GameSpec;
-
-function variant(blocks: BlockUse[], kind: GameSpec['arena']['kind'], over: Partial<GameSpec> = {}): GameSpec {
-  return {
-    ...heist,
-    id: `demo-${kind}`,
-    arena: { kind, width: 1280, height: 720 },
-    blocks,
-    modifiers: [],
-    timeline: [
-      { atSec: 20, kind: 'surprise', params: {}, hostLine: 'Surprise! Things just got spicy!' },
-      { atSec: 50, kind: 'twist', params: {}, hostLine: 'Final stretch!' },
-    ],
-    durationSec: 60,
-    ...over,
-  };
-}
-
-const neon = { bg: '#120b2e', primary: '#4cc9f0', accent: '#f72585', glow: '#ffd166', text: '#ffffff' } as const;
-const GAMES: Record<string, () => GameSpec> = {
-  heist: () => heist,
-  dodge: () => variant([{ block: 'dodge', params: { pattern: 'rain', onHit: 'stun', safeZones: 1 } }], 'topdown', {
-    theme: { ...heist.theme, palette: { ...neon }, sfxSet: 'arcade' },
-  }),
-  sweep: () => variant([{ block: 'dodge', params: { pattern: 'ring', startRate: 1.2 } }, { block: 'collect', params: {} }], 'topdown', {
-    theme: { ...heist.theme, palette: { bg: '#0b2a1a', primary: '#80ed99', accent: '#ff5d8f', glow: '#ffe66d', text: '#ffffff' } },
-  }),
-  race: () => variant([{ block: 'race', params: { laneCount: 4 } }], 'lanes', {
-    theme: { ...heist.theme, palette: { bg: '#0d1b3d', primary: '#3d8bff', accent: '#ff4d6d', glow: '#ffd166', text: '#ffffff' } },
-  }),
-  tug: () => variant([{ block: 'tug', params: {} }], 'tug', { teams: 2 }),
-  quiz: () => variant([{ block: 'trivia', params: {} }], 'quiz', { theme: { ...heist.theme, palette: { ...neon } } }),
-  draw: () => variant([{ block: 'draw-judge', params: {} }], 'canvas', { theme: { ...heist.theme, palette: { ...neon } } }),
-};
+import { GAMES } from './demo-games';
 
 const qs = new URLSearchParams(location.search);
 const game = qs.get('game') ?? 'heist';
