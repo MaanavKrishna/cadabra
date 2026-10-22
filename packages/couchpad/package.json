@@ -14,5 +14,8 @@
   "dependencies": {
     "@cadabra/spec": "*",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
   }
 }
