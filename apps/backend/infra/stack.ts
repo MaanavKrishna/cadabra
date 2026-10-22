@@ -92,24 +92,48 @@ export class CadabraStack extends Stack {
 
     // Bedrock: Converse/Invoke on Anthropic (ap-south-1 profiles route to other regions, so any-region
     // foundation-model ARNs are needed alongside the profile ARN), Stability image models (us-west-2), Guardrails, Polly.
-    fn.addToRolePolicy(new PolicyStatement({
-      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream', 'bedrock:Converse', 'bedrock:ConverseStream'],
-      resources: [
-        'arn:aws:bedrock:*::foundation-model/anthropic.*',
-        'arn:aws:bedrock:*::foundation-model/stability.*',
-        `arn:aws:bedrock:*:${this.account}:inference-profile/*anthropic.*`,
-      ],
-    }));
-    fn.addToRolePolicy(new PolicyStatement({
-      actions: ['bedrock:ApplyGuardrail'],
-      resources: [guardrail.attrGuardrailArn],
-    }));
-    // Anthropic API fallback key (secret is created out-of-band; the -* suffix is Secrets Manager's random tail).
-    fn.addToRolePolicy(new PolicyStatement({
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:ap-south-1:${this.account}:secret:cadabra/anthropic-api-key-*`],
-    }));
-    fn.addToRolePolicy(new PolicyStatement({ actions: ['polly:SynthesizeSpeech'], resources: ['*'] }));
+    const grantAi = (f: NodejsFunction) => {
+      f.addToRolePolicy(new PolicyStatement({
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream', 'bedrock:Converse', 'bedrock:ConverseStream'],
+        resources: [
+          'arn:aws:bedrock:*::foundation-model/anthropic.*',
+          'arn:aws:bedrock:*::foundation-model/stability.*',
+          `arn:aws:bedrock:*:${this.account}:inference-profile/*anthropic.*`,
+        ],
+      }));
+      f.addToRolePolicy(new PolicyStatement({
+        actions: ['bedrock:ApplyGuardrail'],
+        resources: [guardrail.attrGuardrailArn],
+      }));
+      // Anthropic API fallback key (secret is created out-of-band; the -* suffix is Secrets Manager's random tail).
+      f.addToRolePolicy(new PolicyStatement({
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [`arn:aws:secretsmanager:ap-south-1:${this.account}:secret:cadabra/anthropic-api-key-*`],
+      }));
+      f.addToRolePolicy(new PolicyStatement({ actions: ['polly:SynthesizeSpeech'], resources: ['*'] }));
+    };
+    grantAi(fn);
+
+    // Forge: pitches + 3 parallel designs + fallback, invoked async by the ws handler on forge.pitch.
+    const forgeFn = new NodejsFunction(this, 'ForgeFn', {
+      entry: fileURLToPath(new URL('../src/handlers/forge.ts', import.meta.url)),
+      handler: 'handler',
+      runtime: Runtime.NODEJS_LATEST,
+      architecture: Architecture.ARM_64,
+      memorySize: 3008,
+      timeout: Duration.seconds(120),
+      retryAttempts: 0, // a retried forge would arrive long after the room moved on
+      environment: {
+        TABLE_NAME: table.tableName,
+        GUARDRAIL_ID: guardrail.attrGuardrailId,
+        GUARDRAIL_VERSION: guardrailVersion.attrVersion,
+      },
+      bundling: { minify: true, sourceMap: true, target: 'node22' },
+    });
+    table.grant(forgeFn, 'dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:Query');
+    grantAi(forgeFn);
+    forgeFn.grantInvoke(fn);
+    fn.addEnvironment('FORGE_FN', forgeFn.functionName);
 
     const integ = new WebSocketLambdaIntegration('WsInteg', fn);
     const api = new WebSocketApi(this, 'WsApi', {
@@ -119,14 +143,17 @@ export class CadabraStack extends Stack {
     });
     const stage = new WebSocketStage(this, 'Prod', { webSocketApi: api, stageName: 'prod', autoDeploy: true });
     (stage.node.defaultChild as CfnStage).defaultRouteSettings = {
-      throttlingRateLimit: 50, throttlingBurstLimit: 100,
+      // 4 phones relaying input at 30 Hz plus keepalives exceeded 50/100.
+      throttlingRateLimit: 300, throttlingBurstLimit: 600,
     };
-    fn.addToRolePolicy(new PolicyStatement({
+    const manageConnections = new PolicyStatement({
       actions: ['execute-api:ManageConnections'],
       resources: [this.formatArn({
         service: 'execute-api', resource: api.apiId, resourceName: `${stage.stageName}/POST/@connections/*`,
       })],
-    }));
+    });
+    fn.addToRolePolicy(manageConnections);
+    forgeFn.addToRolePolicy(manageConnections);
 
     new CfnOutput(this, 'GuardrailId', { value: guardrail.attrGuardrailId });
     new CfnOutput(this, 'GuardrailVersion', { value: guardrailVersion.attrVersion });
@@ -136,5 +163,6 @@ export class CadabraStack extends Stack {
     new CfnOutput(this, 'ControllerDistributionId', { value: cdn.distributionId });
     new CfnOutput(this, 'AssetsBucket', { value: assets.bucketName });
     new CfnOutput(this, 'TableName', { value: table.tableName });
+    new CfnOutput(this, 'ForgeFnName', { value: forgeFn.functionName });
   }
 }

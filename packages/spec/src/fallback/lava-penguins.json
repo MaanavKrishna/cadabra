@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "fallback-lava-penguins",
+  "title": "Lava Floor Penguins",
+  "hook": "The floor is lava, the fish are falling, and penguins cannot fly. Waddle fast.",
+  "theme": {
+    "palette": { "bg": "#14213d", "primary": "#4cc9f0", "accent": "#ff5400", "glow": "#ffbe0b", "text": "#f1faee" },
+    "artStyle": "chunky bright vector cartoon",
+    "keyArtPrompt": "Cheerful penguins hopping across glowing orange lava cracks on an ice floe, fish raining from the sky, bold shapes, no text",
+    "sprites": {
+      "player": "round penguin with a scarf, top-down cartoon",
+      "fish": "shiny blue fish, top-down cartoon",
+      "lava": "bubbling orange lava blob with a warning glow, top-down cartoon"
+    },
+    "sfxSet": "arcade"
+  },
+  "arena": { "kind": "topdown", "width": 1280, "height": 720 },
+  "teams": 0,
+  "durationSec": 90,
+  "blocks": [
+    { "block": "arena-move", "params": { "speed": 300, "friction": 3, "dashButton": "dash" } },
+    { "block": "collect", "params": { "itemSprite": "fish", "spawnEverySec": 0.9, "maxItems": 12 } },
+    { "block": "dodge", "params": { "hazardSprite": "lava", "pattern": "rain", "onHit": "stun", "startRate": 0.6, "maxRate": 2.5 } }
+  ],
+  "modifiers": [],
+  "win": { "type": "highScore" },
+  "timeline": [
+    { "atSec": 40, "kind": "surprise", "params": {}, "hostLine": "Something big is coming! Watch the sky, everyone!" },
+    { "atSec": 80, "kind": "twist", "params": {}, "hostLine": "Ten seconds left and the sky is ANGRY!" }
+  ],
+  "comeback": { "enabled": true, "strength": 0.6 },
+  "controller": [
+    { "kind": "joystick", "id": "move" },
+    { "kind": "button", "id": "dash", "label": "Slide" }
+  ],
+  "host": {
+    "intro": "Grab the goodies, dodge the falling blobs, and slide like you mean it.",
+    "finale": "The dust settles. One player waddles home a champion.",
+    "tutorial": "Stick to move, tap Slide to dash. Grab the goodies, dodge the glowing drops."
+  },
+  "origin": { "ingredients": [], "wild": false }
+}

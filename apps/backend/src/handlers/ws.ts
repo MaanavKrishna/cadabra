@@ -3,13 +3,23 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import {
   ApiGatewayManagementApiClient, GoneException, PostToConnectionCommand,
 } from '@aws-sdk/client-apigatewaymanagementapi';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import type { APIGatewayProxyResult, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
 import { ClientToBackendSchema } from '@cadabra/spec';
 import { createRoom, disconnect, forward, joinRoom, resumeRoom, type Ctx } from '../rooms';
+import { recordVote, startForge, type ForgeEvent } from '../forge-room';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });
+
+const lambda = new LambdaClient({});
+/** Start the Forge Lambda asynchronously (it streams results back to the TV itself). */
+const invokeForge = async (ev: ForgeEvent) => {
+  const fn = process.env.FORGE_FN;
+  if (!fn) throw new Error('FORGE_FN not set');
+  await lambda.send(new InvokeCommand({ FunctionName: fn, InvocationType: 'Event', Payload: Buffer.from(JSON.stringify(ev)) }));
+};
 
 const ok = (body = ''): APIGatewayProxyResult => ({ statusCode: 200, body });
 
@@ -56,6 +66,10 @@ export async function handler(event: APIGatewayProxyWebsocketEventV2): Promise<A
     case 'signal':
     case 'relay': await forward(ctx, connectionId, m); break;
     case 'ping': await ctx.send(connectionId, { t: 'pong' }); break;
+    case 'forge.pitch':
+      await startForge(ctx, connectionId, m, { invoke: invokeForge, endpoint: `https://${domainName}/${stage}` });
+      break;
+    case 'forge.vote': await recordVote(ctx, connectionId, m); break;
   }
   return ok();
 }

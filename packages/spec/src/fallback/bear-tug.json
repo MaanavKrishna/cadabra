@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "fallback-bear-tug",
+  "title": "Bear Tug",
+  "hook": "Two teams, one rope, one very confused bear in the middle.",
+  "theme": {
+    "palette": { "bg": "#1b1b3a", "primary": "#f4d35e", "accent": "#ee964b", "glow": "#f95738", "text": "#faf0ca" },
+    "artStyle": "bouncy rubber-hose cartoon",
+    "keyArtPrompt": "Two teams of cartoon kids pulling a giant rope while a puzzled bear sits on the middle of it, silly and dramatic, no text",
+    "sprites": { "player": "cartoon kid pulling hard, side view", "rope": "giant striped rope with a bear sitting on it, side view" },
+    "sfxSet": "cartoon"
+  },
+  "arena": { "kind": "tug", "width": 1280, "height": 720 },
+  "teams": 2,
+  "durationSec": 75,
+  "blocks": [{ "block": "tug", "params": { "mode": "mash", "suddenDeathAtSec": 65 } }],
+  "modifiers": [],
+  "win": { "type": "teamScore" },
+  "timeline": [
+    { "atSec": 35, "kind": "slippery-rope", "params": {}, "hostLine": "The rope got slippery! Grip it tight!" },
+    { "atSec": 65, "kind": "sudden-death", "params": {}, "hostLine": "Sudden death! Every tap counts double!" }
+  ],
+  "comeback": { "enabled": true, "strength": 0.4 },
+  "controller": [{ "kind": "button", "id": "pull", "label": "PULL" }],
+  "host": {
+    "intro": "Two teams. One rope. No mercy.",
+    "finale": "The rope has chosen its champions. Well pulled, everyone.",
+    "tutorial": "Mash PULL as fast as you can. Your team pulls together."
+  },
+  "origin": { "ingredients": [], "wild": false }
+}

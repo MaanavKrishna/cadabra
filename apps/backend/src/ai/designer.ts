@@ -325,6 +325,8 @@ function cleanPitch(raw: unknown, i: number): Pitch | undefined {
   return PitchSchema.safeParse(pitch).success ? pitch : undefined;
 }
 
+const PITCH_SCREEN_RESERVE_MS = 1200;
+
 /** Three light pitches from one fast-model call. Always returns exactly 3 (fallbacks fill gaps). */
 export async function pitch(
   ingredients: string[], players: string[], opts: { familySafe: boolean; deadlineMs: number },
@@ -337,7 +339,8 @@ export async function pitch(
       system: pitchSystemPrompt(opts.familySafe),
       messages: [{ role: 'user', content: [{ text: pitchUserPrompt(ingredients, players) }] }],
       maxTokens: 1500,
-    }, deadline, 'pitch');
+      // Leave time to screen the pitches before the deadline.
+    }, opts.familySafe ? Math.max(Date.now() + 1, deadline - PITCH_SCREEN_RESERVE_MS) : deadline, 'pitch');
     const json = extractJson(out.text);
     const arr = Array.isArray(json) ? json : isObj(json) && Array.isArray(json.pitches) ? json.pitches : [];
     pitches = arr.map(cleanPitch).filter((x): x is Pitch => !!x).slice(0, 3);

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "id": "fallback-ladoo-heist",
+  "title": "Ladoo Heist",
+  "hook": "Tiptoe past a sleeping bear and sneak every ladoo out of Grandma's kitchen.",
+  "theme": {
+    "palette": { "bg": "#2b1a12", "primary": "#ff9f1c", "accent": "#e63946", "glow": "#ffd166", "text": "#fff6e5" },
+    "artStyle": "warm storybook cartoon",
+    "keyArtPrompt": "A huge sleeping brown bear snoring in a cozy grandma's kitchen, plates of golden ladoos on every counter, warm lamplight, no text",
+    "sprites": {
+      "player": "tiny sneaky kid in socks, top-down cartoon",
+      "ladoo": "golden round ladoo sweet, top-down cartoon",
+      "bear": "sleeping brown bear in an apron, top-down cartoon"
+    },
+    "sfxSet": "cartoon"
+  },
+  "arena": { "kind": "topdown", "width": 1280, "height": 720 },
+  "teams": 0,
+  "durationSec": 90,
+  "blocks": [
+    { "block": "sneak", "params": { "guardSprite": "bear", "hearingRadius": 320, "wakeDurationSec": 5 } },
+    { "block": "collect", "params": { "itemSprite": "ladoo", "maxItems": 24, "spawnEverySec": 1.5 } }
+  ],
+  "modifiers": [],
+  "win": { "type": "highScore" },
+  "timeline": [
+    { "atSec": 45, "kind": "guard-sleepwalk", "params": { "durationSec": 10 }, "hostLine": "The guard is sleepwalking! Everyone, freeze!" },
+    { "atSec": 80, "kind": "double-loot", "params": { "multiplier": 2 }, "hostLine": "Final ten seconds: grab everything!" }
+  ],
+  "comeback": { "enabled": true, "strength": 0.5 },
+  "controller": [
+    { "kind": "joystick", "id": "move" },
+    { "kind": "hold", "id": "tiptoe", "label": "Tiptoe" }
+  ],
+  "host": {
+    "intro": "The guard is snoring and the treats are out. Sneak in and grab them all.",
+    "finale": "The guard wakes up to an empty room. Who is the sneakiest of them all?",
+    "tutorial": "Move with the stick. Hold Tiptoe near the guard to stay silent. Touch a treat to grab it."
+  },
+  "origin": { "ingredients": [], "wild": false }
+}
