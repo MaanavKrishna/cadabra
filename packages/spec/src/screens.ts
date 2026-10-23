@@ -19,6 +19,17 @@ export function isSafeArtUrl(s: string): boolean {
 }
 export const ArtUrlSchema = z.string().max(400_000).refine(isSafeArtUrl, 'unsafe art url');
 
+// ---- Tweak / Remix (R2): quick chips the room can tap between rounds ----
+export const TWEAK_CHIPS = ['low-gravity', 'faster', 'bigger-arena', 'bouncier', 'more-chaos', 'harder-for-leader'] as const;
+export const TweakChipSchema = z.enum(TWEAK_CHIPS);
+export type TweakChip = z.infer<typeof TweakChipSchema>;
+export const TWEAK_CHIP_LABELS: Record<TweakChip, string> = {
+  'low-gravity': 'Low gravity', faster: 'Faster', 'bigger-arena': 'Bigger arena',
+  bouncier: 'Bouncier', 'more-chaos': 'More chaos', 'harder-for-leader': 'Harder for leader',
+};
+/** Max length of a typed tweak request. */
+export const TWEAK_TEXT_MAX = 80;
+
 export const PitchOptionSchema = z.union([
   text(60).min(1),
   z.object({ title: text(60).min(1), tagline: text(120).optional(), art: ArtUrlSchema.optional() }),
@@ -41,7 +52,16 @@ export const ScreenDataSchemas = {
     standings: z.array(StandingSchema).max(8).optional(),
   }),
   remix: z.object({ ...base, prompt: text(120).optional() }),
-  tweak: z.object({ ...base, message: text(200).optional() }),
+  tweak: z.object({
+    ...base, message: text(200).optional(),
+    /** R2: chips to offer (default: all TWEAK_CHIPS); phase drives the phone UI. */
+    chips: z.array(TweakChipSchema).max(TWEAK_CHIPS.length).optional(),
+    phase: z.enum(['ask', 'rebuilding', 'done']).optional(),
+    /** phase 'done': one-line "what changed" and short change tags. */
+    summary: text(120).optional(),
+    changes: z.array(text(40)).max(6).optional(),
+    seconds: seconds.optional(),
+  }),
   wait: z.object({
     ...base, message: text(120).optional(), sub: text(200).optional(),
     /** N3: forge build progress 0-100 (the phone shows a "building…" bar). */
@@ -75,6 +95,8 @@ export const ReplySchema = z.discriminatedUnion('reply', [
   z.object({ reply: z.literal('results.pick'), action: z.enum(['again', 'remix']) }),
   z.object({ reply: z.literal('remix.add'), remix: text(40).min(1) }),
   z.object({ reply: z.literal('tweak.set'), key: text(32).min(1), value: z.union([z.number().finite(), z.boolean(), text(40)]) }),
+  /** R2: a tweak request from a phone: a chip tap or free text (the TV ignores one with neither). */
+  z.object({ reply: z.literal('tweak.ask'), chip: TweakChipSchema.optional(), text: text(TWEAK_TEXT_MAX).min(1).optional() }),
 ]);
 export type Reply = z.infer<typeof ReplySchema>;
 export type ReplyKind = Reply['reply'];
@@ -82,6 +104,7 @@ export type ReplyKind = Reply['reply'];
 export const REPLY_SCREEN: Record<ReplyKind, ScreenName> = {
   'avatar.pick': 'avatar', 'storm.add': 'storm', 'vote.cast': 'vote', 'warmup.ready': 'warmup',
   'results.pick': 'results', 'remix.add': 'remix', 'tweak.set': 'tweak',
+  'tweak.ask': 'tweak',
 };
 
 const hasReplyKey = (d: unknown) => !!d && typeof d === 'object' && 'reply' in (d as object);

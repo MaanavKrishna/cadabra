@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { InputFrameSchema } from './controls';
 import { GameSpecSchema, PaletteSchema, PitchSchema } from './game-spec';
 import { RoomSettingsSchema } from './settings';
-import { ArtUrlSchema } from './screens';
+import { ArtUrlSchema, TWEAK_TEXT_MAX, TweakChipSchema } from './screens';
 
 export const SCREEN_NAMES = [
   'join', 'avatar', 'storm', 'vote', 'warmup', 'play', 'results', 'remix', 'tweak', 'wait', 'blocked',
@@ -73,6 +73,16 @@ export const ArcadeGameSummarySchema = z.object({
 });
 export type ArcadeGameSummary = z.infer<typeof ArcadeGameSummarySchema>;
 
+// ---- Tweak / Remix (R2) ----
+/** One room request: a chip, or free text a player typed. */
+export const TweakRequestSchema = z.union([
+  z.object({ chip: TweakChipSchema, playerId: z.string().max(32).optional() }),
+  z.object({ text: z.string().min(1).max(TWEAK_TEXT_MAX).regex(NoControlChars), playerId: z.string().max(32).optional() }),
+]);
+export type TweakRequest = z.infer<typeof TweakRequestSchema>;
+/** Where a tweaked spec came from: the AI designer, the deterministic chip presets, or unchanged. */
+export const TweakSourceSchema = z.enum(['ai', 'preset', 'none']);
+
 export const ClientToBackendSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('room.create'), household: z.string().max(64).regex(NoControlChars).optional() }),
   z.object({
@@ -138,6 +148,21 @@ export const ClientToBackendSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('arcade.delete'), household: ArcadeHousehold, specId: ArcadeSpecId }),
   /** A round of this game was played: bump playedCount/lastPlayed (saves it first when `spec` is given and new). */
   z.object({ t: z.literal('arcade.played'), household: ArcadeHousehold, specId: ArcadeSpecId, spec: z.unknown().optional(), art: ArcadeArtSchema.optional() }),
+  // ---- Tweak / Remix (R2): TV only. Patch `spec` with the room's requests; answered by forge.tweaked (always). ----
+  z.object({
+    t: z.literal('forge.tweak'),
+    code: z.string().regex(ROOM_CODE_RE),
+    /** TV's request id, echoed on forge.tweakProgress / forge.tweaked. */
+    id: z.string().min(1).max(64),
+    /** The current GameSpec (validated server side). */
+    spec: z.unknown(),
+    requests: z.array(TweakRequestSchema).min(1).max(3),
+    familySafe: z.boolean().optional(),
+    /** Seats in the next round incl. bots (1..4; playtests use max(2, seats)). */
+    seats: z.number().int().min(1).max(4).optional(),
+    /** 'remix': an Arcade game being remixed (same flow; the TV saves the result as a new entry). */
+    mode: z.enum(['tweak', 'remix']).optional(),
+  }),
 ]);
 export type ClientToBackend = z.infer<typeof ClientToBackendSchema>;
 
@@ -171,5 +196,23 @@ export const BackendToClientSchema = z.discriminatedUnion('t', [
   // ---- Art (Task 17): one message per finished image; absent when no image model is available ----
   /** `key` is 'keyArt' or a sprite key; `url` is https on the assets CDN. `specId` is set once the spec exists. */
   z.object({ t: z.literal('forge.art'), forgeId: z.string().optional(), pitchId: z.string(), key: z.string().max(64), url: ArtUrlSchema, specId: z.string().max(64).optional() }),
+  // ---- Tweak / Remix (R2) ----
+  /** Cosmetic progress for the "Rebuilding…" card. */
+  z.object({ t: z.literal('forge.tweakProgress'), id: z.string(), step: z.string().max(60) }),
+  /**
+   * The tweaked game: a new spec id with origin.parentId = the original id (source 'none': the original spec,
+   * unchanged). `summary` is the one-line "what changed" ("Gravity ×0.4, bounce up"); `changes` are short tags
+   * for chips ("Gravity ×0.4", "Bounce ↑"). `blocked`: some typed requests were dropped by family-safe screening.
+   */
+  z.object({
+    t: z.literal('forge.tweaked'),
+    id: z.string(),
+    spec: GameSpecSchema,
+    summary: z.string().max(120),
+    changes: z.array(z.string().max(40)).max(6),
+    source: TweakSourceSchema,
+    blocked: z.boolean().optional(),
+    ms: z.number().optional(),
+  }),
 ]);
 export type BackendToClient = z.infer<typeof BackendToClientSchema>;
