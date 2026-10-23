@@ -5,20 +5,21 @@
   "hook": "Energy cores spawn in the middle. Carry them to your team base, dash to knock them loose.",
   "theme": {
     "palette": {
-      "bg": "#0A0E27",
-      "primary": "#00E5FF",
-      "accent": "#FF2BD6",
-      "glow": "#B6FF3B",
-      "text": "#F4F7FF"
+      "bg": "#070B1F",
+      "primary": "#7C5CFF",
+      "accent": "#FF7A59",
+      "glow": "#5CF2E6",
+      "text": "#EEF0FF"
     },
-    "artStyle": "neon arcade vector, glowing outlines on deep navy",
-    "keyArtPrompt": "Glowing lime energy cores floating in the centre of a neon arena with a cyan base on the left and a magenta base on the right, avatars racing with cores in tow, Geometry Wars style, no text",
+    "artStyle": "deep space arena, starfield, nebula glow",
+    "keyArtPrompt": "Glowing cyan star cores floating in the centre of a ringed space arena, a violet base on the left and an orange base on the right, astronaut orbs racing with cores in tow, starfield, no text",
     "sprites": {
       "player": "glowing neon disc avatar",
       "core": "glowing neon lime energy core orb",
       "base": "glowing team base ring pad"
     },
-    "sfxSet": "neon"
+    "sfxSet": "cosmos",
+    "look": "cosmos"
   },
   "arena": {
     "kind": "topdown",
@@ -113,5 +114,23 @@
   "origin": {
     "ingredients": [],
     "wild": false
+  },
+  "world": {
+    "physics": {
+      "restitution": 0.7,
+      "friction": 0.3,
+      "knockback": 1.0,
+      "bumperKick": 420
+    },
+    "props": [
+      {
+        "kind": "bumper",
+        "count": 2,
+        "layout": "ring",
+        "radius": 150,
+        "size": 0.8,
+        "respawnSec": 0
+      }
+    ]
   }
 }

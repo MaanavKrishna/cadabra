@@ -5,19 +5,20 @@
   "hook": "Unstable cores, fuses nobody can see. Tag someone before yours blows.",
   "theme": {
     "palette": {
-      "bg": "#0A0E27",
-      "primary": "#00E5FF",
-      "accent": "#FF2BD6",
-      "glow": "#B6FF3B",
-      "text": "#F4F7FF"
+      "bg": "#070B1F",
+      "primary": "#7C5CFF",
+      "accent": "#FF7A59",
+      "glow": "#5CF2E6",
+      "text": "#EEF0FF"
     },
-    "artStyle": "neon arcade vector, glowing outlines on deep navy",
-    "keyArtPrompt": "A pulsing magenta energy core crackling with lightning in the middle of a neon grid arena, four glowing avatars scattering away from it, Geometry Wars style, no text",
+    "artStyle": "deep space arena, starfield, nebula glow",
+    "keyArtPrompt": "A pulsing orange star-core crackling in the middle of a ringed space arena, little astronaut orbs scattering, nebula and starfield behind, no text",
     "sprites": {
       "player": "glowing neon disc avatar",
       "core-unstable": "glowing neon magenta energy core crackling with sparks"
     },
-    "sfxSet": "neon"
+    "sfxSet": "cosmos",
+    "look": "cosmos"
   },
   "arena": {
     "kind": "topdown",
@@ -96,5 +97,12 @@
   "origin": {
     "ingredients": [],
     "wild": false
+  },
+  "world": {
+    "physics": {
+      "restitution": 0.75,
+      "friction": 0.3,
+      "knockback": 1.0
+    }
   }
 }

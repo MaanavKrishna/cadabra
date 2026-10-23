@@ -5,19 +5,20 @@
   "hook": "Two teams, one grid. Paint the floor your colour, dash to splash, own the most when the buzzer goes.",
   "theme": {
     "palette": {
-      "bg": "#0A0E27",
-      "primary": "#00E5FF",
-      "accent": "#FF2BD6",
-      "glow": "#B6FF3B",
-      "text": "#F4F7FF"
+      "bg": "#141021",
+      "primary": "#3EE0A0",
+      "accent": "#FF4F6D",
+      "glow": "#FFD23F",
+      "text": "#F7F1E3"
     },
-    "artStyle": "neon arcade vector, glowing outlines on deep navy",
-    "keyArtPrompt": "A neon tile grid floor half glowing cyan and half glowing magenta, two teams of light-trail avatars streaking across it painting tiles, bursts of colour, Tron style, no text",
+    "artStyle": "crisp pixel-art CRT arcade, chunky 8-bit",
+    "keyArtPrompt": "A chunky pixel-art tile floor half green and half red, two teams of 8-bit runners splashing colour, CRT arcade, no text",
     "sprites": {
       "player": "glowing neon disc avatar with a light trail",
       "tile": "dark floor tile that glows in a team colour when painted"
     },
-    "sfxSet": "neon"
+    "sfxSet": "retro",
+    "look": "retro"
   },
   "arena": {
     "kind": "topdown",

@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { ControlWidget, GameSpec, InputFrame, TimelineEvent } from '@cadabra/spec';
 import type { FxEvent, GameEvent } from './fx';
+import type { PhysicsApi } from './physics';
 import type { Rng } from './rng';
 import type { Entity, World } from './world';
 
@@ -43,6 +44,8 @@ export interface BlockCtx<P> {
   requestJudgement(kind: JudgementKind, payload: unknown): string;
   /** Withdraw a judgement (e.g. after a timeout); a late result for it is then ignored. */
   cancelJudgement(id: string): void;
+  /** Rigid-body physics, when the spec (world.physics / world.props) or a block turned it on. */
+  readonly physics?: PhysicsApi;
 }
 
 /**
@@ -71,6 +74,8 @@ export interface BlockDef<P = any> {
    */
   requiredControls?(params: P): RequiredControl[];
   arenaKinds: GameSpec['arena']['kind'][];
+  /** True when the block needs rigid-body physics with these params (the runtime turns it on). */
+  usesPhysics?(params: P): boolean;
   setup(ctx: BlockCtx<P>): void;
   update(ctx: BlockCtx<P>, dt: number): void;
   onInput(ctx: BlockCtx<P>, playerId: string, input: InputFrame): void;

@@ -9,3 +9,4 @@ export * from './judgements';
 export * from './bots';
 export * from './playtest';
 export * from './catalog';
+export * from './physics';

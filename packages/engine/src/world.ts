@@ -133,10 +133,10 @@ export class World {
     return out.sort((a, b) => a.id - b.id);
   }
 
-  /** Move every entity by its velocity. */
-  integrate(dt: number): void {
+  /** Move every entity by its velocity (except those `skip` claims, e.g. physics bodies). */
+  integrate(dt: number, skip?: (e: Entity) => boolean): void {
     for (const e of this.entities.values()) {
-      if (e.vx !== 0 || e.vy !== 0) {
+      if ((e.vx !== 0 || e.vy !== 0) && !skip?.(e)) {
         e.x += e.vx * dt;
         e.y += e.vy * dt;
       }

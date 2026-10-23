@@ -119,9 +119,9 @@ describe('playtest (brief)', () => {
     expect(r.stats.msWall).toBeLessThan(3000);
   });
 
-  test('catalog lists 8 blocks with JSON schemas', () => {
+  test('catalog lists 9 blocks with JSON schemas', () => {
     const cat = kitCatalog(reg());
-    expect(cat.map((k) => k.id)).toEqual(['arena-move', 'collect', 'dodge', 'race', 'sneak', 'tug', 'draw-judge', 'trivia']);
+    expect(cat.map((k) => k.id)).toEqual(['arena-move', 'collect', 'dodge', 'race', 'sneak', 'tug', 'draw-judge', 'trivia', 'ball-sport']);
     const registry = reg();
     for (const k of cat) {
       const def = registry.get(k.id)!;

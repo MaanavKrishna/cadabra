@@ -243,8 +243,20 @@ function steal(ctx: BlockCtx<CollectParams>, s: State, thief: Entity, victim: En
       loot.props.carriedBy = '';
       const { width: w, height: h } = ctx.world;
       const a = ctx.rng.range(0, Math.PI * 2), r = ctx.rng.range(FUMBLE_MIN, FUMBLE_MAX);
-      loot.x = clamp(victim.x + Math.cos(a) * r, loot.r, w - loot.r);
-      loot.y = clamp(victim.y + Math.sin(a) * r, loot.r, h - loot.r);
+      if (ctx.physics) {
+        // physics: it rolls away from the hit (thief → victim, ± a random spread) and bounces off walls/props
+        const hx = victim.x - thief.x, hy = victim.y - thief.y, hl = Math.hypot(hx, hy) || 1;
+        const ang = Math.atan2(hy, hx) + (a / Math.PI - 1) * 1.1;
+        const off = victim.r + loot.r + 4;
+        loot.x = clamp(victim.x + Math.cos(ang) * off, loot.r, w - loot.r);
+        loot.y = clamp(victim.y + Math.sin(ang) * off, loot.r, h - loot.r);
+        const sp = 300 + r * 3;
+        loot.vx = Math.cos(ang) * sp; loot.vy = Math.sin(ang) * sp;
+        Object.assign(loot.props, { body: 'dynamic', shape: 'circle', group: 'loot', damping: 2.2, restitution: 0.75, mass: 0.4, angle: 0, av: (hx / hl) * 9 });
+      } else {
+        loot.x = clamp(victim.x + Math.cos(a) * r, loot.r, w - loot.r);
+        loot.y = clamp(victim.y + Math.sin(a) * r, loot.r, h - loot.r);
+      }
       data.loose = true;
     }
     data.item = loot.id;

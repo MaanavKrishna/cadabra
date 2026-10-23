@@ -5,6 +5,7 @@ import {
   type DashInfo, type OverloadState, type PaintState, type RingState, isOut, overloadBot, overloadCut, overloadSetup, overloadSpeed,
   overloadUpdate, paintBot, paintBurst, paintSetup, paintUpdate, ringBot, ringCrumbleNow, ringSetup, ringUpdate,
 } from './arena-modes';
+import { type CrateState, crateBot, crateRefillAll, crateSetup, crateUpdate } from './crate-mode';
 import {
   AVATAR_R, type BotMem, type Vec, boostOf, botMem, clamp, ensureAvatars, inputDir, isStunned, keepInArena, len,
   markRam, pressed, speedMulOf, stateOf, steer,
@@ -58,6 +59,16 @@ export const arenaMoveSchema = z.object({
   paintFinalMul: z.number().min(1).max(5).describe('PAINT: the final tally at the buzzer pays this many times more.'),
   paintBurst: z.number().int().min(0).max(3).describe('PAINT: a dash paints a square of (2b+1)² tiles around you (1 => 3×3).'),
   paintUnderdog: z.boolean().describe('PAINT: players on the team (or player) behind on score dash-splash one size bigger (3×3 => 5×5): a comeback rubber band.'),
+  crates: z.boolean().describe('CRATE CRASH mode (turns physics on): every player owns a square platform zone stacked with physics crates. Knock rivals\' crates out of their zone (dash, bump, or a barrel blast from world.props) for crateKnockPoints; every crateTallySec you score crateStandPoints per crate still standing in your zone; the final tally pays crateFinalMul times.'),
+  crateZoneSize: z.number().min(140).max(320).describe('CRATES: zone side length, px.'),
+  cratesPerZone: z.number().int().min(1).max(9).describe('CRATES: crates stacked in each zone (players × this ≤ 36).'),
+  crateSize: z.number().min(0.6).max(1.6).describe('CRATES: crate size multiplier (1 = 44 px box).'),
+  crateKnockPoints: z.number().int().min(0).max(10).describe("CRATES: points for knocking a rival's crate out of its zone."),
+  crateStandPoints: z.number().int().min(0).max(5).describe('CRATES: points per standing crate at each tally.'),
+  crateTallySec: z.number().min(3).max(30).describe('CRATES: seconds between standing-crate tallies.'),
+  crateFinalMul: z.number().min(1).max(5).describe('CRATES: the final tally at the buzzer pays this many times more.'),
+  crateRefillEventKind: z.string().max(40).describe("CRATES: timeline event kind (exact) that refills every zone to full right away. '' = off."),
+  crateRefillSec: z.number().min(0).max(30).describe('CRATES: every this many seconds each zone gets a lost crate back (the last-place zone gets two); 0 = never.'),
 });
 export type ArenaMoveParams = z.infer<typeof arenaMoveSchema>;
 
@@ -77,6 +88,7 @@ interface State {
   ring?: RingState;
   ov?: OverloadState;
   paint?: PaintState;
+  crates?: CrateState;
 }
 
 const states = new WeakMap<object, State>();
@@ -130,12 +142,25 @@ function collide(ctx: BlockCtx<ArenaMoveParams>): void {
       }
       const mates = a.team !== undefined && a.team === b.team;
       const dashing = hitter.props.dashing === true;
-      const imp = rel * (1 + BUMP_RESTITUTION) / 2;
-      // a dash shoves: the victim takes dashShove times the impulse
-      const vk = dashing ? ctx.params.dashShove : 1;
+      const phys = ctx.physics?.params;
+      const imp = rel * (1 + (phys ? Math.min(1, phys.restitution) : BUMP_RESTITUTION)) / 2;
+      // a dash shoves: the victim takes dashShove times the impulse (physics: × knockback)
+      const vk = (dashing ? ctx.params.dashShove : 1) * (phys ? phys.knockback : 1);
       const sign = victim === b ? 1 : -1;
       victim.vx += sign * imp * vk * nx; victim.vy += sign * imp * vk * ny;
       hitter.vx -= sign * imp * nx; hitter.vy -= sign * imp * ny;
+      if (phys?.spin) {
+        // grazing bumps spin both bodies (tangential relative speed, opposite senses)
+        const vt = (a.vx - b.vx) * -ny + (a.vy - b.vy) * nx;
+        const w = clamp(vt / (a.r + b.r), -14, 14) * (0.5 + phys.friction);
+        a.props.av = (typeof a.props.av === 'number' ? a.props.av : 0) + w;
+        b.props.av = (typeof b.props.av === 'number' ? b.props.av : 0) + w;
+      }
+      if (phys) {
+        const t = ctx.time, k = Math.min(2, (rel * vk) / 600);
+        a.props.hitAt = t; b.props.hitAt = t;
+        a.props.impulse = k; b.props.impulse = k;
+      }
       if (dashing || rel > HARD_BUMP) {
         if (hitter.owner !== undefined) {
           victim.props.shovedBy = hitter.owner;
@@ -208,10 +233,21 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     paintFinalMul: 2,
     paintBurst: 1,
     paintUnderdog: false,
+    crates: false,
+    crateZoneSize: 220,
+    cratesPerZone: 5,
+    crateSize: 1,
+    crateKnockPoints: 2,
+    crateStandPoints: 1,
+    crateTallySec: 10,
+    crateFinalMul: 2,
+    crateRefillSec: 6,
+    crateRefillEventKind: '',
   },
   controls: ['joystick', 'tilt', 'button'],
   arenaKinds: ['topdown'],
   requiredControls: (p) => [{ kind: p.input, id: '', param: 'input' }],
+  usesPhysics: (p) => p.crates,
 
   setup(ctx) {
     ensureAvatars(ctx as BlockCtx<unknown>, 'arena-move', AVATAR_R * ctx.params.avatarScale);
@@ -229,6 +265,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     if (ctx.params.paint) s.paint = paintSetup(ctx);
     if (ctx.params.ringOut) s.ring = ringSetup(ctx);
     if (ctx.params.overload) s.ov = overloadSetup(ctx);
+    if (ctx.params.crates) s.crates = crateSetup(ctx);
   },
 
   onTimeline(ctx, ev) {
@@ -236,6 +273,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     const P = ctx.params;
     if (s.ring && P.ringCrumbleEventKind !== '' && ev.kind === P.ringCrumbleEventKind) ringCrumbleNow(ctx, s.ring);
     if (s.ov && P.overloadEventKind !== '' && ev.kind === P.overloadEventKind) overloadCut(ctx, s.ov);
+    if (s.crates && P.crateRefillEventKind !== '' && ev.kind === P.crateRefillEventKind) crateRefillAll(ctx, s.crates);
   },
 
   onInput(ctx, playerId, input) {
@@ -285,14 +323,16 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
       if (!e.props.dashing) {
         const dir = stunned ? { x: 0, y: 0 } : p.dir;
         if (dir.x === 0 && dir.y === 0) {
-          const k = Math.exp(-P.friction * dt);
+          // physics: knocked / released avatars slide longer on low damping (floaty), shorter on high
+          const damp = ctx.physics ? clamp(ctx.physics.params.linearDamping / 1.2, 0.15, 4) : 1;
+          const k = Math.exp(-P.friction * damp * dt);
           e.vx *= k;
           e.vy *= k;
           if (Math.abs(e.vx) < 1 && Math.abs(e.vy) < 1) e.vx = e.vy = 0;
         } else {
           // accelerate toward the target velocity, capped at accel*dt per step
           const dvx = dir.x * top - e.vx, dvy = dir.y * top - e.vy;
-          const dv = len(dvx, dvy), cap = P.accel * dt;
+          const dv = len(dvx, dvy), cap = (ctx.physics ? P.accel / Math.sqrt(ctx.physics.params.playerMass) : P.accel) * dt;
           const k = dv > cap ? cap / dv : 1;
           e.vx += dvx * k;
           e.vy += dvy * k;
@@ -303,6 +343,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     if (P.collidePlayers) collide(ctx);
     if (s.ov) overloadUpdate(ctx, s.ov);
     if (s.paint) paintUpdate(ctx, s.paint, dt);
+    if (s.crates) crateUpdate(ctx, s.crates, dt);
 
     const bounce = P.bounceWalls ? 0.7 : 0;
     for (const pl of ctx.players) {
@@ -327,6 +368,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     const dash: DashInfo = { ready: ctx.time >= p0.dashReadyAt, face: p0.face };
     if (s.ring) return ringBot(ctx, s.ring, playerId, skill, dash, key0);
     if (s.paint) return paintBot(ctx, s.paint, playerId, skill, dash, key0);
+    if (s.crates) return crateBot(ctx, s.crates, playerId, skill, dash, key0);
     if (s.ov) {
       const f = overloadBot(ctx, s.ov, playerId, skill, dash, key0);
       if (f) return f;

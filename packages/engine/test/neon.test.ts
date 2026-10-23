@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { FALLBACK_SPECS, LEGACY_FALLBACK_IDS, fallbackById, type BlockUse, type GameSpec, type InputFrame } from '@cadabra/spec';
+import { FALLBACK_SPECS, LEGACY_FALLBACK_IDS, NEON_ART_KEYS, PROP_KINDS, THEME_PALETTES, fallbackById, type BlockUse, type GameSpec, type InputFrame } from '@cadabra/spec';
 import { BlockRegistry, GameRuntime, playtest, registerBuiltins, type BlockCtx, type BlockDef, type Player } from '../src/index';
 import type { Entity } from '../src/world';
 
@@ -426,15 +426,22 @@ describe('neon dash (race laser gates)', () => {
 describe('neon lineup', () => {
   const reg = () => { const r = new BlockRegistry(); registerBuiltins(r); return r; };
 
-  test('five neon games with neon theme and only neon art keys', () => {
+  test('the lineup: seven games, each on its theme look, only known art keys', () => {
     expect(FALLBACK_SPECS.map((s) => s.id)).toEqual([
       'fallback-ring-out', 'fallback-overload', 'fallback-paint-wars', 'fallback-core-rush', 'fallback-neon-dash',
+      'fallback-rocket-ball', 'fallback-crate-crash',
     ]);
-    const keys = new Set(['player', 'gem', 'core', 'core-unstable', 'spike', 'laser', 'boost', 'base', 'tile', 'hole', 'finish']);
+    const looks: Record<string, string> = {
+      'fallback-ring-out': 'toybox', 'fallback-overload': 'cosmos', 'fallback-paint-wars': 'retro', 'fallback-core-rush': 'cosmos',
+      'fallback-neon-dash': 'neon', 'fallback-rocket-ball': 'neon', 'fallback-crate-crash': 'toybox',
+    };
+    const keys = new Set([...NEON_ART_KEYS, ...PROP_KINDS, 'net']);
     for (const s of FALLBACK_SPECS) {
-      expect(s.theme.sfxSet).toBe('neon');
-      expect(s.theme.palette.bg).toBe('#0A0E27');
-      for (const k of Object.keys(s.theme.sprites)) expect(keys.has(k), `${s.id}: ${k}`).toBe(true);
+      const look = s.theme.look!;
+      expect(look, s.id).toBe(looks[s.id]);
+      expect(s.theme.sfxSet).toBe(look);
+      expect(s.theme.palette).toEqual(THEME_PALETTES[look]);
+      for (const k of Object.keys(s.theme.sprites)) expect(keys.has(k as never), `${s.id}: ${k}`).toBe(true);
       expect(s.durationSec).toBeGreaterThanOrEqual(60);
       expect(s.durationSec).toBeLessThanOrEqual(75);
       expect(s.host.intro.length).toBeLessThanOrEqual(90);

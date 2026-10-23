@@ -282,7 +282,13 @@ export interface Core {
   fuseAt: number;
   critical: boolean;
   nextSpawnAt: number;
+  /** Physics: a passed core flies from the passer to its new holder (sim s start, from x/y). */
+  fly?: { t0: number; x: number; y: number };
 }
+
+/** Physics: seconds a passed core is airborne, and the knock its catch gives the receiver (px/s). */
+export const CORE_FLY_SEC = 0.22;
+const CORE_CATCH_KNOCK = 300;
 
 export interface OverloadState {
   cores: Core[];
@@ -366,12 +372,34 @@ function coreUpdate(ctx: Ctx, o: OverloadState, c: Core): void {
       callout(U(ctx), P.callout, 'core.pass', from, { to: p.id, clutch });
       ctx.fx({ kind: 'particles', preset: 'sparkle', x: e.x, y: e.y });
       ctx.fx({ kind: 'sfx', name: 'pass' });
+      if (ctx.physics) {
+        // physics: the core is flung across and its catch knocks the receiver back
+        c.fly = { t0: t, x: core.x, y: core.y };
+        const dx = e.x - h.x, dy = e.y - h.y, d = len(dx, dy) || 1;
+        const k = CORE_CATCH_KNOCK * ctx.physics.params.knockback;
+        e.vx += (dx / d) * k; e.vy += (dy / d) * k;
+        e.props.hitAt = t; e.props.impulse = 0.8;
+        if (ctx.physics.params.spin) e.props.av = num(e.props.av) + (dx * dy >= 0 ? 8 : -8);
+      }
       break;
     }
   }
   const holder = ctx.entityOf(c.holder)!;
-  core.x = holder.x;
-  core.y = holder.y - holder.r * 0.2;
+  const tx = holder.x, ty = holder.y - holder.r * 0.2;
+  const f = c.fly ? (t - c.fly.t0) / CORE_FLY_SEC : 1;
+  if (c.fly && f < 1) {
+    // airborne: ease from the throw point to the catcher, with a little hop
+    const k = f * f * (3 - 2 * f);
+    core.x = c.fly.x + (tx - c.fly.x) * k;
+    core.y = c.fly.y + (ty - c.fly.y) * k - Math.sin(Math.PI * f) * 40;
+    core.props.flying = true;
+    core.props.angle = num(core.props.angle) + 0.5;
+  } else {
+    c.fly = undefined;
+    core.x = tx;
+    core.y = ty;
+    core.props.flying = false;
+  }
   core.vx = core.vy = 0;
   const left = Math.max(0, c.fuseAt - t);
   const frac = clamp(1 - left / c.fuseLen, 0, 1);
@@ -394,8 +422,9 @@ function coreUpdate(ctx: Ctx, o: OverloadState, c: Core): void {
     ctx.score(p.id, P.overloadReward + assist, assist > 0 ? 'HANDOFF!' : 'SURVIVED');
   }
   holder.props.stunUntil = Math.max(num(holder.props.stunUntil), t + P.overloadStunSec);
-  // the blast knocks bystanders back
-  for (const p of ctx.players) {
+  // the blast knocks bystanders back (physics: props too)
+  if (ctx.physics) ctx.physics.blast(holder.x, holder.y, OVERLOAD_BLAST * 1.4, 420);
+  else for (const p of ctx.players) {
     const e = p.id === victim ? undefined : ctx.entityOf(p.id);
     if (!e || isOut(e)) continue;
     const dx = e.x - holder.x, dy = e.y - holder.y, d = len(dx, dy);

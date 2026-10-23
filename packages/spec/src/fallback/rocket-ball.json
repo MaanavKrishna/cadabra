@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "id": "fallback-rocket-ball",
+  "title": "ROCKET BALL",
+  "hook": "2v2 neon car-soccer: boost into a giant bouncy ball and bank it off the walls into their goal.",
+  "theme": {
+    "palette": {
+      "bg": "#0A0E27",
+      "primary": "#00E5FF",
+      "accent": "#FF2BD6",
+      "glow": "#B6FF3B",
+      "text": "#F4F7FF"
+    },
+    "artStyle": "neon arcade vector, glowing outlines on deep navy",
+    "look": "neon",
+    "sfxSet": "neon",
+    "keyArtPrompt": "A giant glowing ball bouncing across a neon pitch between two glowing goals, four light-trail avatars boosting into it, Rocket League meets Tron, no text",
+    "sprites": {
+      "player": "glowing neon disc avatar with a boost trail",
+      "ball": "giant glowing neon ball",
+      "net": "glowing neon goal net"
+    }
+  },
+  "arena": {
+    "kind": "topdown",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 2,
+  "durationSec": 60,
+  "blocks": [
+    {
+      "block": "arena-move",
+      "params": {
+        "speed": 300,
+        "accel": 2600,
+        "friction": 5,
+        "bounceWalls": true,
+        "dashButton": "dash",
+        "dashPower": 2.6,
+        "dashCooldownSec": 1.0,
+        "dashMs": 180,
+        "dashShove": 1.6,
+        "shoveStunSec": 0.25,
+        "callout": "rocket"
+      }
+    },
+    {
+      "block": "ball-sport",
+      "params": {
+        "mode": "goals",
+        "ballSize": 1.5,
+        "ballBounce": 0.9,
+        "ballMass": 0.35,
+        "ballDamping": 0.35,
+        "goalSize": 300,
+        "goalDepth": 60,
+        "goalPoints": 3,
+        "assistPoints": 1,
+        "kickPower": 560,
+        "kickoffReset": true,
+        "kickoffSec": 1,
+        "multiballEventKind": "multiball",
+        "callout": "rocket",
+        "behindBonus": 3
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "highScore"
+  },
+  "timeline": [
+    {
+      "atSec": 30,
+      "kind": "multiball",
+      "params": {},
+      "hostLine": "MULTIBALL! A second ball drops in!"
+    },
+    {
+      "atSec": 50,
+      "kind": "final",
+      "params": {},
+      "hostLine": "FINAL 10! Goals count double!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "joystick",
+      "id": "move"
+    },
+    {
+      "kind": "button",
+      "id": "dash",
+      "label": "BOOST (power shot)"
+    }
+  ],
+  "host": {
+    "intro": "Boost into the ball and score in the other team's goal. Bank it off the walls!",
+    "finale": "FINAL 10! Goals count double!",
+    "tutorial": "Stick to drive. BOOST into the ball for a power shot. Goal: +3, teammate +1. Left team shoots right."
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  },
+  "world": {
+    "physics": {
+      "restitution": 0.85,
+      "friction": 0.2,
+      "linearDamping": 0.6,
+      "knockback": 1.2,
+      "spin": true
+    }
+  }
+}

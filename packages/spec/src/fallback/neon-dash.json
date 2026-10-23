@@ -19,7 +19,8 @@
       "boost": "glowing neon cyan chevron boost pad",
       "finish": "glowing neon checkered finish line"
     },
-    "sfxSet": "neon"
+    "sfxSet": "neon",
+    "look": "neon"
   },
   "arena": {
     "kind": "lanes",

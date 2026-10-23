@@ -2,23 +2,25 @@
   "version": 1,
   "id": "fallback-ring-out",
   "title": "RING OUT",
-  "hook": "A neon ring floats in the void and the edge is crumbling. Dash into rivals and knock them off.",
+  "hook": "A toy platform floats in the void and the edge is crumbling. Bounce off bumpers, slam rivals off.",
   "theme": {
     "palette": {
-      "bg": "#0A0E27",
-      "primary": "#00E5FF",
-      "accent": "#FF2BD6",
-      "glow": "#B6FF3B",
-      "text": "#F4F7FF"
+      "bg": "#F3EEE4",
+      "primary": "#1E6BFF",
+      "accent": "#FF3B30",
+      "glow": "#FFC400",
+      "text": "#1B1F3B"
     },
-    "artStyle": "neon arcade vector, glowing outlines on deep navy",
-    "keyArtPrompt": "A glowing cyan hexagon-grid ring platform floating in a deep navy void, its outer tiles breaking away into sparks, four neon light-trail avatars colliding, Tron style, no text",
+    "artStyle": "glossy plastic toys, bright primaries, soft shadows",
+    "keyArtPrompt": "A round glossy plastic toy platform floating in a soft blue void, pinball bumpers on it, chunky jelly-bean figures bouncing and colliding, outer tiles breaking away, bright toy colours, no text",
     "sprites": {
-      "player": "glowing neon disc avatar with a light trail",
-      "tile": "glowing neon cyan floor tile",
-      "hole": "dark void with faint magenta edge glow"
+      "player": "glossy vinyl toy figure with big eyes",
+      "tile": "glossy plastic floor tile",
+      "hole": "soft void below the platform",
+      "bumper": "chunky glossy pinball bumper"
     },
-    "sfxSet": "neon"
+    "sfxSet": "toybox",
+    "look": "toybox"
   },
   "arena": {
     "kind": "topdown",
@@ -93,10 +95,30 @@
   "host": {
     "intro": "Dash into rivals to knock them off the ring. Stay on the platform!",
     "finale": "FINAL 10! Ring-outs count double!",
-    "tutorial": "Stick to move. DASH to shove. Knock rivals off: +3. Still standing when the edge drops: +1. Fall off: -1."
+    "tutorial": "Stick to move. DASH to shove. Bumpers fire you back. Knock rivals off: +3. Still standing when the edge drops: +1. Fall off: -1."
   },
   "origin": {
     "ingredients": [],
     "wild": false
+  },
+  "world": {
+    "physics": {
+      "restitution": 0.8,
+      "friction": 0.4,
+      "linearDamping": 1.0,
+      "knockback": 1.15,
+      "bumperKick": 480,
+      "spin": true
+    },
+    "props": [
+      {
+        "kind": "bumper",
+        "count": 3,
+        "layout": "ring",
+        "radius": 120,
+        "size": 0.9,
+        "respawnSec": 0
+      }
+    ]
   }
 }

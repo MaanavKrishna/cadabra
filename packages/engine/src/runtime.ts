@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import type { BlockUse, GameSpec, InputFrame } from '@cadabra/spec';
+import { resolvePhysics, type BlockUse, type GameSpec, type InputFrame } from '@cadabra/spec';
 import type { BlockCtx, BlockDef, JudgementKind, Player } from './block';
 import { FxQueue, type FxEvent, type GameEvent } from './fx';
+import { Physics } from './physics';
 import type { BlockRegistry } from './registry';
 import { Rng } from './rng';
 import { World, cloneEntity, type Entity } from './world';
@@ -121,6 +122,8 @@ export class GameRuntime {
   private announcedLeader?: string;
   private lastLeadAt = -Infinity;
   private _leadChanges = 0;
+  /** Rigid-body layer (undefined = classic velocity integration). */
+  private physics?: Physics;
 
   constructor(spec: GameSpec, players: Player[], registry: BlockRegistry, seed: number, opts: RuntimeOpts = {}) {
     this.spec = spec;
@@ -137,10 +140,20 @@ export class GameRuntime {
     }
 
     const uses: BlockUse[] = [...spec.blocks, ...spec.modifiers];
+    const parsed: { def: BlockDef; params: unknown }[] = [];
     for (const use of uses) {
       const def = registry.get(use.block);
       if (!def) throw new Error(`unknown block: ${use.block}`);
-      const params = parseParams(def, { ...(def.defaults as object), ...use.params }, use.params);
+      parsed.push({ def, params: parseParams(def, { ...(def.defaults as object), ...use.params }, use.params) });
+    }
+    const phys = resolvePhysics(spec, parsed.some(({ def, params }) => def.usesPhysics?.(params) === true));
+    if (phys) {
+      this.physics = new Physics({
+        world: this.world, rng: this.rng, time: () => this.time,
+        emit: (e) => this.emit(e), fx: (e) => this.fxq.push(e),
+      }, phys);
+    }
+    for (const { def, params } of parsed) {
       const ab = { def, ctx: undefined as unknown as BlockCtx<unknown> };
       ab.ctx = this.makeCtx(params, ab);
       this.blocks.push(ab);
@@ -150,6 +163,7 @@ export class GameRuntime {
       this.world.invalidate();
       b.def.setup(b.ctx);
     }
+    if (this.physics && spec.world?.props?.length) this.physics.spawnWorldProps(spec.world.props);
     for (const e of this.world.all()) {
       if (e.kind === 'player' && e.props.boost === undefined) e.props.boost = 1;
     }
@@ -291,7 +305,13 @@ export class GameRuntime {
       this.world.invalidate();
       b.def.update(b.ctx, DT);
     }
-    this.world.integrate(DT);
+    if (this.physics) {
+      const ph = this.physics;
+      ph.step(DT);
+      this.world.integrate(DT, (e) => ph.owns(e));
+    } else {
+      this.world.integrate(DT);
+    }
 
     // 3. advance time and run scheduled rules
     this.steps++;
@@ -360,6 +380,7 @@ export class GameRuntime {
     return {
       params,
       spec: this.spec,
+      physics: this.physics,
       world: this.world,
       players: this.players,
       rng: this.rng,

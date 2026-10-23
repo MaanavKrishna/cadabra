@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "id": "fallback-crate-crash",
+  "title": "CRATE CRASH",
+  "hook": "Guard your stack of toy crates and blast everyone else's off their platforms.",
+  "theme": {
+    "palette": {
+      "bg": "#F3EEE4",
+      "primary": "#1E6BFF",
+      "accent": "#FF3B30",
+      "glow": "#FFC400",
+      "text": "#1B1F3B"
+    },
+    "artStyle": "glossy plastic toys, bright primaries, soft shadows",
+    "look": "toybox",
+    "sfxSet": "toybox",
+    "keyArtPrompt": "Four glossy plastic toy platforms stacked with chunky wooden-toy crates, jelly figures dashing into them, an explosive toy barrel mid-blast sending crates flying, bright primaries, no text",
+    "sprites": {
+      "player": "glossy vinyl toy figure with big eyes",
+      "crate": "chunky glossy toy crate",
+      "barrel": "red toy barrel with a fuse",
+      "base": "glossy plastic platform"
+    }
+  },
+  "arena": {
+    "kind": "topdown",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 0,
+  "durationSec": 60,
+  "blocks": [
+    {
+      "block": "arena-move",
+      "params": {
+        "speed": 285,
+        "accel": 2300,
+        "friction": 6,
+        "bounceWalls": true,
+        "dashButton": "dash",
+        "dashPower": 2.5,
+        "dashCooldownSec": 1.1,
+        "dashMs": 180,
+        "dashShove": 1.8,
+        "shoveStunSec": 0.3,
+        "callout": "crate",
+        "crates": true,
+        "crateZoneSize": 220,
+        "cratesPerZone": 5,
+        "crateSize": 1,
+        "crateKnockPoints": 2,
+        "crateStandPoints": 1,
+        "crateTallySec": 10,
+        "crateFinalMul": 2,
+        "crateRefillSec": 6,
+        "crateRefillEventKind": "crate-drop"
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "highScore"
+  },
+  "timeline": [
+    {
+      "atSec": 30,
+      "kind": "crate-drop",
+      "params": {},
+      "hostLine": "CRATE DROP! Every stack is back to full!"
+    },
+    {
+      "atSec": 50,
+      "kind": "final",
+      "params": {},
+      "hostLine": "FINAL 10! The last tally counts double!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "joystick",
+      "id": "move"
+    },
+    {
+      "kind": "button",
+      "id": "dash",
+      "label": "DASH (smash)"
+    }
+  ],
+  "host": {
+    "intro": "Smash rival crates off their platforms and keep your own stack standing!",
+    "finale": "FINAL 10! The last tally counts double!",
+    "tutorial": "Stick to move. DASH to smash. Knock a rival crate off: +2. Every 10 s: +1 per crate still on your platform. Barrels explode!"
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  },
+  "world": {
+    "physics": {
+      "restitution": 0.35,
+      "friction": 0.5,
+      "linearDamping": 1.5,
+      "knockback": 1.2,
+      "barrelPower": 950,
+      "spin": true
+    },
+    "props": [
+      {
+        "kind": "barrel",
+        "count": 3,
+        "layout": "center",
+        "size": 1,
+        "respawnSec": 7
+      }
+    ]
+  }
+}

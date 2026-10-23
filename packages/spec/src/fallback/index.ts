@@ -7,11 +7,14 @@ import overload from './overload.json';
 import paintWars from './paint-wars.json';
 import coreRush from './core-rush.json';
 import neonDash from './neon-dash.json';
+import rocketBall from './rocket-ball.json';
+import crateCrash from './crate-crash.json';
 
 /**
- * The neon arcade lineup: RING OUT (FFA sumo), OVERLOAD (hot potato), PAINT WARS (2v2
- * territory), CORE RUSH (2v2 capture/carry), NEON DASH (lane race). Every one also plays well
- * as a 30–45 s quick-fire round (party playlist).
+ * The arcade lineup: RING OUT (FFA bumper sumo, toybox), OVERLOAD (hot potato, cosmos), PAINT
+ * WARS (2v2 territory, retro), CORE RUSH (2v2 capture/carry, cosmos), NEON DASH (lane race,
+ * neon), ROCKET BALL (2v2 physics car-soccer, neon), CRATE CRASH (FFA physics crate smash,
+ * toybox). Every one also plays as a 30–45 s quick-fire round (party playlist).
  */
 export const FALLBACK_SPECS: readonly GameSpec[] = [
   ringOut as unknown as GameSpec,
@@ -19,6 +22,8 @@ export const FALLBACK_SPECS: readonly GameSpec[] = [
   paintWars as unknown as GameSpec,
   coreRush as unknown as GameSpec,
   neonDash as unknown as GameSpec,
+  rocketBall as unknown as GameSpec,
+  crateCrash as unknown as GameSpec,
 ];
 
 /** The retired fallbacks and the neon game that replaced each (for old links / share codes). */
@@ -42,6 +47,8 @@ const MODE_WORDS: readonly [string, RegExp][] = [
   ['fallback-paint-wars', /\b(paint\w*|colou?r\w*|territor\w*|splat\w*|splash\w*|graffiti|tiles?)\b/i],
   ['fallback-neon-dash', /\b(race|racing|lane|lanes|run|sprint|finish|laser)\b/i],
   ['fallback-core-rush', /\b(carry|heist|steal\w*|bank|base|capture|grab|loot|rush|cores?)\b/i],
+  ['fallback-rocket-ball', /\b(ball|soccer|football|goals?|kick\w*|rocket|hockey|puck|sports?)\b/i],
+  ['fallback-crate-crash', /\b(crates?|box(es)?|stack\w*|tower\w*|smash\w*|barrels?|blocks?|lego|topple\w*)\b/i],
   ['fallback-ring-out', /\b(ring|sumo|shove|push|knock\w*|edge|arena|bump\w*|crumbl\w*)\b/i],
 ];
 
