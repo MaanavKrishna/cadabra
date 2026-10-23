@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadabra</title>
+<meta name="description" content="Cadabra is a Fire TV party game where the room invents the game. Phones send ideas, an AI designs and bot-tests a physics game in seconds, and every phone becomes the controller.">
+<meta name="theme-color" content="#05060c">
+<link rel="canonical" href="https://maanavkrishna.github.io/cadabra/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cadabra">
+<meta property="og:title" content="Cadabra: your living room just invented a game">
+<meta property="og:description" content="AI party games for Fire TV. Say it, vote on it, play it seconds later with your phone as the controller.">
+<meta property="og:url" content="https://maanavkrishna.github.io/cadabra/">
+<meta property="og:image" content="https://maanavkrishna.github.io/cadabra/media/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="676">
+<meta property="og:image:alt" content="The Cadabra home screen on a Fire TV">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cadabra: your living room just invented a game">
+<meta name="twitter:description" content="AI party games for Fire TV. Say it, vote on it, play it seconds later.">
+<meta name="twitter:image" content="https://maanavkrishna.github.io/cadabra/media/og.jpg">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/figtree-300.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar" id="bar">
+  <a class="mark" href="./" aria-label="Cadabra home">{{SPARK}}cadabra</a>
+  <nav aria-label="Main">
+    <a class="opt" href="#how">How it works</a>
+    <a class="opt" href="#games">Games</a>
+    <a class="opt" href="#tweak">Tweak</a>
+    <a class="opt" href="#tech">Tech</a>
+    <a href="docs/getting-started.html">Docs</a>
+    <a class="gh" href="https://github.com/MaanavKrishna/cadabra" aria-label="Cadabra on GitHub">{{GH}}</a>
+  </nav>
+</header>
+
+<main id="main">
+<section class="hero" aria-labelledby="hero-title">
+  <img class="hero-still" src="media/hero-poster.jpg" alt="" width="1280" height="720" fetchpriority="high">
+  <video id="hero-video" autoplay muted loop playsinline preload="auto" poster="media/hero-poster.jpg" aria-hidden="true">
+    <source src="media/hero.mp4" type="video/mp4">
+  </video>
+  <div class="hero-inner">
+    <h1 id="hero-title"><span class="ln">Your living room</span> <span class="ln">just invented</span> <span class="ln">a game.</span></h1>
+    <p class="lede">Cadabra is a party game for Fire TV. Everyone throws ideas in from their phone, an AI designer turns them into a real physics game, and a few seconds later the room is playing it. Phones are the controllers. Nothing to install.</p>
+    <div class="ctas">
+      <a class="btn primary" href="https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0">{{DL}}Download the APK</a>
+      <a class="btn" href="https://github.com/MaanavKrishna/cadabra">{{GH}}View on GitHub</a>
+    </div>
+    <p class="fine">v1.0 for Fire TV Stick. MIT licensed. Runs in a desktop browser too.</p>
+  </div>
+  <button class="motion-toggle" id="motion" type="button" aria-pressed="false">Pause video</button>
+</section>
+
+<section class="sec ambient" id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <h2 id="how-title">From a shout to a game in under a minute.</h2>
+    <p class="intro">"Cadabra" was Amazon's first name. Abracadabra means <em>I create as I speak</em>, and that is the whole game: the room says what it wants, and the TV builds it.</p>
+    <div class="flow">
+      <figure class="screen" aria-live="polite">
+        <img id="step-img" src="media/phone-join-play.jpg" alt="Phone controller screens: join, pick an orb avatar, play, results" width="1590" height="844" class="contain" loading="lazy">
+        <figcaption id="step-cap">Real screenshots from a Fire TV Stick HD</figcaption>
+      </figure>
+      <ol class="steps" role="tablist" aria-label="How a round works" aria-orientation="vertical">
+        {{STEPS}}
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="games" aria-labelledby="games-title">
+  <div class="wrap">
+    <h2 id="games-title">Seven games. Four looks. Real physics.</h2>
+    <p class="intro">Cadabra ships with seven built-in games, and every game the AI invents is built from the same parts. Each one runs on planck physics: bumpers kick, balls bounce, crates topple and barrels explode.</p>
+    <div class="home" id="home">
+      <div class="bg" aria-hidden="true">{{HOME_BG}}</div>
+      <div class="info" aria-live="polite">
+        <h3 id="g-title">Ring Out</h3>
+        <p id="g-desc">Bumper sumo on a floating ring. Dash rivals off the edge.</p>
+        <div class="chips"><span class="chip" id="g-look"><i></i>toybox look</span><span class="chip">1 to 4 players</span><span class="chip">bots fill empty seats</span></div>
+      </div>
+      <div class="tiles-wrap">
+        <div class="tiles" role="tablist" aria-label="Built-in games" id="tiles">{{TILES}}</div>
+      </div>
+    </div>
+    <p class="hint">This row works like the TV home: use the arrow keys, or tap a tile.</p>
+
+    <div class="looks-head">
+      <h3>Any game, in any of four looks.</h3>
+      <p>All the art is drawn in code, so a look is a setting, not an asset pack. The AI picks one for each pitch, with music and sound to match.</p>
+    </div>
+    <div class="looks">
+      <figure><img src="media/look-neon.jpg" alt="Rocket Ball in the neon look" width="640" height="361" loading="lazy"><figcaption><b>Neon</b><span>Dark grid, glowing bodies, synthwave</span></figcaption></figure>
+      <figure><img src="media/look-toybox.jpg" alt="Crate Crash in the toybox look" width="640" height="361" loading="lazy"><figcaption><b>Toybox</b><span>Glossy vinyl, toy-brick crates, swing</span></figcaption></figure>
+      <figure><img src="media/look-cosmos.jpg" alt="Overload in the cosmos look" width="640" height="361" loading="lazy"><figcaption><b>Cosmos</b><span>Nebula, astronaut orbs, ambient pads</span></figcaption></figure>
+      <figure><img src="media/look-retro.jpg" alt="Paint Wars in the retro look" width="640" height="361" loading="lazy"><figcaption><b>Retro</b><span>Pixel art, scanlines, chiptune</span></figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section class="sec ambient" id="tweak" aria-labelledby="tweak-title">
+  <div class="wrap tweak">
+    <div class="tweak-media">
+      <video id="tweak-video" muted loop playsinline preload="none" poster="media/tv-tweak-changed.jpg" aria-label="The AI rebuilds Magnet Lava Pinball with low gravity and more bounce, then the new version plays">
+        <source src="media/tweak.mp4" type="video/mp4">
+      </video>
+      <img class="phone" src="media/phone-tweak.jpg" alt="Phone tweak screen with chips like Low gravity and More chaos" width="468" height="600" loading="lazy">
+    </div>
+    <div class="tweak-copy">
+      <h2 id="tweak-title">Don't like a rule? Change it from your phone.</h2>
+      <p class="intro">After every round, the phones get ten seconds to ask for something different. The AI patches the game, shows what it changed, and you play the new version.</p>
+      <ul class="ask" aria-label="Tweak chips on the phone">
+        <li>Low gravity</li><li>Faster</li><li>Bigger arena</li><li>Bouncier</li><li>More chaos</li><li>Harder for leader</li><li class="typed">or type your own</li>
+      </ul>
+      <ol class="loop">
+        <li><b>10 s</b><div><strong>Ask</strong><span>Up to three requests from the room, chips or 80 typed characters, screened by Guardrails.</span></div></li>
+        <li><b>~5 s</b><div><strong>Patch and playtest</strong><span>The AI edits the game spec with a JSON Patch, then bots play a full round before you see it.</span></div></li>
+        <li><b>0 s</b><div><strong>Replay</strong><span>A "What changed" card lists the changes, and the round restarts. If the AI is slow, tested presets step in.</span></div></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="tech" aria-labelledby="tech-title">
+  <div class="wrap">
+    <h2 id="tech-title">The AI designs. It never writes code.</h2>
+    <p class="intro">A game is a <code>GameSpec</code>: data that composes nine tested blocks with a physics world and a look. The designer builds specs with tool calls, and a spec only reaches the TV after four bots finish a full round with it.</p>
+    <div class="arch-scroll" tabindex="0" aria-label="Architecture diagram, scrolls sideways on small screens">{{ARCH}}</div>
+    <div class="rules">
+      <div><h3>The TV is in charge</h3><p>A deterministic, seeded engine and the physics run on the stick. Phones only send inputs.</p></div>
+      <div><h3>Bots test every game</h3><p>The playtest gate says exactly what failed, like "only 1 of 4 bots scored", so the model fixes it in its next call.</p></div>
+      <div><h3>Nobody waits for a model</h3><p>Pitches get 8 s, the winner 25 s, tweaks 15 s. Each step has a fallback that is already good.</p></div>
+      <div><h3>Family-safe by default</h3><p>Bedrock Guardrails screens every idea, typed tweak, pitch and caption, whichever model answers.</p></div>
+    </div>
+    <p class="hint">Read more in <a href="docs/architecture.html">Architecture</a> and <a href="docs/ai-designer.html">AI designer and Tweak loop</a>.</p>
+  </div>
+</section>
+
+<section class="sec ambient" id="numbers" aria-labelledby="numbers-title">
+  <div class="wrap">
+    <h2 id="numbers-title">Measured on the cheapest Fire TV Stick.</h2>
+    <p class="intro">Frame rates are from a Fire TV Stick HD (Fire OS 7.7, 922 MB RAM) in the real app with four bots. Timings are from the live backend.</p>
+    <div class="numbers">
+      <div class="num"><b>59<small>fps</small></b><span>in every built-in game, rendered at 1280x720</span></div>
+      <div class="num"><b>~6<small>s</small></b><span>for three AI pitches after the Idea Storm</span></div>
+      <div class="num"><b>4–7<small>s</small></b><span>from the vote to a bot-tested game</span></div>
+      <div class="num"><b>~5<small>s</small></b><span>to tweak a game and replay it</span></div>
+      <div class="num"><b>633</b><span>tests across engine, backend, TV, phone and couchpad</span></div>
+    </div>
+    <div class="fps">
+      <div>
+        <h3>Frame rate per game</h3>
+        <p>Crate Crash started at 45 fps. Pixi was rebuilding its render instructions every frame and 1080p fill rate ate the rest. Fixing the depth sort and rendering at 720p took it to 59.3.</p>
+      </div>
+      <div>
+        <ul class="bars" aria-label="Frames per second on a Fire TV Stick HD">
+          <li><span>Ring Out</span><div class="track"><i style="--w:97.7%"></i></div><em>58.6</em></li>
+          <li><span>Overload</span><div class="track"><i style="--w:98.3%"></i></div><em>59.0</em></li>
+          <li><span>Paint Wars</span><div class="track"><i style="--w:98.8%"></i></div><em>59.3</em></li>
+          <li><span>Core Rush</span><div class="track"><i style="--w:99.3%"></i></div><em>59.6</em></li>
+          <li><span>Neon Dash</span><div class="track"><i style="--w:99.7%"></i></div><em>59.8</em></li>
+          <li><span>Rocket Ball</span><div class="track"><i style="--w:100%"></i></div><em>60.0</em></li>
+          <li><span>Crate Crash</span><div class="track"><i style="--w:98.8%"></i></div><em>59.3</em></li>
+        </ul>
+        <p class="bars-note">Scale 0 to 60 fps. The tick marks 58 fps.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="oss" aria-labelledby="oss-title">
+  <div class="wrap oss">
+    <div>
+      <h2 id="oss-title">Make any phone a controller.</h2>
+      <p class="intro">We pulled the controller layer out into <b>couchpad</b>, an MIT library for TV and web party games. Scan a QR code and the phone is a gamepad.</p>
+      <ul>
+        <li><b>Direct by default.</b> A WebRTC DataChannel on the local network, 13 to 16 ms measured.</li>
+        <li><b>Relay when it has to.</b> Falls back to a WebSocket relay with chunking, a reliable queue, keepalive and rejoin.</li>
+        <li><b>Widgets included.</b> Joystick, button, hold, tilt, swipe, draw, text and vote.</li>
+        <li><b>Bring your own server.</b> Ships with a reference signaling server and an example.</li>
+      </ul>
+      <div class="ctas">
+        <a class="btn" href="https://github.com/MaanavKrishna/couchpad">{{GH}}couchpad on GitHub</a>
+        <a class="btn" href="https://github.com/MaanavKrishna/cadabra">Cadabra source</a>
+      </div>
+    </div>
+    <img src="media/phone-join-play.jpg" alt="Four phone screens: join with a code, pick an avatar, a joystick and dash button, and results" width="1590" height="844" loading="lazy">
+  </div>
+</section>
+
+<section class="sec ambient closing" aria-labelledby="close-title">
+  <div class="wrap">
+    <h2 id="close-title">Say it. Play it.</h2>
+    <p class="intro">Sideload the APK on a Fire TV Stick, or run the TV app in a desktop browser with <code>npm install</code> and two dev servers.</p>
+    <div class="ctas">
+      <a class="btn primary" href="https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0">{{DL}}Download the APK</a>
+      <a class="btn" href="docs/getting-started.html">Read the getting started guide</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <a class="mark" href="./">{{SPARK}}cadabra</a>
+      <p>Built for the Amazon Build, Ship, Shape hackathon, Fire TV track, October 2026. MIT licensed, copyright 2026 Maanav Krishna. Set in Figtree, used under the <a href="fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+    <nav aria-label="Footer">
+      <a href="docs/getting-started.html">Getting started</a>
+      <a href="docs/architecture.html">Architecture</a>
+      <a href="docs/game-kit.html">Game kit</a>
+      <a href="docs/faq.html">FAQ</a>
+      <a href="https://github.com/MaanavKrishna/cadabra">GitHub</a>
+      <a href="https://github.com/MaanavKrishna/couchpad">couchpad</a>
+    </nav>
+  </div>
+</footer>
+<script src="site.js" defer></script>
+</body>
+</html>

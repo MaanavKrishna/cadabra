@@ -1,0 +1,1886 @@
+{
+ "kit": [
+  {
+   "id": "arena-move",
+   "name": "Arena Move",
+   "summary": "Top-down movement: one avatar per player, joystick or tilt steering, dash, wall bounce and body bumps.",
+   "controls": [
+    "joystick",
+    "tilt",
+    "button"
+   ],
+   "arenaKinds": [
+    "topdown"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "speed": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 600,
+      "description": "Top speed in px/s.",
+      "default": 260
+     },
+     "accel": {
+      "type": "number",
+      "minimum": 200,
+      "maximum": 8000,
+      "description": "How fast velocity reaches the stick direction, px/s².",
+      "default": 1800
+     },
+     "friction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 20,
+      "description": "Velocity decay per second when the stick is released (0 = ice, 20 = instant stop).",
+      "default": 8
+     },
+     "bounceWalls": {
+      "type": "boolean",
+      "description": "Walls bounce (true) or stop (false) avatars.",
+      "default": true
+     },
+     "collidePlayers": {
+      "type": "boolean",
+      "description": "Avatars push each other apart (needed for bump/steal mechanics).",
+      "default": true
+     },
+     "dashButton": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Controller button id that dashes; '' disables dashing.",
+      "default": "dash"
+     },
+     "dashCooldownSec": {
+      "type": "number",
+      "minimum": 0.2,
+      "maximum": 10,
+      "description": "Seconds between dashes.",
+      "default": 1.5
+     },
+     "dashPower": {
+      "type": "number",
+      "minimum": 1.2,
+      "maximum": 4,
+      "description": "Dash speed as a multiple of `speed`.",
+      "default": 2.4
+     },
+     "dashMs": {
+      "type": "number",
+      "minimum": 80,
+      "maximum": 600,
+      "description": "Dash duration, ms.",
+      "default": 180
+     },
+     "input": {
+      "type": "string",
+      "enum": [
+       "joystick",
+       "tilt"
+      ],
+      "description": "Steering source: phone joystick or phone tilt.",
+      "default": "joystick"
+     },
+     "tiltSensitivity": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 4,
+      "description": "Tilt gain: phones are rarely tilted fully, so a modest tilt reaches top speed.",
+      "default": 1.5
+     },
+     "avatarScale": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 2.5,
+      "description": "Avatar size multiplier (bigger = easier to bump, harder to dodge).",
+      "default": 1
+     },
+     "dashShove": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "A dashing avatar hits others this many times harder (shove rivals into hazards: knockouts).",
+      "default": 1
+     },
+     "shoveStunSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2,
+      "description": "Seconds a dash-shoved victim can't steer (it slides). Teammates are never stunned.",
+      "default": 0.3
+     },
+     "callout": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "Namespace for the headline events the TV calls out (<callout>.ringout, .crumble, .overload, .core.pass, .paint.tally); '' = off.",
+      "default": "play"
+     },
+     "ringOut": {
+      "type": "boolean",
+      "description": "RING OUT mode: the arena is a round floating platform of floor tiles that crumbles inward ring by ring; anyone off the platform falls out and respawns in the centre.",
+      "default": false
+     },
+     "ringRadius": {
+      "type": "number",
+      "minimum": 160,
+      "maximum": 400,
+      "description": "RING OUT: platform radius at the start, px.",
+      "default": 330
+     },
+     "ringTile": {
+      "type": "number",
+      "minimum": 32,
+      "maximum": 96,
+      "description": "RING OUT: floor tile size, px (one crumble ring is one tile wide).",
+      "default": 48
+     },
+     "ringShrinkTo": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 400,
+      "description": "RING OUT: the platform crumbles (evenly from 30% of the round to 6 s before the end) down to about this radius, px.",
+      "default": 150
+     },
+     "ringOutPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "RING OUT: points to the last player who touched a rival (within ringCreditSec) when that rival falls off.",
+      "default": 3
+     },
+     "ringFallPenalty": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "RING OUT: points lost for falling off (never below zero).",
+      "default": 1
+     },
+     "ringSurvivePoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "RING OUT: points to everyone still on the platform when a ring drops.",
+      "default": 0
+     },
+     "ringComebackPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "RING OUT: comeback: a player in last place (behind everyone else) scores this when they respawn after a fall.",
+      "default": 0
+     },
+     "ringCreditSec": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 5,
+      "description": "RING OUT: a touch this recent earns the ring-out credit.",
+      "default": 2
+     },
+     "respawnSec": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 5,
+      "description": "RING OUT: seconds out after a fall before respawning in the centre.",
+      "default": 1.5
+     },
+     "respawnInvulnSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "RING OUT: after respawning, can't fall or be bumped for this long, s.",
+      "default": 1
+     },
+     "ringCrumbleEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "RING OUT: timeline event kind (exact) that crumbles the next ring right away. '' = off.",
+      "default": ""
+     },
+     "overload": {
+      "type": "boolean",
+      "description": "OVERLOAD mode (hot potato): one player holds an unstable core; touching a rival passes it; when its hidden fuse runs out the holder loses overloadPenalty and everyone else gets overloadReward; then a new core goes to a random player.",
+      "default": false
+     },
+     "overloadCores": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "OVERLOAD: cores live at once (at most one per two players: 4 players and 2 => two hot potatoes).",
+      "default": 1
+     },
+     "overloadFuseMin": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 30,
+      "description": "OVERLOAD: shortest fuse, s (each core gets a random fuse between min and max; it pulses faster as it burns).",
+      "default": 7
+     },
+     "overloadFuseMax": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 30,
+      "description": "OVERLOAD: longest fuse, s.",
+      "default": 13
+     },
+     "overloadPenalty": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "OVERLOAD: points the holder loses when the core detonates (never below zero).",
+      "default": 3
+     },
+     "overloadReward": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "OVERLOAD: points every other player gets on a detonation.",
+      "default": 1
+     },
+     "overloadAssistPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "OVERLOAD: extra points, on a detonation, for whoever handed the core to the holder (on top of overloadReward).",
+      "default": 1
+     },
+     "overloadClutchPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "OVERLOAD: points for passing the core while it is critical (its last 3 s): a clutch pass.",
+      "default": 1
+     },
+     "overloadSafePoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "OVERLOAD: every 5 s, everyone not holding a core gets this many points (holding costs you).",
+      "default": 0
+     },
+     "overloadPassImmunitySec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "OVERLOAD: after passing the core you can't be given it back for this long, s.",
+      "default": 0.8
+     },
+     "overloadHolderSpeed": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 1.5,
+      "description": "OVERLOAD: top speed multiplier of the core holder (keeps the chase fair).",
+      "default": 1.12
+     },
+     "overloadStunSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "OVERLOAD: the holder is stunned this long by the detonation, s.",
+      "default": 1
+     },
+     "overloadEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "OVERLOAD: timeline event kind (exact) that burns the current fuse down to a few seconds. '' = off.",
+      "default": ""
+     },
+     "paint": {
+      "type": "boolean",
+      "description": "PAINT mode (territory): the floor is a tile grid; moving paints tiles in your team colour (own colour without teams); dashing paints a burst; tile share scores every paintEverySec and the final tally counts paintFinalMul times.",
+      "default": false
+     },
+     "paintCols": {
+      "type": "integer",
+      "minimum": 6,
+      "maximum": 24,
+      "description": "PAINT: grid columns.",
+      "default": 20
+     },
+     "paintRows": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 14,
+      "description": "PAINT: grid rows.",
+      "default": 12
+     },
+     "paintEverySec": {
+      "type": "number",
+      "minimum": 2,
+      "maximum": 20,
+      "description": "PAINT: seconds between territory tallies.",
+      "default": 5
+     },
+     "paintPoints": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "description": "PAINT: points a tally pays for owning the whole floor (split by tiles you painted).",
+      "default": 10
+     },
+     "paintFinalMul": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "PAINT: the final tally at the buzzer pays this many times more.",
+      "default": 2
+     },
+     "paintBurst": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "PAINT: a dash paints a square of (2b+1)² tiles around you (1 => 3×3).",
+      "default": 1
+     },
+     "paintUnderdog": {
+      "type": "boolean",
+      "description": "PAINT: players on the team (or player) behind on score dash-splash one size bigger (3×3 => 5×5): a comeback rubber band.",
+      "default": false
+     },
+     "crates": {
+      "type": "boolean",
+      "description": "CRATE CRASH mode (turns physics on): every player owns a square platform zone stacked with physics crates. Knock rivals' crates out of their zone (dash, bump, or a barrel blast from world.props) for crateKnockPoints; every crateTallySec you score crateStandPoints per crate still standing in your zone; the final tally pays crateFinalMul times.",
+      "default": false
+     },
+     "crateZoneSize": {
+      "type": "number",
+      "minimum": 140,
+      "maximum": 320,
+      "description": "CRATES: zone side length, px.",
+      "default": 220
+     },
+     "cratesPerZone": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9,
+      "description": "CRATES: crates stacked in each zone (players × this ≤ 36).",
+      "default": 5
+     },
+     "crateSize": {
+      "type": "number",
+      "minimum": 0.6,
+      "maximum": 1.6,
+      "description": "CRATES: crate size multiplier (1 = 44 px box).",
+      "default": 1
+     },
+     "crateKnockPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "CRATES: points for knocking a rival's crate out of its zone.",
+      "default": 2
+     },
+     "crateStandPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "CRATES: points per standing crate at each tally.",
+      "default": 1
+     },
+     "crateTallySec": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 30,
+      "description": "CRATES: seconds between standing-crate tallies.",
+      "default": 10
+     },
+     "crateFinalMul": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "CRATES: the final tally at the buzzer pays this many times more.",
+      "default": 2
+     },
+     "crateRefillEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "CRATES: timeline event kind (exact) that refills every zone to full right away. '' = off.",
+      "default": ""
+     },
+     "crateRefillSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 30,
+      "description": "CRATES: every this many seconds each zone gets a lost crate back (the last-place zone gets two); 0 = never.",
+      "default": 6
+     }
+    },
+    "required": [
+     "speed",
+     "accel",
+     "friction",
+     "bounceWalls",
+     "collidePlayers",
+     "dashButton",
+     "dashCooldownSec",
+     "dashPower",
+     "dashMs",
+     "input",
+     "tiltSensitivity",
+     "avatarScale",
+     "dashShove",
+     "shoveStunSec",
+     "callout",
+     "ringOut",
+     "ringRadius",
+     "ringTile",
+     "ringShrinkTo",
+     "ringOutPoints",
+     "ringFallPenalty",
+     "ringSurvivePoints",
+     "ringComebackPoints",
+     "ringCreditSec",
+     "respawnSec",
+     "respawnInvulnSec",
+     "ringCrumbleEventKind",
+     "overload",
+     "overloadCores",
+     "overloadFuseMin",
+     "overloadFuseMax",
+     "overloadPenalty",
+     "overloadReward",
+     "overloadAssistPoints",
+     "overloadClutchPoints",
+     "overloadSafePoints",
+     "overloadPassImmunitySec",
+     "overloadHolderSpeed",
+     "overloadStunSec",
+     "overloadEventKind",
+     "paint",
+     "paintCols",
+     "paintRows",
+     "paintEverySec",
+     "paintPoints",
+     "paintFinalMul",
+     "paintBurst",
+     "paintUnderdog",
+     "crates",
+     "crateZoneSize",
+     "cratesPerZone",
+     "crateSize",
+     "crateKnockPoints",
+     "crateStandPoints",
+     "crateTallySec",
+     "crateFinalMul",
+     "crateRefillEventKind",
+     "crateRefillSec"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "collect",
+   "name": "Collect",
+   "summary": "Items pop up; grab them for points, or carry them home to bank (own baskets, carry limits that slow you and make noise, combo bonus for full trips). Golden items, bump-to-steal.",
+   "controls": [
+    "joystick"
+   ],
+   "arenaKinds": [
+    "topdown"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "itemSprite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "Sprite key for items (art resolved by the renderer).",
+      "default": "item"
+     },
+     "spawnEverySec": {
+      "type": "number",
+      "minimum": 0.2,
+      "maximum": 999,
+      "description": "Seconds between item spawns.",
+      "default": 1.2
+     },
+     "maxItems": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 40,
+      "description": "Most items on the field at once.",
+      "default": 8
+     },
+     "pointsPerItem": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Points per item (on pickup, or at the goal in carry mode).",
+      "default": 1
+     },
+     "itemRadius": {
+      "type": "number",
+      "minimum": 8,
+      "maximum": 48,
+      "description": "Item size, px.",
+      "default": 14
+     },
+     "carryToGoal": {
+      "type": "boolean",
+      "description": "Items are carried and only score when brought to the goal.",
+      "default": false
+     },
+     "goalX": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Goal centre X as a fraction of arena width (carry mode).",
+      "default": 0.5
+     },
+     "goalY": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Goal centre Y as a fraction of arena height (carry mode).",
+      "default": 0.5
+     },
+     "goalRadius": {
+      "type": "number",
+      "minimum": 30,
+      "maximum": 240,
+      "description": "Goal size, px (carry mode).",
+      "default": 70
+     },
+     "carryMax": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Most items one player can carry at once.",
+      "default": 3
+     },
+     "stealOnBump": {
+      "type": "boolean",
+      "description": "Ramming a player steals one carried item (carry mode) or pointsPerItem points.",
+      "default": true
+     },
+     "stealCooldownSec": {
+      "type": "number",
+      "minimum": 0.3,
+      "maximum": 10,
+      "description": "After a steal the thief can't steal again, and can't be robbed, for this long.",
+      "default": 1.5
+     },
+     "goldenChance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Chance (0..1) that a spawned item is golden.",
+      "default": 0.08
+     },
+     "goldenMultiplier": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Golden items are worth this many times pointsPerItem.",
+      "default": 3
+     },
+     "spawnArea": {
+      "type": "string",
+      "enum": [
+       "anywhere",
+       "centre"
+      ],
+      "description": "Where items appear: anywhere, or within spawnRadius of the arena centre (e.g. around a sleeping guard: the risky zone).",
+      "default": "anywhere"
+     },
+     "spawnRadius": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 800,
+      "description": "Max distance of a spawn from the arena centre when spawnArea is 'centre', px.",
+      "default": 300
+     },
+     "homeBases": {
+      "type": "boolean",
+      "description": "Carry mode: every player gets their own basket (kind 'base', in their colour, spread along the edges); loot banks only at your own basket.",
+      "default": false
+     },
+     "bankBonus": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "Carry mode: extra points per item beyond the first banked in one trip (1 => 1, 3, 6 for 1, 2, 3 items): rewards greedy trips.",
+      "default": 0
+     },
+     "carrySlowdown": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.3,
+      "description": "Carry mode: top speed lost per carried item, as a fraction (0.12 => 3 items = 64% speed).",
+      "default": 0
+     },
+     "carryNoise": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2,
+      "description": "Carry mode: extra noise per carried item, as a multiple of normal (guards hear you better: 0.6 => 3 items = 2.8x as loud).",
+      "default": 0
+     },
+     "goldenEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Timeline event kind (exact) that drops one golden item next to the guard / arena centre: a mid-round jackpot. '' = off.",
+      "default": ""
+     },
+     "frenzyEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Timeline event kind (exact) that fills the field with items at once (a loot frenzy). '' = off.",
+      "default": ""
+     },
+     "callout": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "Namespace for the headline events the TV calls out (<callout>.bank, .steal, .golden); '' = off.",
+      "default": "play"
+     },
+     "teamBases": {
+      "type": "boolean",
+      "description": "Carry mode, team games: one base per team (kind 'base', team-tinted, left and right edges); loot banks at your team's base, and bumps never rob a teammate. Overrides homeBases.",
+      "default": false
+     },
+     "stealNeedsDash": {
+      "type": "boolean",
+      "description": "Only a dashing avatar (arena-move dash) can steal or knock loot loose; ordinary bumps do nothing.",
+      "default": false
+     },
+     "knockLoose": {
+      "type": "boolean",
+      "description": "Carry mode: a steal knocks one carried item loose onto the floor (anyone can grab it) instead of handing it to the thief.",
+      "default": false
+     },
+     "bankLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 24,
+      "description": "Popup reason when loot is banked (e.g. 'BANKED').",
+      "default": "Banked!"
+     }
+    },
+    "required": [
+     "itemSprite",
+     "spawnEverySec",
+     "maxItems",
+     "pointsPerItem",
+     "itemRadius",
+     "carryToGoal",
+     "goalX",
+     "goalY",
+     "goalRadius",
+     "carryMax",
+     "stealOnBump",
+     "stealCooldownSec",
+     "goldenChance",
+     "goldenMultiplier",
+     "spawnArea",
+     "spawnRadius",
+     "homeBases",
+     "bankBonus",
+     "carrySlowdown",
+     "carryNoise",
+     "goldenEventKind",
+     "frenzyEventKind",
+     "callout",
+     "teamBases",
+     "stealNeedsDash",
+     "knockLoose",
+     "bankLabel"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "dodge",
+   "name": "Dodge",
+   "summary": "Telegraphed hazards (rain, sweeping walls, chasers, bullet rings) ramp up; survive, skim close for near-miss points.",
+   "controls": [
+    "joystick"
+   ],
+   "arenaKinds": [
+    "topdown"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "hazardSprite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "Sprite key for hazards (art resolved by the renderer).",
+      "default": "hazard"
+     },
+     "pattern": {
+      "type": "string",
+      "enum": [
+       "rain",
+       "sweep",
+       "chase",
+       "ring"
+      ],
+      "description": "rain: drops from above; sweep: walls with gaps; chase: slow homing hunters; ring: bullet rings from a point.",
+      "default": "rain"
+     },
+     "startRate": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 10,
+      "description": "Waves per second at the start (scaled per pattern: sweeps and rings are bigger).",
+      "default": 0.8
+     },
+     "rampPerSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.5,
+      "description": "Added to the wave rate every second.",
+      "default": 0.03
+     },
+     "maxRate": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 20,
+      "description": "Cap on the wave rate, waves per second.",
+      "default": 4
+     },
+     "telegraphMs": {
+      "type": "integer",
+      "minimum": 400,
+      "maximum": 3000,
+      "description": "Minimum warning before a hazard can hurt anyone (never below 400 ms). The block lengthens it per hazard when the slowest/largest avatar needs longer to escape.",
+      "default": 700
+     },
+     "hazardSpeed": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 900,
+      "description": "Hazard speed, px/s.",
+      "default": 300
+     },
+     "hazardRadius": {
+      "type": "number",
+      "minimum": 8,
+      "maximum": 80,
+      "description": "Hazard size, px.",
+      "default": 22
+     },
+     "onHit": {
+      "type": "string",
+      "enum": [
+       "eliminate",
+       "losePoints",
+       "stun"
+      ],
+      "description": "What a hit does: eliminate the player, lose hitPenalty points, or stun for stunSec.",
+      "default": "losePoints"
+     },
+     "hitPenalty": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 50,
+      "description": "Points lost per hit when onHit is losePoints (score never drops below 0).",
+      "default": 3
+     },
+     "stunSec": {
+      "type": "number",
+      "minimum": 0.3,
+      "maximum": 5,
+      "description": "Stun length when onHit is stun, s.",
+      "default": 1.2
+     },
+     "invulnSec": {
+      "type": "number",
+      "minimum": 0.3,
+      "maximum": 5,
+      "description": "Grace period after a hit (with stun: at least stunSec + 0.5 s), so no double hits.",
+      "default": 1.5
+     },
+     "survivePoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Points for every surviveEverySec without being hit.",
+      "default": 1
+     },
+     "surviveEverySec": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 10,
+      "description": "Seconds between survival payouts.",
+      "default": 2
+     },
+     "nearMissPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Points for an armed hazard passing close without hitting.",
+      "default": 1
+     },
+     "safeZones": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Circles where hazards can't hurt you; they relocate every safeZoneShiftSec.",
+      "default": 0
+     },
+     "safeZoneRadius": {
+      "type": "number",
+      "minimum": 40,
+      "maximum": 200,
+      "description": "Safe zone size, px.",
+      "default": 90
+     },
+     "safeZoneShiftSec": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 60,
+      "description": "Seconds between safe zone moves.",
+      "default": 10
+     },
+     "hitKnockback": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1200,
+      "description": "Hits fling the avatar away from the hazard at this speed, px/s (0 = none). Comedy with slippery movement.",
+      "default": 0
+     },
+     "knockoutPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Points to whoever shoved (dash-bumped) the victim into a hazard within the last 1.5 s.",
+      "default": 0
+     },
+     "crumbleLastSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 30,
+      "description": "Floor of tiles (kind 'tile') that crumbles from the edges inward in the final N seconds: tiles shake (props.crumbling), then drop; standing over a hole counts as a hit. 0 = no floor.",
+      "default": 0
+     },
+     "callout": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "Namespace for the headline events the TV calls out (<callout>.knockout, .crumble); '' = off.",
+      "default": "play"
+     }
+    },
+    "required": [
+     "hazardSprite",
+     "pattern",
+     "startRate",
+     "rampPerSec",
+     "maxRate",
+     "telegraphMs",
+     "hazardSpeed",
+     "hazardRadius",
+     "onHit",
+     "hitPenalty",
+     "stunSec",
+     "invulnSec",
+     "survivePoints",
+     "surviveEverySec",
+     "nearMissPoints",
+     "safeZones",
+     "safeZoneRadius",
+     "safeZoneShiftSec",
+     "hitKnockback",
+     "knockoutPoints",
+     "crumbleLastSec",
+     "callout"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "race",
+   "name": "Race",
+   "summary": "Lane race: mash or hold to run, jump obstacles, hit speed pads, optional relay with baton passes; heats repeat.",
+   "controls": [
+    "button",
+    "swipe",
+    "joystick"
+   ],
+   "arenaKinds": [
+    "lanes"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "laneCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "description": "Lanes drawn on screen; players share lanes round-robin when there are more players.",
+      "default": 4
+     },
+     "trackLength": {
+      "type": "number",
+      "minimum": 1000,
+      "maximum": 20000,
+      "description": "Length of one lap in track units (px of running at speed 1).",
+      "default": 4000
+     },
+     "laps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Laps per heat.",
+      "default": 3
+     },
+     "checkpointCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Scoring gates per lap (each worth checkpointPoints).",
+      "default": 4
+     },
+     "checkpointPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Points per checkpoint passed.",
+      "default": 1
+     },
+     "relay": {
+      "type": "boolean",
+      "description": "Each lap is two legs: runner 1 must hand the baton to runner 2 in the handoff zone.",
+      "default": false
+     },
+     "batonPassButton": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "Controller button id that hands over the baton (relay).",
+      "default": "pass"
+     },
+     "obstacleDensity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Obstacles per lap = round(obstacleDensity * 10); identical layout in every lane.",
+      "default": 0.3
+     },
+     "boostPads": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6,
+      "description": "Speed pads per lap (same positions in every lane).",
+      "default": 2
+     },
+     "mashToRun": {
+      "type": "boolean",
+      "description": "true: tap runButton (or swipe right) to run; false: hold runButton / push the stick right.",
+      "default": true
+     },
+     "runButton": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "Controller button id used to run (tap or hold, see mashToRun).",
+      "default": "run"
+     },
+     "jumpButton": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "Controller button id that jumps obstacles (swipe up also jumps).",
+      "default": "jump"
+     },
+     "runSpeed": {
+      "type": "number",
+      "minimum": 80,
+      "maximum": 900,
+      "description": "Top running speed, track units per second.",
+      "default": 320
+     },
+     "mashPower": {
+      "type": "number",
+      "minimum": 0.05,
+      "maximum": 0.5,
+      "description": "Speed gained per tap as a fraction of runSpeed (mash mode).",
+      "default": 0.16
+     },
+     "stumbleSec": {
+      "type": "number",
+      "minimum": 0.2,
+      "maximum": 3,
+      "description": "Seconds a runner stumbles after hitting an obstacle.",
+      "default": 0.6
+     },
+     "padBoost": {
+      "type": "number",
+      "minimum": 1.1,
+      "maximum": 3,
+      "description": "Speed multiplier from a speed pad.",
+      "default": 1.5
+     },
+     "padBoostSec": {
+      "type": "number",
+      "minimum": 0.3,
+      "maximum": 5,
+      "description": "How long a speed pad boost lasts, s.",
+      "default": 1.5
+     },
+     "gateCycleSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 8,
+      "description": "0 = obstacles are always there. >0 = obstacles are laser gates that switch on and off on this cycle (each gate out of step with the next): only a live gate trips you, so time your run or jump it.",
+      "default": 0
+     },
+     "gateOnFrac": {
+      "type": "number",
+      "minimum": 0.2,
+      "maximum": 0.8,
+      "description": "Share of each gate cycle the laser is live.",
+      "default": 0.5
+     },
+     "obstacleSprite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "Sprite key for obstacles (e.g. 'laser').",
+      "default": "obstacle"
+     },
+     "padSprite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "Sprite key for speed pads (e.g. 'boost').",
+      "default": "boost-pad"
+     },
+     "finishLine": {
+      "type": "boolean",
+      "description": "Draw a finish line entity (kind 'finish') at the end of the track.",
+      "default": false
+     }
+    },
+    "required": [
+     "laneCount",
+     "trackLength",
+     "laps",
+     "checkpointCount",
+     "checkpointPoints",
+     "relay",
+     "batonPassButton",
+     "obstacleDensity",
+     "boostPads",
+     "mashToRun",
+     "runButton",
+     "jumpButton",
+     "runSpeed",
+     "mashPower",
+     "stumbleSec",
+     "padBoost",
+     "padBoostSec",
+     "gateCycleSec",
+     "gateOnFrac",
+     "obstacleSprite",
+     "padSprite",
+     "finishLine"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "sneak",
+   "name": "Sneak",
+   "summary": "Creep past guards: moving makes noise, hold Tiptoe to stay quiet. Wake the guard and it stares; get caught moving and you lose points.",
+   "controls": [
+    "joystick",
+    "hold",
+    "button"
+   ],
+   "arenaKinds": [
+    "topdown"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "guardSprite": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "Sprite key for the guard (bear, grandma, cat...).",
+      "default": "guard"
+     },
+     "guardKind": {
+      "type": "string",
+      "enum": [
+       "sleeper",
+       "patrol",
+       "watcher"
+      ],
+      "description": "sleeper: dozes until noise wakes it. patrol: walks a loop, sees ahead. watcher: stands still, sweeps its gaze.",
+      "default": "sleeper"
+     },
+     "guardCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Number of guards.",
+      "default": 1
+     },
+     "noiseLimit": {
+      "type": "number",
+      "minimum": 10,
+      "maximum": 1000,
+      "description": "Noise a guard tolerates before it wakes.",
+      "default": 100
+     },
+     "noisePerMove": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Noise per second of full-speed movement right next to a guard (falls off with distance).",
+      "default": 60
+     },
+     "noiseDecayPerSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 500,
+      "description": "Noise a calm guard forgets per second.",
+      "default": 12
+     },
+     "hearingRadius": {
+      "type": "number",
+      "minimum": 100,
+      "maximum": 1200,
+      "description": "Movement farther than this from a guard makes no noise for it, px.",
+      "default": 420
+     },
+     "tiptoeButton": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "Controller hold/button id: while held, avatars creep (slower, ~silent, invisible to calm guards).",
+      "default": "tiptoe"
+     },
+     "tiptoeSpeedFactor": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 1,
+      "description": "Top-speed multiplier while tiptoeing.",
+      "default": 0.4
+     },
+     "wakeDurationSec": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 15,
+      "description": "How long a woken guard stays awake (after a short wind-up telegraph), s.",
+      "default": 4
+     },
+     "wakePenalty": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20,
+      "description": "Points lost by whoever woke the guard, and by anyone it then catches moving.",
+      "default": 2
+     },
+     "visionConeDeg": {
+      "type": "number",
+      "minimum": 15,
+      "maximum": 180,
+      "description": "Full angle of the guard's vision cone, degrees.",
+      "default": 70
+     },
+     "visionRange": {
+      "type": "number",
+      "minimum": 80,
+      "maximum": 1000,
+      "description": "How far a guard sees, px.",
+      "default": 380
+     },
+     "daringPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Points per few seconds spent creeping close to a calm guard (0 = off).",
+      "default": 1
+     },
+     "onWake": {
+      "type": "string",
+      "enum": [
+       "stare",
+       "chase"
+      ],
+      "description": "What a woken guard does. stare: stands and catches anyone moving in its vision cone. chase: runs after the loudest player (the culprit) for chaseSec; a catch makes them drop everything they carry and tumble.",
+      "default": "stare"
+     },
+     "chaseSec": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "onWake 'chase': how long the guard chases before it gives up and plods home to sleep, s.",
+      "default": 3
+     },
+     "chaseSpeed": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 600,
+      "description": "onWake 'chase': guard run speed, px/s (set it between a loaded and an empty player's speed so greed is risky).",
+      "default": 220
+     },
+     "callout": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "Namespace for the headline events the TV calls out (<callout>.chase.start, .caught); '' = off.",
+      "default": "play"
+     }
+    },
+    "required": [
+     "guardSprite",
+     "guardKind",
+     "guardCount",
+     "noiseLimit",
+     "noisePerMove",
+     "noiseDecayPerSec",
+     "hearingRadius",
+     "tiptoeButton",
+     "tiptoeSpeedFactor",
+     "wakeDurationSec",
+     "wakePenalty",
+     "visionConeDeg",
+     "visionRange",
+     "daringPoints",
+     "onWake",
+     "chaseSec",
+     "chaseSpeed",
+     "callout"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "tug",
+   "name": "Tug of War",
+   "summary": "Two teams haul a rope: mash, pull on the beat, or hold and manage stamina. Drag the knot over your line to win the bout.",
+   "controls": [
+    "button",
+    "hold",
+    "swipe"
+   ],
+   "arenaKinds": [
+    "tug"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "mode": {
+      "type": "string",
+      "enum": [
+       "mash",
+       "rhythm",
+       "hold",
+       "beat"
+      ],
+      "description": "mash: tap to pull. rhythm: one pull per beat, scaled by timing. hold: hold to pull while stamina lasts. beat: rhythm-mash, every tap pulls but taps on the beat pull beatBonus times harder.",
+      "default": "mash"
+     },
+     "ropeLength": {
+      "type": "number",
+      "minimum": 200,
+      "maximum": 1200,
+      "description": "Distance the knot travels from the centre line to either team's win line and back, px.",
+      "default": 640
+     },
+     "forcePerTap": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 200,
+      "description": "Rope speed one tap adds (px/s), averaged over the team so uneven teams are fair.",
+      "default": 40
+     },
+     "fatigue": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Stamina lost per tap (mash/rhythm) or per second held (hold); 0 = tireless.",
+      "default": 0.04
+     },
+     "rhythmBpm": {
+      "type": "number",
+      "minimum": 40,
+      "maximum": 200,
+      "description": "Beat tempo for rhythm mode, beats per minute.",
+      "default": 100
+     },
+     "suddenDeathAtSec": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 120,
+      "description": "Sim second at which pulls get stronger (sudden death).",
+      "default": 50
+     },
+     "pullButton": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "Controller button / hold id used to pull (swipes also pull).",
+      "default": "pull"
+     },
+     "winPoints": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "Points to every member of a team that drags the knot over its line.",
+      "default": 3
+     },
+     "beatBonus": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "beat mode: the first tap inside a beat's window (±150 ms, latency-compensated) pulls this many times harder than a normal tap.",
+      "default": 2.5
+     },
+     "offBeatMul": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "beat mode: pull of an off-beat (or second same-beat) tap, and such taps cost 2.5x the stamina: mashing loses to rhythm.",
+      "default": 0.4
+     },
+     "surgeCombo": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16,
+      "description": "Beats in a row where every team member lands exactly one on-beat tap (no mashing) that trigger a SURGE (a big yank toward that team); 0 = off. beat/rhythm modes.",
+      "default": 0
+     },
+     "suddenDeathBpmMul": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 2,
+      "description": "At sudden death the beat speeds up by this factor (rhythm/beat modes).",
+      "default": 1
+     },
+     "underdogBoost": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2,
+      "description": "Rubber band: the team behind on points pulls up to (1 + underdogBoost) times harder, scaling with the gap (full at 2 bouts behind). 0 = off.",
+      "default": 0
+     },
+     "swingEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Timeline event kind (exact) that makes the knot lurch toward the team behind on points (e.g. 'bear-sneeze'). '' = off.",
+      "default": ""
+     },
+     "callout": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "Namespace for the headline events the TV calls out (<callout>.surge, .splash, .swing); '' = off.",
+      "default": "tug"
+     }
+    },
+    "required": [
+     "mode",
+     "ropeLength",
+     "forcePerTap",
+     "fatigue",
+     "rhythmBpm",
+     "suddenDeathAtSec",
+     "pullButton",
+     "winPoints",
+     "beatBonus",
+     "offBeatMul",
+     "surgeCombo",
+     "suddenDeathBpmMul",
+     "underdogBoost",
+     "swingEventKind",
+     "callout"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "draw-judge",
+   "name": "Draw & Judge",
+   "summary": "Everyone draws the prompt on their phone; an AI judge scores each drawing 0–10 with a roast.",
+   "controls": [
+    "draw"
+   ],
+   "arenaKinds": [
+    "canvas"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "What everyone draws (the AI fills it from the game's ingredients).",
+      "default": "A cat who just became king"
+     },
+     "drawSec": {
+      "type": "number",
+      "minimum": 10,
+      "maximum": 120,
+      "description": "Seconds to draw each round.",
+      "default": 30
+     },
+     "rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Number of draw-and-judge rounds.",
+      "default": 2
+     },
+     "judgeStyle": {
+      "type": "string",
+      "enum": [
+       "kind",
+       "savage",
+       "absurd"
+      ],
+      "description": "Voice of the AI judge's roasts.",
+      "default": "kind"
+     }
+    },
+    "required": [
+     "prompt",
+     "drawSec",
+     "rounds",
+     "judgeStyle"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "trivia",
+   "name": "Trivia",
+   "summary": "Multiple-choice quiz on the phones: answer fast for bonus points. Questions are AI-written about the game (or the players).",
+   "controls": [
+    "vote"
+   ],
+   "arenaKinds": [
+    "quiz"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "questions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "q": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 200,
+         "description": "Question text."
+        },
+        "options": {
+         "type": "array",
+         "minItems": 4,
+         "maxItems": 4,
+         "items": [
+          {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 80
+          },
+          {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 80
+          },
+          {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 80
+          },
+          {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 80
+          }
+         ],
+         "description": "Exactly four answer options."
+        },
+        "answer": {
+         "type": "integer",
+         "minimum": 0,
+         "maximum": 3,
+         "description": "Index (0-3) of the correct option."
+        }
+       },
+       "required": [
+        "q",
+        "options",
+        "answer"
+       ],
+       "additionalProperties": false
+      },
+      "maxItems": 30,
+      "description": "AI-filled. Empty: the block asks the host for a 'trivia-gen' judgement and falls back to a built-in bank.",
+      "default": []
+     },
+     "secondsPerQuestion": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 30,
+      "description": "Seconds to answer each question.",
+      "default": 12
+     },
+     "pointsFast": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "Points for a correct answer in the first half of the question's time.",
+      "default": 3
+     },
+     "pointsSlow": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20,
+      "description": "Points for a correct answer after that.",
+      "default": 1
+     },
+     "aboutPlayers": {
+      "type": "boolean",
+      "description": "Ask the generator for questions about the players themselves (names in the payload).",
+      "default": false
+     }
+    },
+    "required": [
+     "questions",
+     "secondsPerQuestion",
+     "pointsFast",
+     "pointsSlow",
+     "aboutPlayers"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "ball-sport",
+   "name": "Ball Sport",
+   "summary": "A physics ball and two goals (2v2 car-soccer / pinball football) or free-for-all keep-away. Dash into the ball for a power shot; it banks off walls. Needs arena-move for movement.",
+   "controls": [
+    "joystick",
+    "tilt",
+    "button"
+   ],
+   "arenaKinds": [
+    "topdown"
+   ],
+   "params": {
+    "type": "object",
+    "properties": {
+     "mode": {
+      "type": "string",
+      "enum": [
+       "goals",
+       "keepaway"
+      ],
+      "description": "goals = two goals on the left/right walls (teams: team 0 defends the left, team 1 the right; free-for-all: whoever touched the ball last scores in either goal). keepaway = no goals: whoever touched the ball last scores keepAwayPoints every keepAwayEverySec.",
+      "default": "goals"
+     },
+     "ballSize": {
+      "type": "number",
+      "minimum": 0.6,
+      "maximum": 3,
+      "description": "Ball size (1 = radius 24 px, a bit bigger than a player; 2 = a giant beach ball).",
+      "default": 1.3
+     },
+     "ballBounce": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.2,
+      "description": "Ball restitution: 0.4 = heavy, 0.85 = default lively, 1.1 = superball.",
+      "default": 0.85
+     },
+     "ballMass": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 3,
+      "description": "Ball mass relative to a crate (0.35 default: players punt it far; 2 = a heavy medicine ball).",
+      "default": 0.35
+     },
+     "ballDamping": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "How fast the rolling ball slows (0 = never stops, 0.4 default).",
+      "default": 0.4
+     },
+     "goalSize": {
+      "type": "number",
+      "minimum": 120,
+      "maximum": 560,
+      "description": "Goal mouth height, px (arena is usually 720 tall).",
+      "default": 260
+     },
+     "goalDepth": {
+      "type": "number",
+      "minimum": 30,
+      "maximum": 140,
+      "description": "Goal depth from the wall, px: the ball scores once its centre is inside.",
+      "default": 60
+     },
+     "goalPoints": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Points to the scorer (the scoring side's last toucher).",
+      "default": 3
+     },
+     "assistPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Points to every other player on the scoring team.",
+      "default": 1
+     },
+     "behindBonus": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6,
+      "description": "Comeback: extra points for a goal scored by the side (team, or player in free-for-all) that is behind on score (\"COMEBACK GOAL!\").",
+      "default": 0
+     },
+     "kickPower": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1500,
+      "description": "Extra px/s a DASHING player adds to the ball on contact (a power shot).",
+      "default": 520
+     },
+     "kickoffReset": {
+      "type": "boolean",
+      "description": "After a goal the ball returns to the centre and players to kickoff spots, frozen for kickoffSec.",
+      "default": true
+     },
+     "kickoffSec": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "Freeze after a kickoff reset, s.",
+      "default": 1
+     },
+     "keepAwayEverySec": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 5,
+      "description": "keepaway: seconds between possession points.",
+      "default": 1
+     },
+     "keepAwayPoints": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "keepaway: points per tick to whoever touched the ball last.",
+      "default": 1
+     },
+     "multiballEventKind": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Timeline event kind (exact) that drops an extra ball in (max 3 balls). '' = off.",
+      "default": ""
+     },
+     "callout": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "Namespace for headline events (<callout>.goal with data.moment 'goal', .multiball); '' = off.",
+      "default": "play"
+     }
+    },
+    "required": [
+     "mode",
+     "ballSize",
+     "ballBounce",
+     "ballMass",
+     "ballDamping",
+     "goalSize",
+     "goalDepth",
+     "goalPoints",
+     "assistPoints",
+     "behindBonus",
+     "kickPower",
+     "kickoffReset",
+     "kickoffSec",
+     "keepAwayEverySec",
+     "keepAwayPoints",
+     "multiballEventKind",
+     "callout"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "world": {
+  "schema": {
+   "type": "object",
+   "properties": {
+    "physics": {
+     "type": "object",
+     "properties": {
+      "enabled": {
+       "type": "boolean",
+       "description": "Rigid-body physics on (default true when world.physics is present). Players become round bodies; bumps transfer momentum and spin.",
+       "default": true
+      },
+      "gravityX": {
+       "type": "number",
+       "minimum": -1500,
+       "maximum": 1500,
+       "description": "Sideways pull on loose props (ball, crates, barrels) in px/s² (top-down default 0). Non-zero tilts the arena: things slide that way; players feel a gentle drift.",
+       "default": 0
+      },
+      "gravityY": {
+       "type": "number",
+       "minimum": -1500,
+       "maximum": 1500,
+       "description": "Downward (+) / upward (-) pull on loose props in px/s² (top-down default 0). E.g. 400 = a sloped table everything rolls down.",
+       "default": 0
+      },
+      "restitution": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1.2,
+       "description": "Bounciness of every body and wall: 0 = dead thud, 0.6 = default, 1 = superball, >1 = pinball chaos.",
+       "default": 0.6
+      },
+      "friction": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1,
+       "description": "Contact friction: how much grazing hits make things spin and drag along walls (0 = ice, 1 = rubber).",
+       "default": 0.3
+      },
+      "linearDamping": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 10,
+       "description": "How fast loose props slow down (0 = slide forever / floaty low-gravity feel, 1.2 = default, 5 = mud). Also scales how long knocked players slide.",
+       "default": 1.2
+      },
+      "angularDamping": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 10,
+       "description": "How fast spinning stops (0 = spins forever).",
+       "default": 1.5
+      },
+      "playerMass": {
+       "type": "number",
+       "minimum": 0.25,
+       "maximum": 4,
+       "description": "Player body mass relative to a crate (1). Heavy players bulldoze props and shrug off knockback; light players fly.",
+       "default": 1
+      },
+      "spin": {
+       "type": "boolean",
+       "description": "Bodies rotate and spin on grazing hits (false = fixed rotation).",
+       "default": true
+      },
+      "knockback": {
+       "type": "number",
+       "minimum": 0.25,
+       "maximum": 4,
+       "description": "Multiplier on every player knock: bumps, dash shoves, bumper kicks and barrel blasts (2 = twice the chaos).",
+       "default": 1
+      },
+      "walls": {
+       "type": "boolean",
+       "description": "Arena edges are solid bouncy walls for props (false = props can leave the arena).",
+       "default": true
+      },
+      "bumperKick": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1500,
+       "description": "Extra px/s a pinball bumper fires anything that hits it.",
+       "default": 520
+      },
+      "barrelPower": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 2500,
+       "description": "Blast strength of an explosive barrel (px/s at the centre, falling off to 0 at 220 px).",
+       "default": 900
+      }
+     },
+     "additionalProperties": false
+    },
+    "props": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "ball",
+         "crate",
+         "bumper",
+         "barrel"
+        ],
+        "description": "ball = round bouncy body; crate = box that slides, rotates and spins; bumper = static pinball bumper that kicks; barrel = explodes with a radial blast when dashed into or slammed."
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 12,
+        "description": "How many (all props together at most 40)."
+       },
+       "layout": {
+        "type": "string",
+        "enum": [
+         "scatter",
+         "center",
+         "ring",
+         "edges",
+         "corners"
+        ],
+        "description": "Where they spawn: scatter (random, default), center (clustered in the middle), ring (evenly on a circle of `radius` around the centre), edges (along the walls), corners."
+       },
+       "size": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 2.5,
+        "description": "Size multiplier (1 = about a player)."
+       },
+       "radius": {
+        "type": "number",
+        "minimum": 40,
+        "maximum": 500,
+        "description": "ring layout: circle radius in px (default 200)."
+       },
+       "respawnSec": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 30,
+        "description": "Barrels/balls that explode or leave come back at their spawn after this many seconds (0 = never; default 6)."
+       }
+      },
+      "required": [
+       "kind",
+       "count"
+      ],
+      "additionalProperties": false
+     },
+     "maxItems": 4
+    }
+   },
+   "additionalProperties": false
+  },
+  "looks": [
+   "neon",
+   "toybox",
+   "cosmos",
+   "retro"
+  ],
+  "notes": [
+   "world.physics turns on rigid-body physics (planck.js): players become round bodies, bumps carry momentum and spin, props roll, bounce, topple and explode. Omit `world` for classic arcade movement.",
+   "Top-down arenas: leave gravity at 0 for a flat table; gravityY 200–600 = a sloped table everything slides down.",
+   "Feel presets: floaty / low gravity = linearDamping 0.2, restitution 0.9, arena-move friction 2; bouncy = restitution 1.0–1.2; heavy = playerMass 2, knockback 0.7; chaos = knockback 2, bumperKick 900.",
+   "world.props spawns balls, crates, bumpers (static pinball kickers) and barrels (explode when dashed into or slammed). Keep the total ≤ 40.",
+   "ball-sport needs no world.physics (it turns physics on itself); arena-move `crates` also turns it on.",
+   "theme.look picks the art: neon (glowing vector arcade), toybox (glossy plastic toys), cosmos (deep space), retro (pixel-art CRT). Set theme.sfxSet to the same id for matching music and sfx."
+  ]
+ }
+}

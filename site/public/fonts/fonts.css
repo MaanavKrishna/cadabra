@@ -1,0 +1,4 @@
+/* Figtree (SIL OFL 1.1, see OFL.txt), latin subset, self-hosted: 300 for titles, 400 body, 600 labels (~34 KB). */
+@font-face { font-family: 'Figtree UI'; font-style: normal; font-weight: 300; font-display: block; src: url('./figtree-300.woff2') format('woff2'); }
+@font-face { font-family: 'Figtree UI'; font-style: normal; font-weight: 400; font-display: block; src: url('./figtree-400.woff2') format('woff2'); }
+@font-face { font-family: 'Figtree UI'; font-style: normal; font-weight: 600; font-display: block; src: url('./figtree-600.woff2') format('woff2'); }
