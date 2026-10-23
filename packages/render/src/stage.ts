@@ -155,7 +155,7 @@ export class GameView {
   private banners = new Map<string, Text>();
   private bannerT?: Text;
   private bannerAt = -9;
-  private impactSfxAt = -9;
+  private goalAt = -9;
   /** Ring-out style arena (floor tiles over a drop): the floor is baked as a pit. */
   private pit = false;
   private pitChecked = false;
@@ -266,13 +266,9 @@ export class GameView {
     if (this.neon) this.particles.additiveFrameCap = 28;
     if (this.neon) this.nart = new NeonArt();
     this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH, this.nart);
-    // physics props: barrel blasts kick the camera, hard hits make a sound
+    // physics props: barrel blasts kick the camera (the engine sends the bumper / kick / crate /
+    // boom / goal sounds itself as sfx fx, so the views stay silent)
     this.entities.onBoom = (x, y, p) => this.boom(x, y, p);
-    this.entities.onImpact = (_x, _y, p, key) => {
-      if (p < 0.45 || this.rt - this.impactSfxAt < 0.12) return;
-      this.impactSfxAt = this.rt;
-      sfx(key === 'bumper' ? 'bumper' : key === 'crate' ? 'crate' : 'kick');
-    };
     this.hud = new Hud(this.W / this.hudScale, this.H / this.hudScale);
     this.hud.root.scale.set(this.hudScale);
 
@@ -730,12 +726,13 @@ export class GameView {
     this.hitStop.trigger(60);
     this.juice.apply({ kind: 'shake', strength: 0.5 * Math.min(1.2, power) });
     this.juice.apply({ kind: 'flash', color: this.look === 'toybox' ? '#FFFFFF' : '#FF5A3C' });
-    sfx('boom');
   }
 
   /** GOAL!: the net ripples, the camera punches toward it, a big banner drops in. */
   goal(pid?: string, snap?: Snapshot, gx?: number, gy?: number): void {
-    if (!this.started) return;
+    // the score event and the goal event of one goal arrive together: one celebration
+    if (!this.started || this.rt - this.goalAt < 0.6) return;
+    this.goalAt = this.rt;
     let x = gx, y = gy;
     if ((x === undefined || y === undefined) && snap) {
       // the ball's position when the goal happened
@@ -753,7 +750,6 @@ export class GameView {
     this.cam.punch(0.07, this.tmpC.x, this.tmpC.y, 0.6);
     this.juice.apply({ kind: 'shake', strength: 0.3 });
     this.bigBanner('GOAL!', pid && snap ? this.playerTint(pid, snap) : undefined);
-    sfx('goal');
   }
 
   private playerTint(pid: string, snap: Snapshot): number | undefined {

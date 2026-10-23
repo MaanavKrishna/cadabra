@@ -1101,8 +1101,13 @@ function drawRetroLow(key: ArtKey, c: number): HTMLCanvasElement {
         'c..............c', 'c..............c', '................', 'c..............c', 'c..............c', '................',
         'c..............c', 'c..............c', '................', 'cc.cc.cc.cc.cc.c',
       ], c);
-    case 'tile':
-      return pix(['wwwwwwww', 'wllllllg', 'wllllllg', 'wllllllg', 'wllllllg', 'wllllllg', 'wllllllg', 'gggggggg'], c);
+    case 'tile': {
+      // 16 px tile: a light bevel top-left, a dark lip bottom-right, one glint pixel
+      const rows = ['wwwwwwwwwwwwwwwg'];
+      for (let i = 0; i < 14; i++) rows.push(i === 1 ? 'wlwllllllllllllg' : 'wllllllllllllllg');
+      rows.push('gggggggggggggggg');
+      return pix(rows, c);
+    }
     case 'hole':
       return pix(['.gggggg.', 'gkkkkkkg', 'gkkkkkkg', 'gkkkkkkg', 'gkkkkkkg', 'gkkkkkkg', 'gkkkkkkg', '.gggggg.'], c);
     case 'goal':

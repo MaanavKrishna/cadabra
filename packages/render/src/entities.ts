@@ -518,7 +518,7 @@ export class EntityLayer {
     const seen = this.tileSeen;
     seen.clear();
     const L = this.L;
-    const dim = L.id === 'toybox' ? lighten(L.c.cyan, 0.72) : L.id === 'retro' ? 0x83769c : L.id === 'cosmos' ? 0x5b7fd6 : darken(hexToNum(c.palette.primary), 0.35);
+    const dim = L.id === 'toybox' ? lighten(L.c.cyan, 0.72) : L.id === 'retro' ? 0x4a4466 : L.id === 'cosmos' ? 0x5b7fd6 : darken(hexToNum(c.palette.primary), 0.35);
     const solid = L.id === 'toybox' || L.id === 'retro';
     for (const t of tiles) {
       seen.add(t.id);
@@ -544,7 +544,8 @@ export class EntityLayer {
         s.position.set(t.x + Math.sin(c.vt * 41 + t.id) * 2, t.y + Math.cos(c.vt * 37 + t.id) * 1.5);
       } else if (paint !== undefined) {
         // painted floor stays a step below the players so same-colour bodies still pop
-        s.tint = solid ? lighten(paint, 0.12) : paint;
+        // painted floor sits a step darker (retro) / lighter (toybox) than the same-colour players
+        s.tint = L.id === 'retro' ? darken(paint, 0.35) : solid ? lighten(paint, 0.12) : paint;
         s.alpha = solid ? 1 : 0.6;
       } else {
         s.tint = dim;
