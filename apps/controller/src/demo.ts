@@ -22,6 +22,8 @@ export const DEMO_SCREENS: Record<string, { name: ScreenName; data: Record<strin
   },
   warmup: { name: 'warmup', data: { title: 'Lava Leap', howTo: 'Stick to move, JUMP over the gaps.', seconds: 10, widgets: [{ kind: 'joystick', id: 'move' }, { kind: 'button', id: 'jump', label: 'Jump' }], themeVars: LAVA } },
   play: { name: 'play', data: { title: 'Lava Leap', widgets: [{ kind: 'joystick', id: 'move' }, { kind: 'button', id: 'jump', label: 'Jump' }, { kind: 'hold', id: 'dash', label: 'Dash' }], themeVars: LAVA } },
+  'play-heist': { name: 'play', data: { title: 'Ladoo Heist', widgets: [{ kind: 'joystick', id: 'move' }, { kind: 'hold', id: 'tiptoe', label: 'Tiptoe' }] } },
+  'play-tug': { name: 'play', data: { title: 'Bear Tug', widgets: [{ kind: 'button', id: 'pull', label: 'PULL' }] } },
   'play-ocean': { name: 'play', data: { title: 'Reef Rush', widgets: [{ kind: 'tilt', id: 'steer' }, { kind: 'button', id: 'boost', label: 'Boost' }], themeVars: OCEAN } },
   'play-swipe': { name: 'play', data: { title: 'Cat Sort', widgets: [{ kind: 'swipe', id: 'sort' }] } },
   'play-draw': { name: 'play', data: { title: 'Doodle Duel', widgets: [{ kind: 'draw', id: 'd', prompt: 'Draw a hat for the dragon' }] } },
