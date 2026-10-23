@@ -118,3 +118,5 @@ body.docs { background: radial-gradient(1000px 500px at 100% 0%, rgba(86, 58, 19
   .prose .anchor { display: none; }
 }
 @media (max-width: 480px) { .crumb { display: none; } .pager { grid-template-columns: 1fr; } .pager .next { text-align: left; } }
+.prose .arch { min-width: 0; }
+@media (max-width: 860px) { .prose .arch { min-width: 760px; } }

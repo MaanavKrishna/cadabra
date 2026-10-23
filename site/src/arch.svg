@@ -23,7 +23,7 @@
     <path d="M665 284 L665 330" marker-end="url(#ah)"/>
     <text x="674" y="312" class="a-lbl">async</text>
     <path d="M590 284 L590 296 L552 312 L552 462 L570 462" marker-end="url(#ah)"/>
-    <text x="494" y="392" class="a-lbl">async</text>
+    <text x="508" y="490" class="a-lbl">async</text>
     <path d="M760 352 L810 352" marker-end="url(#ah)"/>
     <path d="M760 378 C 785 378, 790 452, 810 452" marker-end="url(#ah)"/>
     <path d="M760 452 C 785 452, 790 388, 810 386" marker-end="url(#ah)"/>
