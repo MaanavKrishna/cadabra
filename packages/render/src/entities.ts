@@ -16,6 +16,8 @@ export interface FrameCtx {
   players: Map<string, Player>;
   playerIndex: Map<string, number>;
   leader?: string | undefined;
+  /** Player a guard is chasing right now (their ring flashes red). */
+  hunted?: string | undefined;
   /** Interpolated sim time (s). */
   time: number;
   /** Visual clock (s, slow-mo scaled, frozen during hit-stop) and its frame delta. */
@@ -58,6 +60,10 @@ interface View {
   xfade?: Sprite;
   cone?: Sprite;
   fxs?: Sprite[];
+  /** Noise rings (a loud carrier) / carry pips. */
+  wave?: Sprite[];
+  /** "!" over a player the guard is chasing. */
+  alert?: Graphics;
   trailN: number;
   trailAt: number;
   flags: Record<string, unknown>;
@@ -86,6 +92,19 @@ const BANNERS = ['banner-red', 'banner-blue'] as const;
 /** Direction of travel drawn in directional pack art (rad, screen space). */
 const ART_HEADING: Record<string, number> = { fireball: (3 * Math.PI) / 4 };
 const POP_SEC = 0.36;
+/**
+ * Readability on a TV (task F §2): characters, guards, hazards and items are drawn this much
+ * bigger than their hitboxes' old look. Hitboxes are the engine's; only the art grows.
+ */
+export const AVATAR_SCALE = 1.75;
+export const GUARD_SCALE = 1.7;
+export const HAZARD_SCALE = 1.6;
+export const ITEM_SCALE = 1.45;
+/** Text is rasterised at this resolution (the world is scaled up on a 1080p canvas). */
+let textRes = 1;
+export function setTextResolution(r: number): void {
+  textRes = Math.max(1, Math.min(2, r));
+}
 const TAU = Math.PI * 2;
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 /** zIndex bands below the y-sorted bodies. */
@@ -104,6 +123,7 @@ export function label(text: string, size: number, color: number, opts: { display
       dropShadow: { color: 0x000000, alpha: 0.45, blur: 4, distance: 2, angle: Math.PI / 2 },
       align: 'center',
     },
+    resolution: textRes,
   });
   t.anchor.set(0.5);
   return t;
@@ -128,6 +148,13 @@ export class EntityLayer {
   private laneKey = '';
   private flag?: Sprite;
   private quiz?: PanelView;
+  /** Floor tiles (crumbling arenas): one Graphics for all, redrawn only when the set changes. */
+  private tileG = new Graphics();
+  private tileWarnG = new Graphics();
+  private tileFallG = new Graphics();
+  private tileKey = '';
+  private tileFallAt = -9;
+  private tileList: Entity[] = [];
   private frameNo = 0;
   private trailLive: Trail[] = [];
   private trailFree: Trail[] = [];
@@ -142,7 +169,7 @@ export class EntityLayer {
 
   constructor(private readonly store: TextureStore, private readonly particles: ParticleSystem, private arenaW: number, private arenaH: number) {
     this.bodies.sortableChildren = true;
-    this.floor.addChild(this.lanes);
+    this.floor.addChild(this.lanes, this.tileFallG, this.tileG, this.tileWarnG);
   }
 
   setArena(w: number, h: number): void {
@@ -280,9 +307,15 @@ export class EntityLayer {
     this.glowN = 0;
     this.glowCap = c.degraded ? GLOW_MAX / 2 : GLOW_MAX;
     let quiz: Entity | undefined;
+    const tiles = this.tileList;
+    tiles.length = 0;
     for (const e of entities) {
       if (e.kind === 'quiz' || e.kind === 'board') {
         quiz = e;
+        continue;
+      }
+      if (e.kind === 'tile') {
+        tiles.push(e);
         continue;
       }
       let v = this.views.get(e.id);
@@ -307,12 +340,64 @@ export class EntityLayer {
     this.animateTrails(c);
     this.syncLanes(entities, c);
     this.syncPanel(quiz, c);
+    this.syncTiles(tiles, c);
+  }
+
+  /**
+   * Ice floes over lava: every 'tile' entity is drawn into one Graphics (redrawn only when a
+   * tile starts crumbling or falls). Crumbling tiles flash red; fallen ones sink and fade.
+   */
+  private syncTiles(tiles: Entity[], c: FrameCtx): void {
+    let crumbling = 0;
+    for (const t of tiles) if (t.props.crumbling === true) crumbling++;
+    const key = tiles.length === 0 ? '' : `${tiles.length}|${crumbling}|${tiles[0]!.id}`;
+    if (key !== this.tileKey) {
+      const before = this.tileKey;
+      this.tileKey = key;
+      // the tiles that just fell: draw them once more into the sinking layer
+      if (before && tiles.length < Number(before.split('|')[0])) {
+        const live = new Set(tiles.map((t) => t.id));
+        const fg = this.tileFallG.clear();
+        for (const t of this.lastTiles) if (!live.has(t.id)) this.drawTile(fg, t, 0x7fb8d8, 0x3d6e8c);
+        this.tileFallAt = c.vt;
+      }
+      this.lastTiles = tiles.slice();
+      const g = this.tileG.clear(), w = this.tileWarnG.clear();
+      for (const t of tiles) {
+        if (t.props.crumbling === true) this.drawTile(w, t, 0xffd6c2, 0xc0542c);
+        else this.drawTile(g, t, 0xd9f3ff, 0x6fb3d6);
+      }
+    }
+    this.tileG.visible = this.tileWarnG.visible = tiles.length > 0;
+    if (crumbling > 0) {
+      // warning flicker, faster as it nears the fall
+      this.tileWarnG.alpha = 0.65 + 0.35 * Math.sin(c.vt * 16);
+      this.tileWarnG.position.set(Math.sin(c.vt * 41) * 2, Math.cos(c.vt * 37) * 1.5);
+    } else this.tileWarnG.position.set(0, 0);
+    const k = (c.vt - this.tileFallAt) / 0.5;
+    this.tileFallG.visible = k < 1;
+    if (k < 1) {
+      this.tileFallG.alpha = 1 - k;
+      this.tileFallG.position.set(0, k * 18);
+      this.tileFallG.tint = 0xff8a50;
+    }
+  }
+
+  private lastTiles: Entity[] = [];
+
+  private drawTile(g: Graphics, t: Entity, top: number, edge: number): void {
+    const hw = num(t.props.hw, t.r), hh = num(t.props.hh, t.r);
+    const gap = Math.min(hw, hh) * 0.07, x = t.x - hw + gap, y = t.y - hh + gap, w = hw * 2 - gap * 2, h = hh * 2 - gap * 2;
+    const rr = Math.min(w, h) * 0.16;
+    g.roundRect(x, y + 6, w, h, rr).fill({ color: edge });
+    g.roundRect(x, y, w, h - 4, rr).fill({ color: top });
+    g.roundRect(x + w * 0.08, y + h * 0.08, w * 0.5, h * 0.16, rr * 0.6).fill({ color: 0xffffff, alpha: 0.45 });
+    g.moveTo(x + w * 0.62, y + h * 0.55).lineTo(x + w * 0.78, y + h * 0.7).lineTo(x + w * 0.74, y + h * 0.86).stroke({ width: 2, color: edge, alpha: 0.6 });
   }
 
   private onDeath(v: View, c: FrameCtx): void {
     if (v.kind === 'player' || v.kind === 'runner') {
-      this.particles.emit('smoke', v.px, v.py, 1);
-      this.particles.emit('burst', v.px, v.py, 0.5);
+      this.particles.emit('hit', v.px, v.py, 0.6);
     } else if (v.kind === 'item') {
       // collected: fly to the nearest avatar, then burst there
       let best: View | undefined, bd = 160 * 160;
@@ -341,7 +426,6 @@ export class EntityLayer {
         if (flying) {
           const t = this.views.get(num(v.flags.flyTo));
           const x = t ? t.px : v.root.x, y = t ? t.top + 30 : v.root.y;
-          this.particles.emit('sparkle', x, y, 0.3);
           this.puff('ring', x, y, 0.3, 0.35, hexToNum(c.palette.glow), true, 0.9, 0, 0, 1.8);
         }
         this.dying.splice(i, 1);
@@ -416,6 +500,8 @@ export class EntityLayer {
     if (v.xfade) v.xfade.visible = false;
     if (v.cone) v.cone.visible = false;
     if (v.fxs) for (const s of v.fxs) s.visible = false;
+    if (v.wave) for (const s of v.wave) s.visible = false;
+    if (v.alert) v.alert.visible = false;
   }
 
   /** Park a finished view in its kind's pool (hidden), or destroy it if the pool is full. */
@@ -453,6 +539,10 @@ export class EntityLayer {
     this.trailLive.length = 0;
     this.laneKey = '';
     this.lanes.clear();
+    this.tileKey = '';
+    this.tileG.clear();
+    this.tileWarnG.clear();
+    this.tileFallG.clear();
     if (this.flag) this.flag.visible = false;
     this.quiz?.destroy();
     this.quiz = undefined;
@@ -495,6 +585,7 @@ export class EntityLayer {
       case 'rope':
         return this.rope(v, e, x, y, c);
       case 'goal':
+      case 'base':
         return this.goal(v, e, x, y, c);
       case 'item':
         return this.item(v, e, x, y, c);
@@ -534,11 +625,11 @@ export class EntityLayer {
     v.face = anim.face;
 
     const jump = num(e.props.jump);
-    const jumpHop = jump > 0 ? Math.sin(jump * Math.PI) * 34 : 0;
-    const hop = jumpHop + anim.hop;
-    const size = e.r * 3.6 * (e.kind === 'runner' ? 0.85 : 1);
+    const jumpHop = jump > 0 ? Math.sin(jump * Math.PI) * 34 * AVATAR_SCALE : 0;
+    const hop = jumpHop + anim.hop * AVATAR_SCALE;
+    const size = e.r * 3.6 * AVATAR_SCALE * (e.kind === 'runner' ? 0.85 : 1);
     const pop = this.popScale(v, c);
-    const bx = x + anim.ox, by = y + anim.oy;
+    const bx = x + anim.ox * AVATAR_SCALE, by = y + anim.oy * AVATAR_SCALE;
     const k = this.place(v, bx, by - hop, size, tex, 0.72) * pop;
     v.root.zIndex = depthKey(y, v.id);
     v.body.scale.set(k * v.face * anim.sx, k * anim.sy * (tiptoe ? 0.9 : 1));
@@ -561,8 +652,9 @@ export class EntityLayer {
     }
 
     // contact shadow shrinks and fades as the body leaves the floor
-    const lift = Math.min(0.5, hop / 70);
-    this.shadowAt(v, bx, y + e.r * 0.55, e.r * 2.2 * (1 - lift) * pop, e.r * 0.8 * (1 - lift) * pop, 0.42 * (1 - lift * 0.8));
+    const lift = Math.min(0.5, hop / (70 * AVATAR_SCALE));
+    const R = e.r * AVATAR_SCALE;
+    this.shadowAt(v, bx, y + e.r * 0.55, R * 2.2 * (1 - lift) * pop, R * 0.8 * (1 - lift) * pop, 0.45 * (1 - lift * 0.8));
 
     // team / player ring under the feet
     if (!v.g) {
@@ -571,10 +663,13 @@ export class EntityLayer {
     }
     if (v.flags.ringColor !== color) {
       v.flags.ringColor = color;
-      v.g.clear().ellipse(0, 0, e.r * 1.25, e.r * 0.5).stroke({ width: 4, color, alpha: 0.9 }).ellipse(0, 0, e.r * 1.25, e.r * 0.5).fill({ color, alpha: 0.18 });
+      const rr = e.r * AVATAR_SCALE;
+      v.g.clear().ellipse(0, 0, rr * 1.25, rr * 0.5).fill({ color, alpha: 0.28 }).ellipse(0, 0, rr * 1.25, rr * 0.5).stroke({ width: 6, color, alpha: 0.95 });
     }
     v.g.position.set(bx, y + e.r * 0.55);
-    v.g.scale.set(pop);
+    const hunted = c.hunted !== undefined && c.hunted === owner;
+    v.g.scale.set(pop * (hunted ? 1.15 + 0.12 * Math.sin(c.vt * 18) : 1));
+    v.g.tint = hunted && Math.sin(c.vt * 18) > 0 ? 0xff2020 : 0xffffff;
 
     // soft backlight in the player's colour (reads on any floor); a big pulsing aura when boosted
     const boosted = num(e.props.boost, 1) > 1.001;
@@ -582,23 +677,19 @@ export class EntityLayer {
     gl.position.set(bx, by - hop - size * 0.25);
     if (boosted) {
       gl.tint = hexToNum(c.palette.glow);
-      gl.scale.set(((e.r * 4.4) / 64) * (1 + Math.sin(c.vt * 6) * 0.1) * pop);
-      gl.alpha = 0.6;
-      if (!c.degraded && Math.random() < c.dt * 6) this.puff('spark', x + (Math.random() - 0.5) * e.r * 2, y, 0.6, 0.25, hexToNum(c.palette.glow), true, 1, 0, -70);
+      gl.scale.set(((R * 4.4) / 64) * (1 + Math.sin(c.vt * 6) * 0.1) * pop);
+      gl.alpha = 0.5;
     } else {
       gl.tint = color;
-      gl.scale.set(((e.r * 3.4) / 64) * pop);
+      gl.scale.set(((R * 3.4) / 64) * pop);
       gl.alpha = 0.22 + (anim.motion === 'dash' ? 0.25 : 0);
     }
 
     if (!c.degraded) {
-      // footstep dust
-      if (anim.footstep && anim.speed > 60 && e.props.mover !== 'race') {
-        this.puff('smoke', bx - v.face * e.r * 0.4, y + e.r * 0.45, 0.45, 0.2 + Math.random() * 0.06, 0xe9e2d6, false, 0.4, -anim.vx * 0.12, -14, 1.3);
-      }
-      // dash: burst of dust on take-off, then afterimages
+      // (no footstep dust: particles are for meaningful moments only)
+      // dash: a puff of dust on take-off, then afterimages
       if (anim.motion === 'dash' && prevMotion !== 'dash') {
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 2; i++) {
           this.puff('smoke', bx + (Math.random() - 0.5) * e.r, y + e.r * 0.4, 0.5, 0.3, 0xf0eadf, false, 0.55, -anim.vx * 0.2 + (Math.random() - 0.5) * 60, -20 - Math.random() * 30, 1.5);
         }
       }
@@ -624,30 +715,84 @@ export class EntityLayer {
         });
       }
       const headY = by - hop - size * 0.66;
+      const sr = e.r * AVATAR_SCALE;
       for (let i = 0; i < 3; i++) {
         const s = v.fxs[i]!;
         s.visible = fx.stunned;
         if (!fx.stunned) continue;
         const a = c.vt * 6 + (i * TAU) / 3;
         const depth = Math.sin(a);
-        s.position.set(bx + Math.cos(a) * e.r * 1.05, headY + depth * e.r * 0.32);
-        s.scale.set(0.3 * (0.8 + 0.2 * depth));
+        s.position.set(bx + Math.cos(a) * sr * 1.05, headY + depth * sr * 0.32);
+        s.scale.set(0.45 * (0.8 + 0.2 * depth));
         s.alpha = 0.7 + 0.3 * depth;
         s.rotation = c.vt * 4 + i;
       }
     }
 
+    // loud (carrying a lot / stomping): sound rings ripple out from the feet; carry pips over the head
+    const loudness = e.props.loud === true ? 1 : num(e.props.loud);
+    const loud = loudness > 0.15;
+    const carry = Math.min(5, Math.max(0, Math.round(num(e.props.carry))));
+    if (loud || carry > 0 || v.wave) {
+      if (!v.wave) {
+        v.wave = [];
+        for (let i = 0; i < 7; i++) {
+          const s = new Sprite(this.store.cell(i < 2 ? 'ring' : 'dot'));
+          s.anchor.set(0.5);
+          (i < 2 ? v.floor : v.over).addChild(s);
+          v.wave.push(s);
+        }
+      }
+      const R = e.r * AVATAR_SCALE;
+      for (let i = 0; i < 2; i++) {
+        const s = v.wave[i]!;
+        s.visible = loud;
+        if (!loud) continue;
+        const ph = (c.vt * 1.6 + i * 0.5) % 1;
+        s.position.set(bx, y + e.r * 0.55);
+        s.scale.set(((R * (1.4 + ph * 2.2)) / 28) * 1, ((R * (0.55 + ph * 0.9)) / 28));
+        s.alpha = (1 - ph) * (0.35 + 0.6 * Math.min(1, loudness));
+        s.tint = loudness > 0.6 ? 0xff5a3c : 0xffc94d;
+      }
+      const glowC = hexToNum(c.palette.glow);
+      for (let i = 0; i < 5; i++) {
+        const s = v.wave[2 + i]!;
+        s.visible = i < carry;
+        if (!s.visible) continue;
+        s.position.set(bx + (i - (carry - 1) / 2) * 16, by - hop - size * 0.72 - 54 + Math.sin(c.vt * 6 + i) * 2);
+        s.scale.set(0.24);
+        s.tint = glowC;
+        s.alpha = 1;
+      }
+    }
+
+    // hunted: a big red "!" over the chased player (and their ring flashes, above)
+    if (hunted || v.alert) {
+      if (!v.alert) {
+        v.alert = new Graphics()
+          .roundRect(-17, -62, 34, 52, 14).fill({ color: 0xff2a2a }).roundRect(-17, -62, 34, 52, 14).stroke({ width: 4, color: 0xffffff })
+          .roundRect(-6, -54, 12, 26, 6).fill({ color: 0xffffff }).circle(0, -20, 6).fill({ color: 0xffffff });
+        v.over.addChild(v.alert);
+      }
+      v.alert.visible = hunted;
+      if (hunted) {
+        v.alert.position.set(bx, by - hop - size * 0.72 - 40);
+        v.alert.scale.set(1.1 + 0.15 * Math.abs(Math.sin(c.vt * 9)));
+        v.alert.rotation = Math.sin(c.vt * 14) * 0.12;
+      }
+    }
+
     // name plate (does not bob with the waddle: stays readable)
-    const plateY = Math.max(18, by - jumpHop - size * 0.72 - 20);
+    const plateY = Math.max(24, by - jumpHop - size * 0.72 - 22);
     v.top = plateY - 20;
     if (e.kind === 'player' && pl) {
       if (!v.name || v.flags.name !== pl.name || v.flags.nameColor !== color) {
         v.name?.destroy({ children: true });
         v.name = new Container();
-        const t = label(pl.name.length > 14 ? `${pl.name.slice(0, 13)}…` : pl.name, 20, 0xffffff, { stroke: 0 });
+        const t = label(pl.name.length > 12 ? `${pl.name.slice(0, 11)}…` : pl.name, 20, 0xffffff, { stroke: 0 });
         const bg = new Graphics()
-          .roundRect(-t.width / 2 - 12, -15, t.width + 24, 30, 15).fill({ color: 0x0b0b18, alpha: 0.62 })
-          .roundRect(-t.width / 2 - 12, -15, t.width + 24, 30, 15).stroke({ width: 2, color, alpha: 0.95 });
+          .roundRect(-t.width / 2 - 12, -16, t.width + 24, 32, 16).fill({ color: 0x0b0b18, alpha: 0.72 })
+          .roundRect(-t.width / 2 - 12, -16, t.width + 24, 32, 16).stroke({ width: 3, color, alpha: 1 });
         v.name.addChild(bg, t);
         v.over.addChild(v.name);
         v.flags.name = pl.name;
@@ -671,8 +816,8 @@ export class EntityLayer {
           // the crown lands with a bounce when the lead changes hands
           const since = c.vt - num(v.flags.leadAt, c.vt);
           if (v.flags.lead !== true) v.flags.leadAt = c.vt;
-          v.crown.position.set(bx, plateY - 24 + Math.sin(c.vt * 4) * 2);
-          v.crown.scale.set(0.5 * easeOutBack(since / 0.4));
+          v.crown.position.set(bx, plateY - 30 + Math.sin(c.vt * 4) * 2);
+          v.crown.scale.set(0.7 * easeOutBack(since / 0.4));
           v.crown.rotation = Math.sin(c.vt * 3) * 0.08;
           v.top = plateY - 44;
         }
@@ -748,7 +893,7 @@ export class EntityLayer {
     ring.visible = fill.visible = show;
     for (let i = 2; i < marks.length; i++) marks[i]!.visible = show && tg.arrow !== null;
     if (show) {
-      const d = (e.r * 2.3) / 56;
+      const d = (e.r * 2.3 * HAZARD_SCALE) / 56;
       // the warning ring breathes faster as arming nears
       const beat = 1 + 0.06 * Math.sin(c.vt * (6 + 14 * tg.progress));
       ring.position.set(x, y);
@@ -763,10 +908,10 @@ export class EntityLayer {
         const ang = Math.atan2(tg.arrow.dy, tg.arrow.dx);
         for (let i = 2; i < marks.length; i++) {
           const a = marks[i]!, j = i - 2;
-          const off = e.r + 14 + j * 20;
+          const off = e.r * HAZARD_SCALE + 18 + j * 26;
           a.position.set(x + tg.arrow.dx * off, y + tg.arrow.dy * off);
           a.rotation = ang;
-          a.scale.set(0.45);
+          a.scale.set(0.65);
           a.tint = 0xffffff;
           // chase-light down the arrow, faster as arming nears
           a.alpha = 0.35 + 0.65 * Math.max(0, Math.sin(c.vt * (6 + 10 * tg.progress) - j * 0.9));
@@ -775,10 +920,8 @@ export class EntityLayer {
     }
     if (tg.armed && v.flags.armed === false) {
       v.flags.armedAt = c.vt;
-      if (e.props.pattern === 'rain') {
-        this.particles.emit('smoke', x, y, 0.4);
-        this.particles.emit('burst', x, y, 0.35);
-      }
+      // a landing thud: one ring, no smoke clouds
+      if (e.props.pattern === 'rain') this.puff('ring', x, y, 0.3, (e.r * HAZARD_SCALE) / 40, accent, true, 0.9, 0, 0, 1.4);
     }
     v.flags.armed = tg.armed;
     const since = c.vt - num(v.flags.armedAt, -9);
@@ -788,7 +931,7 @@ export class EntityLayer {
     const jx = jit > 0 ? Math.sin(c.vt * 53 + e.id) * jit : 0, jy = jit > 0 ? Math.cos(c.vt * 47 + e.id * 3) * jit : 0;
     const pulse = tg.armed ? 1 : 1 + Math.sin(c.vt * (8 + 16 * tg.progress)) * 0.06 * tg.progress;
     const scale = (tg.armed ? 1 : 0.7 + 0.3 * easeInOutSine(tg.progress)) * punch * pulse;
-    this.place(v, x + jx, y + jy, e.r * 2.5 * scale * this.popScale(v, c), tex);
+    this.place(v, x + jx, y + jy, e.r * 2.5 * HAZARD_SCALE * scale * this.popScale(v, c), tex);
     v.body.alpha = tg.alpha;
     const vx = tg.armed ? e.vx : num(e.props.ax), vy = tg.armed ? e.vy : num(e.props.ay);
     if (heading !== undefined && (vx !== 0 || vy !== 0)) {
@@ -797,7 +940,7 @@ export class EntityLayer {
     } else {
       v.body.rotation = tg.armed ? (v.body.rotation + c.dt * 5) % TAU : Math.sin(c.vt * 9) * 0.08 * tg.progress;
     }
-    this.shadowAt(v, x, y + e.r * 0.7, e.r * 2 * scale, e.r * 0.7 * scale, 0.3 * tg.alpha);
+    this.shadowAt(v, x, y + e.r * 0.7 * HAZARD_SCALE, e.r * 2 * HAZARD_SCALE * scale, e.r * 0.7 * HAZARD_SCALE * scale, 0.35 * tg.alpha);
 
     // glow: builds during the telegraph, flickers like fire once armed
     const gl = this.glowOf(v);
@@ -805,18 +948,12 @@ export class EntityLayer {
     gl.position.set(x + jx, y + jy);
     if (tg.armed) {
       gl.alpha = 0.5 + 0.18 * Math.sin(c.vt * 23 + e.id) + 0.1 * Math.sin(c.vt * 37 + e.id * 2);
-      gl.scale.set(((e.r * 3.6) / 64) * (1 + 0.08 * Math.sin(c.vt * 17 + e.id)) * punch);
+      gl.scale.set(((e.r * 3.6 * HAZARD_SCALE) / 64) * (1 + 0.08 * Math.sin(c.vt * 17 + e.id)) * punch);
     } else {
       gl.alpha = 0.12 + 0.3 * tg.progress * (0.6 + 0.4 * Math.sin(c.vt * (6 + 12 * tg.progress)));
-      gl.scale.set(((e.r * 3) / 64) * (0.6 + 0.4 * tg.progress));
+      gl.scale.set(((e.r * 3 * HAZARD_SCALE) / 64) * (0.6 + 0.4 * tg.progress));
     }
 
-    const moving = e.vx !== 0 || e.vy !== 0;
-    const b = this.particles.budget;
-    if (tg.armed && moving && !c.degraded && b.active < b.cap * 0.6 && Math.random() < c.dt * 16) {
-      const r = Math.random();
-      this.puff('glow', x - e.vx * 0.03, y - e.vy * 0.03, 0.35, e.r / 40, r < 0.5 ? (fiery ? 0xff9a3d : accent) : hexToNum(c.palette.glow), true, 0.7, 0, 0, -0.6);
-    }
   }
 
   private safeZone(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
@@ -858,8 +995,7 @@ export class EntityLayer {
     if (gv.awake && v.flags.awake === false) {
       v.flags.awokeAt = c.vt;
       v.flags.xfAt = c.vt;
-      this.particles.emit('burst', x, y - e.r, 0.6);
-      this.particles.emit('smoke', x, y, 0.6);
+      this.puff('ring', x, y, 0.5, (Math.max(110, e.r * 3.2) * GUARD_SCALE) / 50, 0xff3b3b, true, 1, 0, 0, 2.2);
     }
     if (!gv.awake && v.flags.awake === true) v.flags.xfAt = c.vt;
     v.flags.awake = gv.awake;
@@ -873,7 +1009,7 @@ export class EntityLayer {
     const punch = sinceWake < 0.35 ? 1 + 0.28 * arch(sinceWake / 0.35) : 1;
     // waking: jump up off the floor
     const jump = sinceWake < 0.45 ? arch(sinceWake / 0.45) * 42 : 0;
-    const size = Math.max(110, e.r * 3.2);
+    const size = Math.max(110, e.r * 3.2) * GUARD_SCALE;
     const k = this.place(v, x + shake, y - jump, size, tex, 0.62);
     v.root.zIndex = depthKey(y, v.id);
     const m = punch * this.popScale(v, c);
@@ -947,15 +1083,15 @@ export class EntityLayer {
 
     // noise meter (redrawn when its fill or alarm blink changes)
     const og = v.og!;
-    const mw = 96, my = y - size * 0.62 - 26;
+    const mw = 150, my = y - size * 0.62 - 26;
     const blink = gv.noise > 0.8 && !gv.awake ? Math.sin(c.vt * 20) > 0 : false;
     const mk = ((Math.round(x) * 4099 + Math.round(my)) * 128 + Math.round(gv.noise * 96)) * 2 + (blink ? 1 : 0);
     if (v.flags.mk !== mk) {
       v.flags.mk = mk;
       og.clear();
-      og.roundRect(x - mw / 2 - 3, my - 3, mw + 6, 16, 8).fill({ color: 0x0b0b18, alpha: 0.7 });
-      if (gv.noise > 0.01) og.roundRect(x - mw / 2, my, mw * gv.noise, 10, 5).fill({ color: gv.noiseColor });
-      if (blink) og.roundRect(x - mw / 2 - 3, my - 3, mw + 6, 16, 8).stroke({ width: 2, color: 0xff3b3b, alpha: 0.9 });
+      og.roundRect(x - mw / 2 - 4, my - 4, mw + 8, 22, 11).fill({ color: 0x0b0b18, alpha: 0.8 });
+      if (gv.noise > 0.01) og.roundRect(x - mw / 2, my, mw * gv.noise, 14, 7).fill({ color: gv.noiseColor });
+      if (blink) og.roundRect(x - mw / 2 - 4, my - 4, mw + 8, 22, 11).stroke({ width: 3, color: 0xff3b3b, alpha: 0.95 });
     }
 
     const texts = v.texts!;
@@ -965,15 +1101,15 @@ export class EntityLayer {
       if (!t.visible) continue;
       // Zzz drift up and grow as they float off
       const ph = (c.vt * 0.55 + i / 3) % 1;
-      t.position.set(x + size * 0.22 + ph * 34 + Math.sin(ph * 6 + i) * 6, my - 14 - ph * 56);
+      t.position.set(x + size * 0.22 + ph * 50 + Math.sin(ph * 6 + i) * 8, my - 18 - ph * 80);
       t.alpha = arch(ph) * 0.9 * (stirring ? 0.4 : 1);
-      t.scale.set(0.6 + ph * 0.6);
+      t.scale.set(0.9 + ph * 0.9);
       t.rotation = Math.sin(ph * 5) * 0.2;
     }
     const bang = texts[3]!;
     bang.visible = gv.awake || stirring;
     if (gv.awake) {
-      const s = sinceWake < 0.35 ? easeOutBack(sinceWake / 0.35) * 1.15 : 1 + Math.sin(c.vt * 10) * 0.06;
+      const s = (sinceWake < 0.35 ? easeOutBack(sinceWake / 0.35) * 1.15 : 1 + Math.sin(c.vt * 10) * 0.06) * 1.5;
       bang.scale.set(s);
       bang.tint = 0xffffff;
       bang.alpha = 1;
@@ -1075,6 +1211,36 @@ export class EntityLayer {
       this.puff('ring', knot, y, 0.35, 0.6, hexToNum(c.palette.glow), true, 1, 0, 0, 1.5);
     }
     v.flags.beat = beat;
+    // rhythm: an approach ring closes on the knot and lands exactly on the beat (tap now!)
+    if (typeof e.props.beat === 'number') {
+      if (!v.cone) {
+        v.cone = new Sprite(this.store.cell('ring'));
+        v.cone.anchor.set(0.5);
+        v.over.addChild(v.cone);
+      }
+      const ph = num(e.props.beat);
+      v.cone.visible = e.props.paused !== true;
+      v.cone.position.set(knot, y + amp);
+      v.cone.scale.set((110 / 56) * (1 + (1 - ph) * 1.4));
+      v.cone.alpha = beat ? 1 : 0.35 + 0.5 * ph;
+      v.cone.tint = beat ? 0xffffff : hexToNum(c.palette.glow);
+    }
+    // surge / splash: big team-coloured moments
+    const surgeAt = num(e.props.surgeAt, -1), splashAt = num(e.props.splashAt, -1);
+    if (v.flags.tugSeen !== true) {
+      v.flags.tugSeen = true;
+      v.flags.surgeAt = surgeAt;
+      v.flags.splashAt = splashAt;
+    }
+    if (surgeAt > 0 && surgeAt !== num(v.flags.surgeAt, -1)) {
+      v.flags.surgeAt = surgeAt;
+      this.particles.emit('steal', knot, y);
+    }
+    if (splashAt > 0 && splashAt !== num(v.flags.splashAt, -1)) {
+      v.flags.splashAt = splashAt;
+      this.particles.emit('splash', (left + right) / 2, y + 40);
+      this.particles.emit('dust', (left + right) / 2, y + 40);
+    }
     const sinceBeat = c.vt - num(v.flags.beatAt, -9);
     const bump = sinceBeat < 0.3 ? 1 + 0.3 * arch(sinceBeat / 0.3) : 1;
     knotS.scale.set(bump * (56 / Math.max(1, knotS.texture.width, knotS.texture.height)));
@@ -1113,7 +1279,7 @@ export class EntityLayer {
     const carried = typeof e.props.carriedBy === 'string' && e.props.carriedBy !== '';
     const golden = e.props.golden === true || e.tags.has('golden');
     const bob = carried ? Math.sin(c.vt * 9 + e.id) * 2 : Math.sin(c.vt * 3.2 + e.id * 1.7) * 5;
-    const size = e.r * 2.6 * (carried ? 0.8 : 1) * (golden ? 1.15 : 1);
+    const size = e.r * 2.6 * ITEM_SCALE * (carried ? 0.75 : 1) * (golden ? 1.3 : 1);
     const pop = this.popScale(v, c);
     const k = this.place(v, x, y - 8 + bob, size * pop, tex);
     // slow coin-like spin + wobble
@@ -1127,45 +1293,93 @@ export class EntityLayer {
     gl.visible = !carried;
     gl.tint = golden ? 0xffc83d : hexToNum(c.palette.glow);
     gl.position.set(x, y - 8 + bob);
-    gl.scale.set(((e.r * (golden ? 4.2 : 3)) / 64) * (1 + Math.sin(c.vt * 4 + e.id) * 0.1) * pop);
-    gl.alpha = golden ? 0.75 : 0.32 + Math.sin(c.vt * 4 + e.id) * 0.08;
-    if (!c.degraded && !carried) {
-      // periodic glint, staggered per item
-      const gp = Math.floor((c.vt + e.id * 0.37) / 2.3);
-      if (gp !== num(v.flags.glint, gp)) this.puff('spark', x + e.r * 0.45, y - 8 + bob - e.r * 0.55, 0.5, 0.55, 0xffffff, true, 1, 0, 0, -0.9, 1, 3);
-      v.flags.glint = gp;
-      if (golden && Math.random() < c.dt * 4) this.puff('spark', x + (Math.random() - 0.5) * e.r * 2, y - e.r, 0.6, 0.22, 0xfff1a8, true, 1, 0, -40, 0, 1, 4);
-    }
+    gl.scale.set(((e.r * ITEM_SCALE * (golden ? 4.6 : 2.6)) / 64) * (1 + Math.sin(c.vt * 4 + e.id) * 0.1) * pop);
+    gl.alpha = golden ? 0.85 : 0.22 + Math.sin(c.vt * 4 + e.id) * 0.06;
   }
 
+  /**
+   * A goal / home base: a big pad in its owner's colour (shared goals use the palette glow)
+   * with the basket on it and the owner's face floating above, so everyone knows where to bank.
+   */
   private goal(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
-    const tex = this.texFor(v, this.source(e.sprite, c, 'goal'), c, 'goal');
+    const tex = this.texFor(v, this.source(e.kind === 'base' && e.sprite === 'base' ? 'goal' : e.sprite, c, 'goal'), c, 'goal');
+    const owner = e.owner ?? (typeof e.props.owner === 'string' ? e.props.owner : '');
+    const idx = owner ? c.playerIndex.get(owner) : undefined;
+    const col = e.team !== undefined ? TEAM_COLORS[e.team] : idx !== undefined ? playerColor(idx, c.palette) : hexToNum(c.palette.glow);
     if (!v.marks) {
       const glow = new Sprite(this.store.cell('glow'));
       const ring = new Sprite(this.store.cell('ring'));
-      v.marks = [glow, ring];
-      for (const m of v.marks) {
-        m.anchor.set(0.5);
-        v.floor.addChild(m);
-      }
+      const face = new Sprite();
+      v.marks = [glow, ring, face];
+      for (const m of v.marks) m.anchor.set(0.5);
+      v.floor.addChild(glow, ring);
+      v.over.addChild(face);
       glow.blendMode = 'add';
+      v.g = new Graphics();
+      v.floor.addChildAt(v.g, 0);
     }
-    const col = hexToNum(c.palette.glow);
-    const [glow, ring] = v.marks;
+    const [glow, ring, face] = v.marks;
+    const R = Math.max(48, e.r);
+    // the pad: redrawn only when its size / colour changes
+    const pk = R * 4099 + col;
+    if (v.flags.pk !== pk) {
+      v.flags.pk = pk;
+      v.g!.clear()
+        .ellipse(0, 0, R * 1.05, R * 0.62).fill({ color: col, alpha: 0.3 })
+        .ellipse(0, 0, R * 1.05, R * 0.62).stroke({ width: 7, color: col, alpha: 0.95 })
+        .ellipse(0, 0, R * 0.8, R * 0.46).stroke({ width: 3, color: lighten(col, 0.4), alpha: 0.6 });
+    }
+    // a bank pulses the pad (flags.bankAt is set by the stage)
+    const since = c.vt - num(v.flags.bankAt, -9);
+    const thump = since < 0.4 ? 1 + 0.18 * arch(since / 0.4) : 1;
+    v.g!.position.set(x, y);
+    v.g!.scale.set(thump * this.popScale(v, c));
     glow!.visible = ring!.visible = true;
     glow!.position.set(x, y);
-    glow!.scale.set((e.r * 2.6) / 64);
+    glow!.scale.set(((R * 2.6) / 64) * thump);
     glow!.tint = col;
-    glow!.alpha = 0.3 + Math.sin(c.vt * 3) * 0.08;
+    glow!.alpha = 0.22 + Math.sin(c.vt * 3) * 0.06 + (since < 0.4 ? 0.4 * (1 - since / 0.4) : 0);
     ring!.position.set(x, y);
-    ring!.scale.set(((e.r * 2) / 56) * (1 + Math.sin(c.vt * 3) * 0.03));
+    ring!.scale.set(((R * 2.1) / 56) * (1 + ((c.vt * 0.8) % 1) * 0.25), ((R * 1.25) / 56) * (1 + ((c.vt * 0.8) % 1) * 0.25));
     ring!.tint = col;
-    ring!.alpha = 0.75;
+    ring!.alpha = 0.6 * (1 - ((c.vt * 0.8) % 1));
     const breathe = 1 + Math.sin(c.vt * 2.6) * 0.025;
-    const k = this.place(v, x, y, Math.max(56, e.r * 1.4) * this.popScale(v, c), tex, 0.6);
+    const bsize = Math.max(90, R * 1.5);
+    const k = this.place(v, x, y, bsize * this.popScale(v, c) * thump, tex, 0.62);
     v.body.scale.set(k / breathe, k * breathe);
-    this.shadowAt(v, x, y + e.r * 0.3, e.r * 1.3, e.r * 0.4, 0.3);
-    v.top = y - e.r;
+    this.shadowAt(v, x, y + R * 0.25, R * 1.3, R * 0.4, 0.3);
+    // owner's face over their basket
+    const pl = owner ? c.players.get(owner) : undefined;
+    face!.visible = !!pl;
+    if (pl) {
+      const ft = this.avatarTexture(pl, c);
+      face!.texture = ft;
+      const fk = (R * 0.9) / Math.max(1, ft.width, ft.height);
+      face!.scale.set(fk);
+      face!.position.set(x, y - bsize * 0.62 - R * 0.35 + Math.sin(c.vt * 2 + e.id) * 4);
+    }
+    v.top = y - bsize * 0.62 - R * 0.8;
+  }
+
+  /** The stage saw a bank at this goal: thump it. */
+  thumpGoal(id: number, vt: number): void {
+    const v = this.views.get(id);
+    if (v) v.flags.bankAt = vt;
+  }
+
+  /** Nearest goal/base view id to a world point (or -1). */
+  goalNear(x: number, y: number, owner?: string): number {
+    let best = -1, bd = Infinity;
+    for (const v of this.views.values()) {
+      if (v.kind !== 'goal' && v.kind !== 'base') continue;
+      const d = (v.px - x) ** 2 + (v.py - y) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = v.id;
+      }
+    }
+    void owner;
+    return best;
   }
 
   private generic(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
@@ -1174,7 +1388,11 @@ export class EntityLayer {
     const size = Math.max(22, e.r * mult);
     const pad = e.kind === 'boost-pad';
     const pop = this.popScale(v, c);
-    this.place(v, x, y, size * pop * (pad ? 1 + Math.sin(c.vt * 6 + e.id) * 0.06 : 1), tex);
+    // crumbling tiles (final-10 arena shrink) shiver and flash before they go
+    const crumb = e.props.crumbling === true || num(e.props.crumbling) > 0;
+    const jx = crumb ? Math.sin(c.vt * 47 + e.id) * 3 : 0;
+    this.place(v, x + jx, y, size * pop * (pad ? 1 + Math.sin(c.vt * 6 + e.id) * 0.06 : 1), tex);
+    v.body.tint = crumb ? (Math.sin(c.vt * 18) > 0 ? 0xff8a6a : 0xffffff) : 0xffffff;
     v.top = y - size * 0.6;
     if (pad) {
       v.root.zIndex = Z_PAD + depthKey(y, v.id);

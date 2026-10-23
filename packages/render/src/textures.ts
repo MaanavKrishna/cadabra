@@ -3,8 +3,8 @@ import type { ParticleTex } from './juice';
 import type { ShapeKind, SpriteSource } from './sprites';
 import { darken, hexToNum, lighten } from './theme';
 
-/** Art is downscaled once on load: crisp at TV size, ~100 KB of VRAM each. */
-const ART_MAX = 192;
+/** Art is downscaled once on load: crisp at 2x character size on a 1080p TV, ~256 KB of VRAM each. */
+const ART_MAX = 256;
 const SHAPE_SIZE = 128;
 const CELL = 64;
 

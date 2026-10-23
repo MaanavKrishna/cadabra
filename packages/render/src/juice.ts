@@ -184,6 +184,35 @@ export const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
     count: 18, tex: ['drop', 'dot'], speed: [140, 380], spread: Math.PI * 0.9, dir: -Math.PI / 2, life: [0.4, 0.8],
     scale: [0.4, 0.9], grow: -0.4, gravity: 900, drag: 0.8, spin: 0, colors: [0x7fd8ff, 0xffffff, 'primary'],
   },
+  // ---- event combos (director.ts): one distinct look per meaningful moment ----
+  pickup: {
+    count: 7, tex: ['spark', 'star'], speed: [80, 200], spread: Math.PI * 1.2, dir: -Math.PI / 2, life: [0.3, 0.55],
+    scale: [0.35, 0.6], grow: -0.3, gravity: 120, drag: 2.5, spin: 6, colors: ['glow', 0xffffff], additive: true,
+  },
+  fountain: {
+    count: 16, tex: ['dot', 'star', 'spark'], speed: [260, 520], spread: Math.PI * 0.45, dir: -Math.PI / 2, life: [0.55, 0.9],
+    scale: [0.35, 0.7], grow: 0, gravity: 1100, drag: 0.6, spin: 8, colors: ['glow', 0xffe27a, 0xffffff], additive: true,
+  },
+  steal: {
+    count: 10, tex: ['spark', 'dot'], speed: [200, 420], spread: Math.PI * 2, dir: 0, life: [0.25, 0.45],
+    scale: [0.4, 0.8], grow: -0.2, gravity: 0, drag: 4, spin: 8, colors: ['accent', 0xffffff], additive: true,
+  },
+  hit: {
+    count: 12, tex: ['star', 'spark', 'dot'], speed: [220, 480], spread: Math.PI * 2, dir: 0, life: [0.25, 0.5],
+    scale: [0.45, 0.9], grow: 0, gravity: 300, drag: 3.5, spin: 9, colors: [0xff5a4a, 0xffffff, 0xffd166], additive: true,
+  },
+  dust: {
+    count: 4, tex: ['smoke'], speed: [40, 110], spread: Math.PI * 0.8, dir: -Math.PI / 2, life: [0.35, 0.6],
+    scale: [0.3, 0.45], grow: 1, gravity: -30, drag: 2, spin: 1, colors: [0xefe8dc], alpha: 0.5,
+  },
+  golden: {
+    count: 20, tex: ['star', 'spark'], speed: [160, 440], spread: Math.PI * 2, dir: 0, life: [0.5, 0.9],
+    scale: [0.5, 1], grow: -0.3, gravity: 80, drag: 2.2, spin: 7, colors: [0xffd23f, 0xfff1a8, 0xffffff], additive: true,
+  },
+  shock: {
+    count: 8, tex: ['smoke'], speed: [140, 260], spread: Math.PI * 2, dir: 0, life: [0.4, 0.7],
+    scale: [0.45, 0.7], grow: 1.2, gravity: 0, drag: 3, spin: 1, colors: [0xe8dccb], alpha: 0.55,
+  },
   confetti: {
     count: 36, tex: ['confetti'], speed: [220, 620], spread: Math.PI * 0.7, dir: -Math.PI / 2, life: [1.1, 2],
     scale: [0.5, 0.9], grow: 0, gravity: 520, drag: 1.6, spin: 10,

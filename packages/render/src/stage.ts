@@ -1,20 +1,23 @@
-import { Application, Container, FillGradient, Graphics, Point, Sprite, Texture, TilingSprite, type Text } from 'pixi.js';
-import type { Entity, FxEvent, GameRuntime, Player } from '@cadabra/engine';
+import { Application, Container, FillGradient, Graphics, Point, Sprite, Texture, type Text } from 'pixi.js';
+import type { Entity, FxEvent, GameEvent, GameRuntime, Player } from '@cadabra/engine';
 import type { Theme } from '@cadabra/spec';
 import { Ambience } from './ambience';
 import { HitStop, hitStopFor } from './anim';
 import { BackgroundBake, EdgeGlow } from './background';
 import { DEFAULT_ART_URLS } from './assets';
 import { CameraRig, capShake } from './camera';
+import { FxDirector, comboForEvent, comboForPreset, type ComboKind } from './director';
 import { arch, easeInOutSine, easeOutBack, easeOutCubic } from './ease';
-import { EntityLayer, label, type FrameCtx } from './entities';
+import { EntityLayer, label, setTextResolution, type FrameCtx } from './entities';
 import { Hud } from './hud';
 import { FxBudget, JuiceState, MAX_PARTICLES } from './juice';
 import { ParticleSystem } from './particles';
+import { itemNoun, popupText, popupTone } from './popups';
+import { arenaRect, buildScenery, SCENE_ART, sceneFor, type Rect, type SceneKind } from './scenery';
 import { prewarmSfx, setSfxSet, sfx } from './sfx';
 import { AVATAR_ART, DEFAULT_SPRITES } from './sprites';
 import { TextureStore } from './textures';
-import { darken, hexToNum, lighten, mix, type Palette } from './theme';
+import { darken, hexToNum, lighten, type Palette } from './theme';
 import { SnapInterp } from './visual';
 
 export type Snapshot = ReturnType<GameRuntime['snapshot']>;
@@ -25,8 +28,12 @@ export interface GameViewOpts {
   internalH: number;
   /** World size the snapshot coordinates live in (GameSpec.arena); defaults to the internal size. */
   arena?: { width: number; height: number };
+  /** GameSpec.arena.kind (tug draws a mud pit, ...). */
+  arenaKind?: string;
   /** Draw timer, score chips and banner (default true). */
   hud?: boolean;
+  /** Draw the snapshot's host-line banner (default true; the TV captions host lines itself). */
+  banner?: boolean;
 }
 
 const SIM_DT = 1 / 60;
@@ -34,8 +41,8 @@ const PRELOAD_MS = 4000;
 const SHAKE_PAD = 40;
 /** Shake never moves the picture more than this (px). */
 const SHAKE_CAP = 16;
-/** Score jumps of at least this fly up to the HUD chip. */
-const BIG_SCORE = 2;
+/** Popups kept as ready-rasterised Text per distinct string (no re-raster per popup). */
+const POPUP_CACHE = 28;
 
 const DEFAULT_PALETTE: Palette = { bg: '#14102b', primary: '#4cc9f0', accent: '#f72585', glow: '#ffd166', text: '#ffffff' };
 
@@ -67,10 +74,10 @@ function vignetteTexture(): Texture {
   c.width = 320;
   c.height = 180;
   const g = c.getContext('2d')!;
-  const gr = g.createRadialGradient(160, 90, 40, 160, 90, 200);
+  const gr = g.createRadialGradient(160, 90, 60, 160, 90, 210);
   gr.addColorStop(0, 'rgba(255,255,255,0)');
-  gr.addColorStop(0.55, 'rgba(255,255,255,0.08)');
-  gr.addColorStop(1, 'rgba(255,255,255,0.85)');
+  gr.addColorStop(0.6, 'rgba(255,255,255,0.05)');
+  gr.addColorStop(1, 'rgba(255,255,255,0.7)');
   g.fillStyle = gr;
   g.fillRect(0, 0, 320, 180);
   return Texture.from(c);
@@ -78,24 +85,44 @@ function vignetteTexture(): Texture {
 
 interface Float {
   t: Text;
+  str: string;
   at: number;
   /** Start position, screen px. */
   x: number;
   y: number;
   /** Player whose HUD chip this popup flies to ('' = just rise and fade). */
   pid: string;
+  big: boolean;
+  live: boolean;
+}
+
+/** Pulls only the new GameEvents from a runtime each frame (hosts: `feed.next(rt)`). */
+export class EventFeed {
+  private n = 0;
+  next(rt: { readonly events: readonly GameEvent[] }): GameEvent[] {
+    const all = rt.events;
+    if (all.length < this.n) this.n = 0; // a new runtime
+    const out = all.length > this.n ? all.slice(this.n) : [];
+    this.n = all.length;
+    return out as GameEvent[];
+  }
+  reset(): void {
+    this.n = 0;
+  }
 }
 
 /**
  * Draws GameRuntime snapshots with PixiJS. Pixi's own ticker paints every display frame;
- * `render()` hands over the newest snapshot (+ fx) and the host loop's interpolation alpha.
+ * `render()` hands over the newest snapshot (+ fx, + new game events) and the host loop's
+ * interpolation alpha.
  *
  * Host-loop contract (the sim always steps by its fixed DT):
  * - slow-mo: multiply real frame dt by `timeScale` before adding it to the accumulator;
- * - hit-stop: while `hitStopMs > 0`, do not add to the accumulator at all (the picture holds
- *   for 50–80 ms on big hits while shake and flash play on).
- * i.e. `acc = advanceAccumulator(acc, dt, view.timeScale, view.hitStopMs)`, or by hand:
- * `if (view.hitStopMs <= 0) acc += dt * view.timeScale`.
+ * - hit-stop: while `hitStopMs > 0`, do not add to the accumulator at all.
+ * i.e. `acc = advanceAccumulator(acc, dt, view.timeScale, view.hitStopMs)`.
+ *
+ * Presentation cues for the match flow (the TV drives them): `punch()` on GO,
+ * `setMultiplier()` for the final 10, `freeze()` for TIME!, `celebrate()` for the winner shot.
  */
 export class GameView {
   readonly ready: Promise<void>;
@@ -104,29 +131,37 @@ export class GameView {
   private H: number;
   private arenaW: number;
   private arenaH: number;
+  private arenaKind: string | undefined;
   private showHud: boolean;
+  private showBanner: boolean;
   private destroyed = false;
   private started = false;
 
   private store!: TextureStore;
   private budget = new FxBudget(MAX_PARTICLES);
   private juice = new JuiceState();
+  private director = new FxDirector();
   private particles!: ParticleSystem;
   private entities!: EntityLayer;
   private hud!: Hud;
+  private hudScale = 1;
 
   private shaker = new Container();
   private world = new Container();
   /** Static background baked into one opaque sprite (see BackgroundBake). */
   private bake!: BackgroundBake;
   private bgGrad = new Graphics();
-  private floor?: TilingSprite | Sprite;
+  private scene?: Container;
+  private sceneKind: SceneKind = 'generic';
+  private sceneKey = '';
+  private rect: Rect & { k: number } = { x: 0, y: 0, w: 0, h: 0, k: 1 };
   private ambience!: Ambience;
-  private blobs: Sprite[] = [];
   private floats: Float[] = [];
+  private popCache = new Map<string, Text[]>();
   /** Score popups live in screen space so big ones can fly to the HUD. */
   private popLayer = new Container();
   private hitStop = new HitStop();
+  private freezeMs = 0;
   private cam: CameraRig;
   private rt = 0;
   // scratch (no per-frame allocation)
@@ -152,23 +187,31 @@ export class GameView {
   private finaleTint = hexToNum(DEFAULT_PALETTE.accent);
   private finaleA = 0;
   private palette: Palette = DEFAULT_PALETTE;
+  private theme?: Theme;
   private art: Record<string, string> = {};
   private defaults: Record<string, string> = DEFAULT_ART_URLS;
-  private floorKey = '';
+  private itemSprite = '';
 
   private snap?: Snapshot;
   private alpha = 1;
   private interp = new SnapInterp();
   private scores = new Map<string, number>();
+  /** Score events arrived this round (then snapshot deltas are not used for popups). */
+  private eventPopups = false;
   private vt = 0;
   private fpsAvg = 60;
+  private celebrateId = '';
+  private celebrateAt = -9;
+  private confettiLeft = 0;
 
   constructor(canvasParent: HTMLElement, opts: GameViewOpts = { internalW: 1280, internalH: 720 }) {
     this.W = opts.internalW || 1280;
     this.H = opts.internalH || 720;
     this.arenaW = opts.arena?.width ?? this.W;
     this.arenaH = opts.arena?.height ?? this.H;
+    this.arenaKind = opts.arenaKind;
     this.showHud = opts.hud !== false;
+    this.showBanner = opts.banner !== false;
     this.cam = new CameraRig(this.W, this.H);
     this.ready = this.init(canvasParent);
   }
@@ -189,26 +232,21 @@ export class GameView {
     cv.style.display = 'block';
     parent.appendChild(cv);
 
+    // text is rasterised at the canvas scale (crisp names and popups on a 1080p canvas)
+    this.hudScale = this.H / 720;
+    setTextResolution(Math.max(this.hudScale, 1.4));
     this.store = new TextureStore();
     this.particles = new ParticleSystem(this.store, this.budget);
     this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH);
-    this.hud = new Hud(this.W, this.H);
+    this.hud = new Hud(this.W / this.hudScale, this.H / this.hudScale);
+    this.hud.root.scale.set(this.hudScale);
 
     this.ambience = new Ambience(this.store.cell('glow'), this.W, this.H, SHAKE_PAD);
     const renderer = this.app.renderer;
     this.bake = new BackgroundBake(this.W, this.H, SHAKE_PAD, (container, target, transform) => {
       renderer.render({ container, target, clear: true, transform });
     });
-    // baked stack (off-stage): gradient, [floor], light pool, palette glows, vignette
-    const stack = this.bake.stack;
-    stack.addChild(this.bgGrad, this.ambience.light);
-    for (let i = 0; i < 3; i++) {
-      const s = new Sprite(this.store.cell('glow'));
-      s.anchor.set(0.5);
-      s.blendMode = 'add';
-      this.blobs.push(s);
-      stack.addChild(s);
-    }
+    // baked stack (off-stage): gradient, [scene: surround, framed floor, props], light pool, vignette
     const vt = vignetteTexture();
     this.vignetteTex = vt;
     this.vignette = new Sprite(vt);
@@ -216,11 +254,11 @@ export class GameView {
     this.vignette.position.set(-SHAKE_PAD, -SHAKE_PAD);
     this.vignette.width = this.W + SHAKE_PAD * 2;
     this.vignette.height = this.H + SHAKE_PAD * 2;
-    stack.addChild(this.vignette);
+    this.bake.stack.addChild(this.bgGrad, this.ambience.light, this.vignette);
     const en = this.entities;
     this.world.addChild(en.floor, en.glows, en.trails, en.bodies, this.particles.view, en.overlay);
-    // on stage: ONE opaque background quad, then the moving motes (small additive sprites)
-    this.shaker.addChild(this.bake.sprite, this.ambience.motes, this.world);
+    // on stage: ONE opaque background quad, then the world (no ambient motes: particles mean something)
+    this.shaker.addChild(this.bake.sprite, this.world);
     this.finaleGlow = new EdgeGlow(this.W, this.H, 110);
     this.flash = new EdgeGlow(this.W, this.H, 200);
     this.app.stage.addChild(this.shaker, this.finaleGlow.root, this.flash.root, this.popLayer);
@@ -232,20 +270,22 @@ export class GameView {
   }
 
   /** Arena (world) size of the current game; snapshot coordinates are in this space. */
-  setArena(width: number, height: number): void {
+  setArena(width: number, height: number, kind?: string): void {
     this.arenaW = width;
     this.arenaH = height;
+    if (kind !== undefined) this.arenaKind = kind;
     if (this.started) {
       this.entities.setArena(width, height);
       this.layout();
-      this.bake.invalidate();
+      this.sceneKey = '';
+      this.rebuildScene();
     }
   }
 
   private layout(): void {
-    const k = Math.min(this.W / this.arenaW, this.H / this.arenaH);
-    this.world.scale.set(k);
-    this.world.position.set((this.W - this.arenaW * k) / 2, (this.H - this.arenaH * k) / 2);
+    this.rect = arenaRect(this.W, this.H, this.arenaW, this.arenaH);
+    this.world.scale.set(this.rect.k);
+    this.world.position.set(this.rect.x, this.rect.y);
   }
 
   /**
@@ -257,6 +297,7 @@ export class GameView {
     await this.ready;
     if (this.destroyed) return;
     this.palette = theme.palette;
+    this.theme = theme;
     this.art = { ...art };
     setSfxSet(theme.sfxSet);
     prewarmSfx();
@@ -265,69 +306,60 @@ export class GameView {
     this.entities.resetSources();
     this.hud.clear();
     this.interp.reset();
+    this.director.reset();
     this.snap = undefined;
     this.scores.clear();
-    if (this.floor && this.floorKey.startsWith('art|')) this.dropFloor();
+    this.eventPopups = false;
+    this.itemSprite = '';
+    this.celebrateId = '';
+    this.celebrateAt = -9;
+    this.cam.endShot();
+    this.hud.setMultiplier(1, this.vt);
+    this.sceneKind = sceneFor(theme, this.arenaKind);
     this.store.beginTheme(Object.values(this.art));
     this.applyPalette();
     const jobs: Promise<unknown>[] = [];
     for (const url of Object.values(this.art)) jobs.push(this.store.load(url, undefined, true));
+    const sa = SCENE_ART[this.sceneKind];
     const wanted = new Set<string>([
       ...Object.values(DEFAULT_SPRITES).slice(0, 8), 'bear-awake', 'rope-marker',
       ...AVATAR_ART,
       ...Object.keys(theme.sprites).map((k) => DEFAULT_SPRITES[k] ?? k),
+      ...(sa.surround ? [sa.surround] : []), ...sa.props,
     ]);
     for (const name of wanted) {
       const url = this.defaults[name];
       if (url) jobs.push(this.store.load(url));
     }
-    jobs.push(this.store.useFxArt(this.defaults));
-    jobs.push(this.loadFloor());
-    await Promise.race([Promise.allSettled(jobs), new Promise((r) => setTimeout(r, PRELOAD_MS))]);
-  }
-
-  private async loadFloor(): Promise<void> {
-    const { url, custom } = this.floorUrl();
-    // keyed by URL: a new game with a new floor always swaps it in
-    const key = url ? `${custom ? 'art' : 'pack'}|${url}` : '';
-    if (!url || key === this.floorKey) return;
-    const tex = await this.store.load(url, custom ? 1280 : 512, custom);
-    // a later loadTheme may have asked for another floor meanwhile
-    if (!tex || this.destroyed || this.floorUrl().url !== url) return;
-    this.dropFloor();
-    if (custom) {
-      // full-bleed generated backdrop: cover the arena
-      const s = new Sprite(tex);
-      const k = Math.max((this.W + SHAKE_PAD * 2) / tex.width, (this.H + SHAKE_PAD * 2) / tex.height);
-      s.scale.set(k);
-      s.anchor.set(0.5);
-      s.position.set(this.W / 2, this.H / 2);
-      this.floor = s;
-    } else {
-      tex.source.addressMode = 'repeat';
-      const t = new TilingSprite({ texture: tex, width: this.W + SHAKE_PAD * 2, height: this.H + SHAKE_PAD * 2 });
-      t.position.set(-SHAKE_PAD, -SHAKE_PAD);
-      t.tileScale.set(0.75);
-      this.floor = t;
-    }
-    this.floorKey = key;
-    this.bake.stack.addChildAt(this.floor, 1);
-    this.applyPalette();
-  }
-
-  /** Generated floor/background art, else the pack floor that suits the palette. */
-  private floorUrl(): { url: string | undefined; custom: boolean } {
+    // floors tile: loaded at 512 px
+    for (const f of [sa.floor, sa.surround]) if (f && this.defaults[f]) jobs.push(this.store.load(this.defaults[f]!, 512));
     const custom = this.art.floor ?? this.art.background;
-    if (custom) return { url: custom, custom: true };
-    const name = pickFloor(this.palette, this.defaults);
-    return { url: name ? this.defaults[name] : undefined, custom: false };
+    if (custom) jobs.push(this.store.load(custom, 1280, true));
+    jobs.push(this.store.useFxArt(this.defaults));
+    await Promise.race([Promise.allSettled(jobs), new Promise((r) => setTimeout(r, PRELOAD_MS))]);
+    if (this.destroyed) return;
+    this.sceneKey = '';
+    this.rebuildScene();
   }
 
-  private dropFloor(): void {
-    this.floor?.destroy();
-    this.floor = undefined;
-    this.floorKey = '';
-    this.bake?.invalidate();
+  /** The framed arena + themed surround, rebuilt into the bake once per theme (never per frame). */
+  private rebuildScene(): void {
+    if (!this.started) return;
+    const custom = this.art.floor ?? this.art.background;
+    const key = `${this.sceneKind}|${this.palette.bg}|${this.palette.primary}|${custom ?? ''}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
+    if (key === this.sceneKey) return;
+    this.sceneKey = key;
+    this.scene?.destroy({ children: true });
+    const sa = SCENE_ART[this.sceneKind];
+    const tex = (name: string): Texture | undefined => {
+      const url = this.defaults[name];
+      if (!url) return undefined;
+      return name === sa.floor || name === sa.surround ? this.store.loaded(url, 512) : this.store.loaded(url);
+    };
+    const customTex = custom ? this.store.loaded(custom, 1280) : undefined;
+    this.scene = buildScenery(this.sceneKind, this.rect, this.W, this.H, SHAKE_PAD, tex, this.palette, customTex, this.arenaKind);
+    this.bake.stack.addChildAt(this.scene, 1);
+    this.bake.invalidate();
   }
 
   private applyPalette(): void {
@@ -342,49 +374,62 @@ export class GameView {
     this.bgGrad.clear().rect(-SHAKE_PAD, -SHAKE_PAD, this.W + SHAKE_PAD * 2, this.H + SHAKE_PAD * 2).fill(grad);
     this.grad?.destroy();
     this.grad = grad;
-    // floors are toned into the palette so sprites always read on top
-    if (this.floor) this.floor.tint = mix(0xffffff, lighten(bg, 0.2), 0.5);
-    // lit floor: vignette + palette-tinted light pool, baked once per palette
-    this.ambience.setPalette(p, this.floor !== undefined);
-    const cols = [hexToNum(p.primary), hexToNum(p.accent), hexToNum(p.glow)];
-    this.blobs.forEach((b, i) => {
-      b.tint = cols[i]!;
-      // palette glows: frozen where they drift through at rest, baked into the background
-      b.position.set(this.W * (0.25 + 0.5 * ((i * 0.37) % 1)) + Math.sin(i * 2) * 160, this.H * (0.3 + 0.4 * (i % 2)) + Math.cos(i) * 90);
-      b.scale.set(9 + Math.sin(i) * 1.5);
-      b.alpha = this.floor ? 0.08 : 0.14;
-    });
+    this.ambience.setPalette(p, true);
+    this.ambience.light.alpha = 0.55;
     this.finaleTint = hexToNum(p.accent);
     this.particles.setPalette(p);
     this.hud.setPalette(p);
+    this.rebuildScene();
     this.bake.invalidate();
   }
 
   /**
-   * Hand over the newest snapshot and the fx drained with it. `alpha` (0..1) is the host
-   * loop's accumulator fraction: positions are lerped from the previous snapshot by it.
-   * The fx 'banner' event is ignored on purpose: the banner is drawn from `snap.banner`.
+   * Hand over the newest snapshot, the fx drained with it and (optionally) the game events
+   * logged since the last call (`EventFeed`). `alpha` (0..1) is the host loop's accumulator
+   * fraction. With events, score popups carry their reason ("+3 Banked!").
    */
-  render(snap: Snapshot, fx: FxEvent[], alpha = 1): void {
+  render(snap: Snapshot, fx: FxEvent[], alpha = 1, events?: readonly GameEvent[]): void {
     if (this.destroyed) return;
-    // hosts call snapshot() every frame (a new object each time): only a new sim time
-    // rotates the interpolation pair, so frames without a step keep lerping smoothly
-    if (this.interp.push(snap) && this.started) this.scoreJuice(snap);
+    const fresh = this.interp.push(snap);
     this.snap = snap;
     this.alpha = alpha;
     if (!this.started) return;
+    if (events) for (const e of events) this.onEvent(e, snap);
+    if (fresh) this.scoreJuice(snap);
     for (const e of fx) this.onFx(e);
+  }
+
+  private onEvent(e: GameEvent, snap: Snapshot): void {
+    if (e.type === 'score') {
+      const d = e.data ?? {};
+      const delta = typeof d.delta === 'number' ? d.delta : 0;
+      if (!delta || !e.player) return;
+      this.eventPopups = true;
+      const mult = typeof d.mult === 'number' ? d.mult : 1;
+      const reason = typeof d.reason === 'string' ? d.reason : '';
+      this.popupFor(e.player, popupText(delta, reason, itemNoun(this.itemSprite), mult), popupTone(delta, reason), snap);
+      return;
+    }
+    if (typeof e.data?.phase === 'string' && e.data.phase === 'spawn') return;
+    const kind = comboForEvent(e.type, typeof e.data?.moment === 'string' ? e.data.moment : undefined);
+    if (!kind || typeof e.data?.moment !== 'string') return;
+    const av = e.player ? this.avatarOf(snap, e.player) : undefined;
+    const x = typeof e.data?.x === 'number' ? e.data.x : av?.x;
+    const y = typeof e.data?.y === 'number' ? e.data.y : av?.y;
+    if (x === undefined || y === undefined) return;
+    this.combo(kind, x, y);
+  }
+
+  private avatarOf(snap: Snapshot, pid: string): Entity | undefined {
+    for (const e of snap.entities) if ((e.kind === 'player' || e.kind === 'runner') && e.owner === pid) return e;
+    return undefined;
   }
 
   private onFx(e: FxEvent): void {
     switch (e.kind) {
       case 'particles': {
-        const n = this.particles.emit(e.preset, e.x, e.y);
-        if (e.preset === 'confetti' && n > 0) this.particles.emit('sparkle', e.x, e.y, 0.5);
-        this.toScreen(e.x, e.y, this.tmpC);
-        this.fxX = this.tmpC.x;
-        this.fxY = this.tmpC.y;
-        this.fxAt = this.rt;
+        const kind = comboForPreset(e.preset);
+        if (kind) this.combo(kind, e.x, e.y);
         break;
       }
       case 'sfx':
@@ -399,66 +444,195 @@ export class GameView {
         if (stop > 0) {
           this.hitStop.trigger(stop);
           const near = this.rt - this.fxAt < 0.25;
-          this.cam.punch(0.025 + 0.035 * Math.min(1, e.strength), near ? this.fxX : this.W / 2, near ? this.fxY : this.H / 2, 0.55);
+          this.cam.punch(0.03 + 0.05 * Math.min(1, e.strength), near ? this.fxX : this.W / 2, near ? this.fxY : this.H / 2, 0.55);
         }
         break;
       }
+      case 'slowmo':
+        // slow-mo is reserved for the end-of-round winner shot (it read as lag mid-round)
+        break;
       default:
         this.juice.apply(e);
     }
   }
 
-  /** Arena coords -> screen px (ignores the camera's few-% zoom; fine for aiming). */
+  /** One meaningful moment: its own particles, ring and (for big ones) a little shake. */
+  private combo(kind: ComboKind, x: number, y: number): void {
+    if (!this.director.allow(kind, x, y, this.rt)) return;
+    const P = this.particles;
+    const glow = hexToNum(this.palette.glow);
+    switch (kind) {
+      case 'pickup':
+        P.emit('pickup', x, y - 10);
+        break;
+      case 'bank': {
+        P.emit('fountain', x, y - 20);
+        this.ring(x, y, 0.45, 2.6, glow);
+        this.juice.apply({ kind: 'shake', strength: 0.12 });
+        const g = this.entities.goalNear(x, y);
+        if (g >= 0) this.entities.thumpGoal(g, this.vt);
+        break;
+      }
+      case 'golden':
+        P.emit('golden', x, y - 10);
+        this.ring(x, y, 0.5, 3, 0xffd23f);
+        break;
+      case 'steal':
+        P.emit('steal', x, y - 10);
+        this.ring(x, y, 0.3, 1.6, hexToNum(this.palette.accent));
+        break;
+      case 'hit':
+        P.emit('hit', x, y - 10);
+        this.ring(x, y, 0.3, 2, 0xff5a4a);
+        break;
+      case 'wake':
+      case 'chase':
+        P.emit('shock', x, y);
+        this.ring(x, y, 0.55, 4, 0xff3b3b);
+        break;
+      case 'dash':
+        P.emit('dust', x, y + 10);
+        break;
+      case 'splash':
+        P.emit('splash', x, y);
+        P.emit('splash', x, y, 0.6);
+        this.ring(x, y, 0.4, 2.6, 0x7a4a24);
+        break;
+      case 'win':
+        P.emit('confetti', x, y);
+        P.emit('golden', x, y, 0.6);
+        break;
+    }
+    this.toScreen(x, y, this.tmpC);
+    this.fxX = this.tmpC.x;
+    this.fxY = this.tmpC.y;
+    this.fxAt = this.rt;
+  }
+
+  private readonly ringO = { life: 0.4, s0: 0.5, tint: 0xffffff, add: true, a0: 1, vx: 0, vy: 0, grow: 2, aspect: 0.62, spin: 0, rot: 0, gravity: 0, drag: 0 };
+  private ring(x: number, y: number, life: number, grow: number, tint: number): void {
+    const o = this.ringO;
+    o.life = life;
+    o.grow = grow;
+    o.tint = tint;
+    this.particles.one('ring', x, y, o);
+  }
+
+  /** Arena coords -> screen px (ignores the camera's zoom; fine for aiming). */
   private toScreen(x: number, y: number, out: { x: number; y: number }): void {
     out.x = this.world.x + x * this.world.scale.x;
     out.y = this.world.y + y * this.world.scale.y;
   }
 
-  /** "+N" pops over avatars (and a happy hop) when scores go up; big ones fly to the HUD. */
+  /** Snapshot score deltas: hop on gain; popups only when no score events are flowing. */
   private scoreJuice(snap: Snapshot): void {
+    for (const e of snap.entities) if (e.kind === 'item' && !this.itemSprite) this.itemSprite = e.sprite;
     for (const p of snap.players) {
       const before = this.scores.get(p.id);
       this.scores.set(p.id, p.score);
       if (before === undefined || p.score === before) continue;
-      let av: Entity | undefined;
-      for (const e of snap.entities) {
-        if ((e.kind === 'player' || e.kind === 'runner') && e.owner === p.id) {
-          av = e;
-          break;
-        }
-      }
       const d = p.score - before;
-      const head = this.tmpA;
+      const av = this.avatarOf(snap, p.id);
       if (av && d > 0) this.entities.cheer(av.id);
-      if (!(av && this.entities.headOf(av.id, head))) head.set(av?.x ?? this.arenaW / 2, (av?.y ?? this.arenaH / 2) - (av ? av.r * 4 : 0));
-      this.world.toGlobal(head, this.tmpB);
-      const fly = d >= BIG_SCORE && this.showHud;
-      this.spawnFloat(d > 0 ? `+${d}` : `${d}`, d > 0 ? hexToNum(this.palette.glow) : 0xff6b6b, this.tmpB.x, this.tmpB.y, fly ? p.id : '');
+      if (!this.eventPopups) this.popupFor(p.id, popupText(d, undefined), popupTone(d, undefined), snap);
     }
   }
 
-  private spawnFloat(text: string, color: number, x: number, y: number, pid: string): void {
+  private popupFor(pid: string, text: string, tone: 'gain' | 'loss' | 'big', snap: Snapshot): void {
+    const av = this.avatarOf(snap, pid);
+    const head = this.tmpA;
+    if (!(av && this.entities.headOf(av.id, head))) head.set(av?.x ?? this.arenaW / 2, (av?.y ?? this.arenaH / 2) - (av ? av.r * 6 : 0));
+    this.world.toGlobal(head, this.tmpB);
+    const big = tone === 'big';
+    const color = tone === 'loss' ? 0xff6b6b : big ? 0xffffff : hexToNum(this.palette.glow);
+    this.spawnFloat(text, color, this.tmpB.x, this.tmpB.y, big && this.showHud ? pid : '', big);
+  }
+
+  /** A ready Text for `str` (rasterised once per distinct string, kept in a small cache). */
+  private textFor(str: string, color: number, big: boolean): Text {
+    const key = `${str}|${color}|${big ? 1 : 0}`;
+    const list = this.popCache.get(key) ?? [];
+    for (const t of list) if (!t.visible) return t;
+    if (this.popCache.size >= POPUP_CACHE && list.length === 0) {
+      // evict an idle string
+      for (const [k, l] of this.popCache) {
+        if (l.every((t) => !t.visible)) {
+          for (const t of l) t.destroy();
+          this.popCache.delete(k);
+          break;
+        }
+      }
+    }
+    const t = label(str, big ? 46 : 38, color, { display: true, stroke: big ? 9 : 7 });
+    if (big) t.style.stroke = { color: darken(hexToNum(this.palette.glow), 0.5), width: 9, join: 'round' };
+    t.visible = false;
+    this.popLayer.addChild(t);
+    list.push(t);
+    this.popCache.set(key, list);
+    return t;
+  }
+
+  private spawnFloat(text: string, color: number, x: number, y: number, pid: string, big: boolean): void {
     let f: Float | undefined;
-    for (const o of this.floats) if (!o.t.visible) f = o;
+    for (const o of this.floats) if (!o.live) f = o;
     if (!f) {
       if (this.floats.length >= 12) {
         f = this.floats[0]!;
         for (const o of this.floats) if (o.at < f.at) f = o;
+        f.t.visible = false;
       } else {
-        f = { t: label('', 34, 0xffffff, { display: true }), at: 0, x: 0, y: 0, pid: '' };
-        this.popLayer.addChild(f.t);
+        f = { t: undefined as unknown as Text, str: '', at: 0, x: 0, y: 0, pid: '', big: false, live: false };
         this.floats.push(f);
       }
     }
-    f.t.text = text;
-    f.t.style.fill = color;
+    f.t = this.textFor(text, color, big);
+    f.str = text;
     f.t.visible = true;
     f.t.alpha = 1;
     f.t.scale.set(0);
     f.at = this.vt;
     f.x = x;
-    f.y = y;
+    // stack popups that land on the same spot at the same time
+    let dy = 0;
+    for (const o of this.floats) if (o !== f && o.live && Math.abs(o.x - x) < 80 && this.vt - o.at < 0.3) dy += 46 * this.hudScale;
+    f.y = y - dy;
     f.pid = pid;
+    f.big = big;
+    f.live = true;
+  }
+
+  // ---------- match-flow cues (the TV app drives these) ----------
+
+  /** GO!: a camera punch at the arena centre and a white edge flash. */
+  punch(): void {
+    if (!this.started) return;
+    this.cam.punch(0.08, this.W / 2, this.H / 2, 0.5);
+    this.juice.apply({ kind: 'flash', color: '#ffffff' });
+    this.juice.apply({ kind: 'shake', strength: 0.25 });
+  }
+
+  /** Final-10 double points (1 = off): timer badge. */
+  setMultiplier(m: number): void {
+    if (this.started) this.hud.setMultiplier(m, this.vt);
+  }
+
+  /** TIME!: hold the picture for `ms` (visuals freeze; shake and flash play on). */
+  freeze(ms = 450): void {
+    this.freezeMs = Math.max(this.freezeMs, ms);
+    this.juice.apply({ kind: 'flash', color: '#ffffff' });
+    this.juice.apply({ kind: 'shake', strength: 0.35 });
+  }
+
+  /**
+   * The payoff: slow-mo close-up on the winner's avatar (or the arena centre), then confetti
+   * bursts around them. The only confetti in a round.
+   */
+  celebrate(winnerId?: string): void {
+    if (!this.started) return;
+    this.celebrateId = winnerId ?? '';
+    this.celebrateAt = this.rt;
+    this.confettiLeft = 3;
+    this.juice.apply({ kind: 'slowmo', ms: 2200 });
   }
 
   /** Slow-mo factor for the host loop's accumulator (1 = normal speed). */
@@ -466,13 +640,9 @@ export class GameView {
     return this.juice.timeScale;
   }
 
-  /**
-   * Hit-stop: milliseconds of render freeze left after a big hit. While > 0 the host loop
-   * must not advance its fixed-step accumulator (see the class doc). Counts down in real
-   * render time, never in sim time.
-   */
+  /** Milliseconds of render freeze left after a big hit (host must hold its accumulator). */
   get hitStopMs(): number {
-    return this.hitStop.ms;
+    return this.hitStop.ms + this.freezeMs;
   }
 
   /** Smoothed render fps (for the debug overlay). */
@@ -490,16 +660,16 @@ export class GameView {
     this.fpsAvg += (fps - this.fpsAvg) * 0.05;
     this.budget.fpsFeedback(fps, dt);
     this.rt += dt;
-    // hit-stop freezes everything that moves with the game; shake, flash and camera play on
-    const frozen = this.hitStop.ms > 0;
+    // hit-stop / TIME! freeze everything that moves with the game; shake, flash and camera play on
+    const frozen = this.hitStop.ms > 0 || this.freezeMs > 0;
     this.hitStop.tick(dt * 1000);
+    this.freezeMs = Math.max(0, this.freezeMs - dt * 1000);
     this.juice.tick(dt);
     const vdt = frozen ? 0 : dt * this.juice.timeScale;
     this.vt += vdt;
 
-    // the static background is re-rendered only after a theme / palette / floor change
+    // the static background is re-rendered only after a theme / palette / scene change
     this.bake.ensure();
-    this.ambience.update(this.vt, this.budget.degraded);
     const snap = this.snap;
     let finale = false;
     if (snap) {
@@ -529,25 +699,38 @@ export class GameView {
       ctx.dt = vdt;
       ctx.degraded = this.budget.degraded;
       ctx.leader = leader && !tie ? leader : undefined;
+      let hunted: string | undefined;
+      for (const e of snap.entities) {
+        if (e.kind === 'guard' && typeof e.props.chaseTarget === 'string' && e.props.chaseTarget) hunted = e.props.chaseTarget;
+      }
+      ctx.hunted = hunted;
       this.entities.sync(snap.entities, this.posFn, ctx);
-      if (this.showHud) this.hud.update(snap.players, snap.remaining, snap.banner, this.vt, this.avatarFn);
+      if (this.showHud) this.hud.update(snap.players, snap.remaining, this.showBanner ? snap.banner : undefined, this.vt, this.avatarFn);
       finale = snap.remaining > 0 && snap.remaining <= 10;
-      // the camera leans toward the players during the finale
-      let sx = 0, sy = 0, n = 0;
-      if (finale) {
-        for (const e of snap.entities) {
-          if (e.kind !== 'player' && e.kind !== 'runner') continue;
-          sx += e.x;
-          sy += e.y;
-          n++;
+      // camera: frame every player (soft zoom 1.0–1.15); the finale leans in a touch more
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, n = 0;
+      let wx = 0, wy = 0, found = false;
+      for (const e of snap.entities) {
+        const isAv = e.kind === 'player' || e.kind === 'runner';
+        // frame the players and the places they run to (bases / goals)
+        if (!isAv && e.kind !== 'goal' && e.kind !== 'base' && e.kind !== 'guard') continue;
+        this.toScreen(e.x, e.y, this.tmpC);
+        if (this.tmpC.x < x0) x0 = this.tmpC.x;
+        if (this.tmpC.x > x1) x1 = this.tmpC.x;
+        if (this.tmpC.y < y0) y0 = this.tmpC.y;
+        if (this.tmpC.y > y1) y1 = this.tmpC.y;
+        n++;
+        if (isAv && this.celebrateId && e.owner === this.celebrateId) {
+          wx = this.tmpC.x;
+          wy = this.tmpC.y;
+          found = true;
         }
       }
-      if (n > 0) this.toScreen(sx / n, sy / n, this.tmpC);
-      else {
-        this.tmpC.x = this.W / 2;
-        this.tmpC.y = this.H / 2;
+      if (this.celebrateId !== '' || this.celebrateAt > 0) this.winnerShot(found, wx, wy);
+      else if (n > 0) {
+        this.cam.frame(x0, y0, x1, y1);
+        this.cam.setFinale(finale, (x0 + x1) / 2, (y0 + y1) / 2);
       }
-      this.cam.setFinale(finale, this.tmpC.x, this.tmpC.y);
       this.finaleA = finale ? 0.2 + 0.16 * Math.sin(this.rt * 6) : Math.max(0, this.finaleA - dt);
       this.finaleGlow.set(this.finaleA, this.finaleTint);
     }
@@ -564,8 +747,22 @@ export class GameView {
     this.shaker.position.set(this.cam.fx + o.x + this.driftO.x, this.cam.fy + o.y + this.driftO.y);
     this.shaker.scale.set(z);
     this.shaker.rotation = o.rot;
-    // hit flash: a bright additive edge burst (edge strips only, and only while it lasts)
     this.flash.set(this.juice.flashAlpha * 0.9, this.juice.flashColor);
+  }
+
+  private winnerShot(found: boolean, sx: number, sy: number): void {
+    const x = found ? sx : this.W / 2, y = found ? sy : this.H / 2;
+    if (!this.cam.inShot) this.cam.closeUp(x, y - 40 * this.hudScale);
+    // confetti bursts around the winner (in world coords), staggered
+    const since = this.rt - this.celebrateAt;
+    const want = since > 1.2 ? 0 : since > 0.7 ? 1 : since > 0.25 ? 2 : 3;
+    while (this.confettiLeft > want) {
+      this.confettiLeft--;
+      const wxw = (x - this.world.x) / this.world.scale.x, wyw = (y - this.world.y) / this.world.scale.y;
+      const off = [0, -110, 110][this.confettiLeft] ?? 0;
+      this.particles.emit('confetti', wxw + off, wyw - 40, 1.2);
+      if (this.confettiLeft === 2) this.particles.emit('golden', wxw, wyw - 40);
+    }
   }
 
   private readonly posO = { x: 0, y: 0 };
@@ -574,38 +771,42 @@ export class GameView {
 
   private animateFloats(): void {
     for (const f of this.floats) {
-      if (!f.t.visible) continue;
+      if (!f.live) continue;
       const age = this.vt - f.at;
       const pop = easeOutBack(age / 0.28);
       if (!f.pid) {
-        const k = age / 0.95;
+        const k = age / (f.big ? 1.3 : 1.05);
         if (k >= 1) {
           f.t.visible = false;
+          f.live = false;
           continue;
         }
-        f.t.position.set(f.x, f.y - easeOutCubic(k) * 56);
+        f.t.position.set(f.x, f.y - easeOutCubic(k) * 70 * this.hudScale);
         f.t.scale.set(pop);
-        f.t.alpha = k < 0.65 ? 1 : 1 - (k - 0.65) / 0.35;
+        f.t.alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
         continue;
       }
       // big score: pop, hang, then fly into the player's HUD chip and bump it
-      const rise = easeOutCubic(age / 0.45) * 44;
-      const q = (age - 0.55) / 0.42;
+      const rise = easeOutCubic(age / 0.45) * 50 * this.hudScale;
+      const q = (age - 0.75) / 0.45;
       if (q < 0) {
         f.t.position.set(f.x, f.y - rise);
-        f.t.scale.set(pop * 1.3);
+        f.t.scale.set(pop * 1.15);
         continue;
       }
       const to = this.tmpC;
       if (!this.hud.chipCenter(f.pid, to) || q >= 1) {
         if (q >= 1) this.hud.bump(f.pid, this.vt);
         f.t.visible = false;
+        f.live = false;
         continue;
       }
+      to.x *= this.hudScale;
+      to.y *= this.hudScale;
       const e = easeInOutSine(q);
-      const x0 = f.x, y0 = f.y - 44;
-      f.t.position.set(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e - arch(q) * 70);
-      f.t.scale.set(1.3 - 0.6 * e);
+      const x0 = f.x, y0 = f.y - 50 * this.hudScale;
+      f.t.position.set(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e - arch(q) * 80 * this.hudScale);
+      f.t.scale.set(1.15 - 0.6 * e);
     }
   }
 
@@ -627,4 +828,3 @@ export class GameView {
     this.app.destroy(true, { children: true });
   }
 }
-
