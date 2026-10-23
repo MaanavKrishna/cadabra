@@ -177,6 +177,7 @@ export function buildDocs({ here, repo, out, GH, ARCH, icons, esc, slug }) {
       if (p.minimum !== undefined) return `≥ ${p.minimum}`;
       if (p.maximum !== undefined) return `≤ ${p.maximum}`;
     }
+    if (p.type === 'boolean') return 'true or false';
     if (p.type === 'string' && p.maxLength) return `≤ ${p.maxLength} chars`;
     if (p.type === 'array' && (p.minItems !== undefined || p.maxItems !== undefined)) return `${p.minItems ?? 0} – ${p.maxItems ?? '∞'} items`;
     if (p.type === 'object' && p.properties) return Object.keys(p.properties).map((k) => `<code>${esc(k)}</code>`).join(' ');

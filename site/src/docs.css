@@ -182,7 +182,7 @@ figure.code .copy.done { color: var(--mint); border-color: var(--mint); backgrou
 @media (max-width: 560px) { .path { grid-template-columns: 1fr; } }
 
 /* game kit */
-.kit-filter { position: sticky; top: 72px; z-index: 5; display: flex; align-items: center; gap: 10px; margin: 24px 0 16px; padding: 8px 14px; border-radius: 14px; background: rgba(21, 24, 39, .92); border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.kit-filter { position: sticky; top: 72px; z-index: 5; display: flex; align-items: center; gap: 10px; margin: 24px 0 16px; padding: 8px 14px; border-radius: 14px; background: #151827; border: 1px solid var(--line-2); box-shadow: 0 0 0 10px var(--void), 0 10px 30px rgba(0, 0, 0, .35); }
 .kit-filter svg { width: 18px; height: 18px; color: var(--faint); flex: none; }
 .kit-filter input { flex: 1; min-width: 0; height: 34px; border: 0; background: transparent; color: var(--ink); font: 400 15px var(--ui); }
 .kit-filter input:focus { outline: none; }
