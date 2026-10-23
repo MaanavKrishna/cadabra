@@ -48,6 +48,8 @@ interface Hz {
   group: number;
   near?: Set<string>;
   hit?: Set<string>;
+  /** A floor hole, not a hazard: event pattern 'hole', reason 'Fell!'. */
+  hole?: boolean;
 }
 
 /** A sweep wall: hazards in one line moving along `axis`, with gap corridors across it. */
@@ -71,6 +73,8 @@ interface Floor {
   dropped: number;
   tileW: number;
   tileH: number;
+  /** When the ring at index `dropped` drops (set when it is warned). */
+  fallAt: number;
 }
 
 interface State {
@@ -403,7 +407,7 @@ function hit(ctx: BlockCtx<DodgeParams>, s: State, pid: string, e: Entity, id: n
   }
   // a stunned avatar can't move, so it must not be hittable until it can again
   e.props.invulnUntil = t + (P.onHit === 'stun' ? Math.max(P.invulnSec, P.stunSec + STUN_INVULN_PAD) : P.invulnSec);
-  ctx.emit({ type: 'dodge.hit', player: pid, data: { hazard: id, pattern: hz.pattern, onHit: P.onHit } });
+  ctx.emit({ type: 'dodge.hit', player: pid, data: { hazard: id, pattern: hz.hole ? 'hole' : hz.pattern, onHit: P.onHit } });
   ctx.fx({ kind: 'particles', preset: 'burst', x: e.x, y: e.y });
   ctx.fx({ kind: 'shake', strength: 0.6 });
   ctx.fx({ kind: 'flash', color: '#ff3b3b' });
@@ -416,7 +420,7 @@ function hit(ctx: BlockCtx<DodgeParams>, s: State, pid: string, e: Entity, id: n
     case 'losePoints': {
       const score = ctx.players.find((p) => p.id === pid)?.score ?? 0;
       const n = Math.min(P.hitPenalty, score);
-      if (n > 0) ctx.score(pid, -n, `${labelOf(P.hazardSprite)}!`);
+      if (n > 0) ctx.score(pid, -n, hz.hole ? 'Fell!' : `${labelOf(P.hazardSprite)}!`);
       knock(e, origin, { x: hz.avx, y: hz.avy }, P.hitKnockback);
       break;
     }
@@ -436,7 +440,7 @@ function syncFloor(ctx: BlockCtx<DodgeParams>, s: State): void {
   const { width: w, height: h } = ctx.world;
   const cols = Math.max(3, Math.round(w / TILE_PX)), rows = Math.max(3, Math.round(h / TILE_PX));
   const tw = w / cols, th = h / rows;
-  const floor: Floor = { tiles: [], rings: Math.max(1, Math.floor((Math.min(cols, rows) - 1) / 2)), warned: 0, dropped: 0, tileW: tw, tileH: th };
+  const floor: Floor = { tiles: [], rings: Math.max(1, Math.floor((Math.min(cols, rows) - 1) / 2)), warned: 0, dropped: 0, tileW: tw, tileH: th, fallAt: Infinity };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const ring = Math.min(c, r, cols - 1 - c, rows - 1 - r);
@@ -463,6 +467,7 @@ function stepFloor(ctx: BlockCtx<DodgeParams>, s: State): void {
   const left = ctx.remaining;
   while (f.warned < f.rings && left <= ringWarnAt(P, f, f.warned)) {
     const k = f.warned++;
+    if (k === f.dropped) f.fallAt = ctx.time + warn;
     for (const id of f.tiles) {
       const t = ctx.world.get(id);
       if (t && t.props.ring === k) {
@@ -474,20 +479,27 @@ function stepFloor(ctx: BlockCtx<DodgeParams>, s: State): void {
     ctx.fx({ kind: 'shake', strength: 0.25 });
     ctx.fx({ kind: 'sfx', name: 'tick' });
   }
-  if (f.dropped < f.warned) {
-    let fell = false;
-    for (const id of f.tiles.slice()) {
+  if (f.dropped < f.warned && ctx.time >= f.fallAt) {
+    // drop the ring: compact the tile list in place (no per-step copies)
+    const ring = f.dropped;
+    let keep = 0;
+    for (const id of f.tiles) {
       const t = ctx.world.get(id);
-      if (!t || t.props.ring !== f.dropped || typeof t.props.fallAt !== 'number' || ctx.time < t.props.fallAt) continue;
-      ctx.world.remove(id);
-      f.tiles.splice(f.tiles.indexOf(id), 1);
-      fell = true;
+      if (t && t.props.ring === ring) ctx.world.remove(id);
+      else if (t) f.tiles[keep++] = id;
     }
-    if (fell) {
-      callout(ctx as BlockCtx<unknown>, P.callout, 'crumble', undefined, { ring: f.dropped, phase: 'fall' });
-      ctx.fx({ kind: 'shake', strength: 0.5 });
-      ctx.fx({ kind: 'sfx', name: 'lose' });
-      f.dropped++;
+    f.tiles.length = keep;
+    callout(ctx as BlockCtx<unknown>, P.callout, 'crumble', undefined, { ring, phase: 'fall' });
+    ctx.fx({ kind: 'shake', strength: 0.5 });
+    ctx.fx({ kind: 'sfx', name: 'lose' });
+    f.dropped++;
+    // the next warned ring falls at its own time
+    f.fallAt = Infinity;
+    if (f.dropped < f.warned) {
+      for (const id of f.tiles) {
+        const t = ctx.world.get(id);
+        if (t && t.props.ring === f.dropped && typeof t.props.fallAt === 'number') { f.fallAt = t.props.fallAt; break; }
+      }
     }
   }
   if (f.dropped === 0) return;
@@ -496,7 +508,7 @@ function stepFloor(ctx: BlockCtx<DodgeParams>, s: State): void {
   for (const p of ctx.players) {
     const e = ctx.entityOf(p.id);
     if (!e || onFloor(ctx as BlockCtx<unknown>, e.x, e.y)) continue;
-    const gap: Hz = { pattern: 'rain', bornAt: ctx.time, armAt: ctx.time, expireAt: ctx.time, avx: 0, avy: 0, speed: 0, group: 0 };
+    const gap: Hz = { pattern: 'rain', hole: true, bornAt: ctx.time, armAt: ctx.time, expireAt: ctx.time, avx: 0, avy: 0, speed: 0, group: 0 };
     const from = { x: e.x + (e.x - w / 2), y: e.y + (e.y - h / 2) };
     hit(ctx, s, p.id, e, -1, gap, from);
   }

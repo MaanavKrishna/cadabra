@@ -40,7 +40,7 @@ so the callouts work for any game.
 | **`heist.caught`** | caught player | `{ guard, dropped, moment:'caught' }` | The bear caught them: they drop all their loot and tumble for 1.2 s. |
 | **`heist.golden`** | grabber / banker (spawn: none) | `{ phase:'spawn'\|'grab'\|'bank', item?, x?, y?, moment:'golden' }` | The golden ladoo (worth 5) appears at 45 s, then is grabbed and banked. |
 | `sneak.stir` | – | `{ guard }` | The noise meter passed 70%: the bear stirs. |
-| `sneak.waking` | culprit | `{ guard, guardKind, windupSec }` | 0.75 s wind-up telegraph before the chase. |
+| `sneak.waking` | culprit | `{ guard, guardKind, windupSec }` | Wind-up telegraph before the chase (1.0 s in chase mode, 0.75 s for stare guards). While hunted, tiptoe gives no slowdown. |
 | `sneak.woke` | culprit | `{ guard, guardKind, count, penalty }` | Wake penalty: −2 "Woke the bear!". |
 | `sneak.caught` | caught player | `{ guard, penalty, carry? }` | legacy twin of `heist.caught` |
 | `sneak.sleep` | – | `{ guard }` | back home and asleep |
@@ -57,22 +57,34 @@ Score reasons: "Banked!", "Woke the bear!" (`Woke the <guardSprite>!`), "Caught!
 | **`penguin.golden`** | grabber (spawn: none) | `{ phase:'spawn'\|'grab', moment:'golden' }` | The golden fish at 50 s (worth 3). |
 | `arena.shove` | shover | `{ victim }` | A dash bump (victim flies and can't steer for 0.3 s) |
 | `arena.dash` | dasher | – | |
-| `dodge.hit` | victim | `{ hazard, pattern, onHit }` | Lava hit: −2 "Lava!", knockback, 1.5 s invulnerable. `hazard: -1` = fell in a hole. |
+| `dodge.hit` | victim | `{ hazard, pattern, onHit }` | Lava hit: −2 "Lava!", knockback, 1.5 s invulnerable. A fall into a hole has `hazard: -1`, `pattern: 'hole'` and reason "Fell!". |
 | `dodge.nearMiss` | player | `{ hazard }` | +1 "Close call!" |
 | `dodge.knockout` | shover | `{ victim }` | legacy twin of `penguin.knockout` |
 
-Score reasons: "Fish", "Golden!", "Lava!" (`<HazardSprite>!`), "Close call!", "Knockout!".
+Score reasons: "Fish", "Golden!", "Lava!" (`<HazardSprite>!`), "Fell!", "Close call!", "Knockout!".
 
 ## Bear Tug: block `tug`, ns `tug`
 
 | type | player | data | meaning |
 |---|---|---|---|
-| **`tug.surge`** | first member of the team | `{ team, moment:'surge' }` | Everyone on that team hit the beat 8 times in a row: a big yank. |
+| **`tug.surge`** | first member of the team | `{ team, moment:'surge' }` | Everyone on that team landed exactly one on-beat tap (±150 ms, latency-compensated) 4 beats in a row: a big yank. |
 | **`tug.splash`** | first member of the losing team | `{ team: losers, winners, bout, moment:'splash' }` | The knot crossed a line: the losers fall in the mud pit. +3 "Splashed them!" to the winners. |
 | **`tug.swing`** | first member of the team | `{ team, moment:'swing' }` | Timeline "bear-sneeze" (35 s): the knot lurches toward the team that is behind. |
 | `tug.suddenDeath` | – | – | 55 s: the beat goes 1.4× faster and pulls count double |
 | `tug.won` | – | `{ team, bout }` | legacy twin of `tug.splash` |
 | `tug.lead` | – | `{ team, pos }` | +1 "Pull!" every 5 s for the team holding the knot on its side |
+
+## Timeline hooks (opt-in params, exact kind match)
+
+- collect: `goldenEventKind` (heist uses 'golden-ladoo', penguins use 'golden-fish') and `frenzyEventKind` ('ladoo-frenzy').
+- tug: `swingEventKind` ('bear-sneeze').
+- dodge: the `surprise` and `twist` kinds, as before.
+
+## Bear Tug timing
+
+- Taps are judged on the beat as it was when they were *sent*: tug learns each phone's fastest arrival lag (a floor-biased EWMA of arrival sim ms − frame `t`) and moves a late tap back by up to 150 ms.
+- This only happens once the phone's `t` has advanced at about real-time rate over 0.5 s; bots and tests that send step counts get no compensation.
+- The runtime latches presses: a down+up that both arrive between two steps still reaches blocks as one step of "down", stamped with the press time.
 
 ## Entity props for renderers
 

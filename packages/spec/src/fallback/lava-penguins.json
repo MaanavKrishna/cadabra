@@ -25,7 +25,7 @@
     },
     {
       "block": "collect",
-      "params": { "itemSprite": "fish", "spawnEverySec": 0.8, "maxItems": 10, "pointsPerItem": 1, "goldenChance": 0, "goldenMultiplier": 3, "itemRadius": 16, "stealOnBump": false, "callout": "penguin" }
+      "params": { "itemSprite": "fish", "spawnEverySec": 0.8, "maxItems": 10, "pointsPerItem": 1, "goldenChance": 0, "goldenMultiplier": 3, "itemRadius": 16, "stealOnBump": false, "goldenEventKind": "golden-fish", "callout": "penguin" }
     },
     {
       "block": "dodge",

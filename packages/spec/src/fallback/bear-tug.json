@@ -20,14 +20,16 @@
         "mode": "beat",
         "rhythmBpm": 100,
         "beatBonus": 2.5,
-        "surgeCombo": 8,
-        "forcePerTap": 90,
+        "offBeatMul": 0.4,
+        "surgeCombo": 4,
+        "forcePerTap": 110,
         "fatigue": 0.05,
         "ropeLength": 640,
         "suddenDeathAtSec": 55,
         "suddenDeathBpmMul": 1.4,
         "underdogBoost": 0.8,
         "winPoints": 3,
+        "swingEventKind": "bear-sneeze",
         "callout": "tug"
       }
     }

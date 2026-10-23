@@ -73,6 +73,9 @@ const GUARD_R = 40;
 const STIR_AT = 0.7;
 /** Seconds between waking and the vision cone going live: time to freeze. */
 const WINDUP_SEC = 0.75;
+/** chase mode: a longer wind-up, so the target sees the bear turn and gets a head start. */
+const CHASE_WINDUP_SEC = 1;
+const windup = (P: SneakParams) => (P.onWake === 'chase' ? CHASE_WINDUP_SEC : WINDUP_SEC);
 /** Below this speed an avatar counts as frozen (never noisy, never caught). */
 const FREEZE_SPEED = 30;
 /** Tiptoeing makes this fraction of the noise. */
@@ -199,7 +202,7 @@ function wake(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity): void {
   g.stirring = true;
   const ce = ctx.entityOf(culprit);
   if (ce) g.facing = Math.atan2(ce.y - ent.y, ce.x - ent.x);
-  ctx.emit({ type: 'sneak.waking', player: culprit, data: { guard: ent.id, guardKind: ctx.params.guardKind, windupSec: WINDUP_SEC } });
+  ctx.emit({ type: 'sneak.waking', player: culprit, data: { guard: ent.id, guardKind: ctx.params.guardKind, windupSec: windup(ctx.params) } });
   ctx.fx({ kind: 'sfx', name: 'wake' });
   ctx.fx({ kind: 'particles', preset: 'burst', x: ent.x, y: ent.y - ent.r });
 }
@@ -226,7 +229,7 @@ function fullyAwake(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity)
 function chase(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity, dt: number): boolean {
   const P = ctx.params;
   const e = g.target ? ctx.entityOf(g.target) : undefined;
-  if (!e || ctx.time >= g.wokeAt + WINDUP_SEC + P.chaseSec) return true;
+  if (!e || ctx.time >= g.wokeAt + windup(P) + P.chaseSec) return true;
   const dx = e.x - ent.x, dy = e.y - ent.y, d = len(dx, dy) || 1;
   g.facing = Math.atan2(dy, dx);
   if (d <= ent.r + e.r) {
@@ -345,8 +348,10 @@ export const sneak: BlockDef<SneakParams> = {
     s.tiptoe.set(playerId, tip);
     const e = ctx.entityOf(playerId);
     if (!e) return;
-    e.props.tiptoe = tip;
-    e.props.speedMul = tip ? ctx.params.tiptoeSpeedFactor : 1;
+    // a hunted player can't creep: tiptoe drops its slow factor while a guard is after them
+    const hunted = ctx.params.onWake === 'chase' && s.guards.some((g) => g.phase !== 'calm' && g.phase !== 'return' && g.culprit === playerId);
+    e.props.tiptoe = tip && !hunted;
+    e.props.speedMul = tip && !hunted ? ctx.params.tiptoeSpeedFactor : 1;
     if (e.props.mover !== 'sneak') return;
     let d = s.intents.get(playerId);
     if (!d) s.intents.set(playerId, (d = { x: 0, y: 0 }));
@@ -399,7 +404,7 @@ export const sneak: BlockDef<SneakParams> = {
           // wind-up: it turns to the culprit (telegraph), then the chase is on
           const ce = g.culprit ? ctx.entityOf(g.culprit) : undefined;
           if (ce) g.facing = Math.atan2(ce.y - ent.y, ce.x - ent.x);
-          if (ctx.time >= g.wokeAt + WINDUP_SEC) {
+          if (ctx.time >= g.wokeAt + windup(P)) {
             fullyAwake(ctx, s, g, ent);
             if (!g.target) g.phase = 'return';
           }

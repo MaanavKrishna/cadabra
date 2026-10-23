@@ -16,6 +16,7 @@ export interface Entity {
 export type SpawnOpts = Partial<Omit<Entity, 'id' | 'kind' | 'x' | 'y' | 'tags'>> & { tags?: Iterable<string> };
 
 const CELL = 128;
+const EMPTY: ReadonlySet<Entity> = new Set();
 // numeric cell key; supports |cell index| < 2^15 (±4M px), far beyond any arena
 const OFF = 1 << 15;
 const cellKey = (cx: number, cy: number) => (cx + OFF) * (OFF * 2) + (cy + OFF);
@@ -33,6 +34,8 @@ export class World {
   private grid = new Map<number, Entity[]>();
   /** owner -> avatar (kind 'player'); first spawned wins. */
   private avatars = new Map<string, Entity>();
+  /** kind -> live entities of that kind, in spawn (id) order. */
+  private kinds = new Map<string, Set<Entity>>();
   private dirty = true;
 
   constructor(width: number, height: number) {
@@ -49,6 +52,9 @@ export class World {
       tags: new Set(tags ?? []),
     };
     this.entities.set(e.id, e);
+    let ks = this.kinds.get(kind);
+    if (!ks) this.kinds.set(kind, (ks = new Set()));
+    ks.add(e);
     if (e.kind === 'player' && e.owner !== undefined && !this.avatars.has(e.owner)) this.avatars.set(e.owner, e);
     this.dirty = true;
     return e;
@@ -58,6 +64,7 @@ export class World {
     const e = this.entities.get(id);
     if (!e) return false;
     this.entities.delete(id);
+    this.kinds.get(e.kind)?.delete(e);
     if (e.owner !== undefined && this.avatars.get(e.owner) === e) {
       this.avatars.delete(e.owner);
       for (const o of this.entities.values()) {
@@ -91,7 +98,13 @@ export class World {
   }
 
   byKind(kind: string): Entity[] {
-    return this.all().filter((e) => e.kind === kind);
+    const ks = this.kinds.get(kind);
+    return ks ? [...ks] : [];
+  }
+
+  /** Live view of the entities of one kind, in spawn order; no copy (don't spawn/remove that kind while iterating). */
+  ofKind(kind: string): ReadonlySet<Entity> {
+    return this.kinds.get(kind) ?? EMPTY;
   }
 
   invalidate(): void {

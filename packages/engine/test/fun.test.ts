@@ -267,7 +267,7 @@ describe('heist mechanics', () => {
   test('timeline: golden kind drops a golden item next to the bear; frenzy fills the field', () => {
     const probe = makeProbe();
     const rt = runtime(
-      makeSpec(heistBlocks({}, { maxItems: 4 }), {
+      makeSpec(heistBlocks({}, { maxItems: 4, goldenEventKind: 'golden-ladoo', frenzyEventKind: 'ladoo-frenzy' }), {
         timeline: [
           { atSec: 1, kind: 'golden-ladoo', params: {}, hostLine: 'gold!' },
           { atSec: 2, kind: 'ladoo-frenzy', params: {}, hostLine: 'frenzy!' },
@@ -319,7 +319,8 @@ describe('penguin mechanics', () => {
     expect(scoreOf(rt, 'p0')).toBe(8);
     expect(e.vx).toBeGreaterThan(0);
     expect(e.vy).toBeGreaterThan(0);
-    expect(evs(rt, 'score').at(-1)!.data!.reason).toBe('Hazard!');
+    expect(evs(rt, 'score').at(-1)!.data!.reason).toBe('Fell!');
+    expect(evs(rt, 'dodge.hit').at(-1)!.data!.pattern).toBe('hole');
   });
 
   test('a dash shove that sends a rival into the lava scores a knockout for the shover', () => {
@@ -383,6 +384,55 @@ describe('bear tug mechanics', () => {
     expect(surges.every((e) => e.data!.team === 0)).toBe(true);
   });
 
+  test('mashing loses to rhythm: a 6 Hz masher pulls less than a 1.67 Hz on-beat player over 20 s', () => {
+    const rt = runtime(tugSpec({ rhythmBpm: 100, fatigue: 0.05, forcePerTap: 5, ropeLength: 1200 }), players(2));
+    // 100 bpm = a beat every 36 steps: p0 (team 0) taps once per beat on it, p1 (team 1) mashes at 6 Hz
+    drive(rt, 20 * SPS, { p0: (k) => (k + 1) % 36 < 3, p1: (k) => k % 10 < 5 });
+    expect(evs(rt, 'tug.splash')).toHaveLength(0);
+    expect(rope(rt).props.pos as number).toBeLessThan(-0.05);
+  });
+
+  test('surges need exactly one on-beat tap per beat: double-tapping the beat earns none', () => {
+    const rt = runtime(tugSpec({ surgeCombo: 4 }), players(4));
+    // team 0 double-taps every beat (on the beat + right after), team 1 sends nothing
+    const dbl = (k: number) => (k + 1) % 30 === 0 || (k + 1) % 30 === 4;
+    drive(rt, 4 * SPS, { p0: dbl, p2: dbl });
+    expect(evs(rt, 'tug.surge')).toHaveLength(0);
+  });
+
+  test('phone latency: a tap sent on the beat but arriving 60 ms late still scores as on-beat', () => {
+    // a phone whose frames normally arrive 100 ms after they are sent (clock offset + network)
+    const run = (honest: boolean) => {
+      const rt = runtime(tugSpec({ rhythmBpm: 100, forcePerTap: 40 }), players(2));
+      const BEAT_MS = 600;
+      for (let k = 0; k < 2 * SPS; k++) {
+        const now = (k * 1000) / SPS;
+        // the down press was sent exactly on the beat at 1200 ms; it arrives 160 ms later (60 ms of jitter)
+        const tapArrives = now >= 2 * BEAT_MS + 160 && now < 2 * BEAT_MS + 160 + 1000 / SPS;
+        if (tapArrives) {
+          rt.input('p0', { t: honest ? 2 * BEAT_MS - 100 : now - 100 - 100, buttons: { pull: true } });
+        } else {
+          rt.input('p0', { t: now - 100 - 100, buttons: { pull: false } });
+        }
+        rt.step();
+      }
+      return rope(rt).props.pos as number;
+    };
+    // honest timestamps (the tap really was on the beat) pull with the beat bonus; the same
+    // arrival claiming to be sent late (160 ms after the beat) is off the beat and pulls weakly
+    expect(run(true)).toBeLessThan(run(false) * 2);
+  });
+
+  test('a down+up that lands between two steps still counts as a tap', () => {
+    const rt = runtime(tugSpec({ fatigue: 0 }), players(2));
+    rt.step();
+    rt.input('p0', { t: 10, buttons: { pull: true } });
+    rt.input('p0', { t: 20, buttons: { pull: false } });
+    rt.step();
+    rt.step();
+    expect(rope(rt).props.pos as number).toBeLessThan(0);
+  });
+
   test('a bout win splashes the losers into the mud and pays the winners', () => {
     const rt = runtime(tugSpec({ forcePerTap: 120 }), players(2));
     drive(rt, 20 * SPS, { p0: (k) => k % 6 === 0, p1: () => false });
@@ -400,7 +450,7 @@ describe('bear tug mechanics', () => {
   });
 
   test('timeline swing (bear-sneeze) lurches the knot toward the team behind', () => {
-    const spec = tugSpec();
+    const spec = tugSpec({ swingEventKind: 'bear-sneeze' });
     spec.timeline = [{ atSec: 1, kind: 'bear-sneeze', params: {}, hostLine: 'achoo' }];
     const rt = runtime(spec, players(2));
     (rt as unknown as { players: Player[] }).players[0]!.score = 6; // team 0 ahead: team 1 gets the lurch

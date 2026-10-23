@@ -99,6 +99,11 @@ export class GameRuntime {
   private readonly blocks: ActiveBlock[] = [];
   /** Latest held state (axes/buttons/tilt) per player, with the step it arrived on. */
   private readonly held = new Map<string, { frame: InputFrame; step: number }>();
+  /**
+   * Buttons pressed (went true) since the last step, with the frame time of the first press:
+   * a quick down+up that arrives between two steps still reaches blocks as one step of "down".
+   */
+  private readonly pressed = new Map<string, { keys: Set<string>; t: number }>();
   /** One-shot fields (swipe/vote/text/draw) received since the last step; delivered exactly once. */
   private readonly pending = new Map<string, OneShot>();
   private readonly eliminated: string[] = [];
@@ -204,6 +209,15 @@ export class GameRuntime {
     }
     if (shot) this.pending.set(playerId, shot);
     const hasHeld = HELD_KEYS.some((k) => frame[k] !== undefined);
+    if (frame.buttons) {
+      const prev = this.held.get(playerId)?.frame.buttons;
+      for (const [k, down] of Object.entries(frame.buttons)) {
+        if (!down || prev?.[k]) continue;
+        let l = this.pressed.get(playerId);
+        if (!l) this.pressed.set(playerId, (l = { keys: new Set(), t: frame.t }));
+        l.keys.add(k);
+      }
+    }
     if (hasHeld || !hasOneShot) {
       const h: InputFrame = { t: frame.t };
       if (frame.axes) h.axes = frame.axes;
@@ -391,9 +405,17 @@ export class GameRuntime {
   private frameFor(p: Player): InputFrame {
     const shot = this.pending.get(p.id);
     this.pending.delete(p.id);
+    const latch = this.pressed.get(p.id);
+    this.pressed.delete(p.id);
     if (!p.connected) return { t: this.simMs() };
     const h = this.held.get(p.id);
-    const base = h && this.steps - h.step <= STALE_STEPS ? h.frame : { t: this.simMs() };
+    let base = h && this.steps - h.step <= STALE_STEPS ? h.frame : { t: this.simMs() };
+    if (latch && [...latch.keys].some((k) => !base.buttons?.[k])) {
+      // a press released before this step: deliver it as down for one step, stamped with the press time
+      const buttons = { ...base.buttons };
+      for (const k of latch.keys) buttons[k] = true;
+      base = { ...base, buttons, t: latch.t };
+    }
     return shot ? { ...base, ...shot } : base;
   }
 
@@ -501,8 +523,13 @@ export class GameRuntime {
     this.emit({ type: 'comeback', data: { players: boosted, boost } });
   }
 
+  private readonly totals: [number, number] = [0, 0];
+
+  /** Team score totals (a reused tuple: read it before the next call). */
   private teamTotals(): [number, number] {
-    const t: [number, number] = [0, 0];
+    const t = this.totals;
+    t[0] = 0;
+    t[1] = 0;
     for (const p of this.players) if (p.team !== undefined) t[p.team] += p.score;
     return t;
   }
@@ -521,7 +548,9 @@ export class GameRuntime {
         return this.players.some((p) => p.score >= goal);
       }
       case 'teamScore':
-        return target !== undefined && this.teamTotals().some((s) => s >= target);
+        if (target === undefined) return false;
+        const [a, b] = this.teamTotals();
+        return a >= target || b >= target;
       case 'lastStanding':
         return this.players.length > 1 && this.players.length - this.eliminated.length <= 1;
       case 'highScore':

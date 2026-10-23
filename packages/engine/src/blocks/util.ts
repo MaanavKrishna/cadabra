@@ -119,25 +119,20 @@ export function callout(ctx: BlockCtx<unknown>, ns: string, moment: string, play
   ctx.emit(e);
 }
 
-/** Half-extents of a floor tile entity (props.hw / props.hh, else its radius). */
-function tileHalf(t: Entity): Vec {
-  const hw = typeof t.props.hw === 'number' ? t.props.hw : t.r;
-  const hh = typeof t.props.hh === 'number' ? t.props.hh : t.r;
-  return { x: hw, y: hh };
-}
 
 /**
  * Is (x, y) on solid floor? True when the world has no floor tiles at all; otherwise a tile
  * must cover the point (and, with `stable`, must not be crumbling).
  */
 export function onFloor(ctx: BlockCtx<unknown>, x: number, y: number, stable = false): boolean {
-  let any = false;
-  for (const t of ctx.world.byKind('tile')) {
-    any = true;
-    const h = tileHalf(t);
-    if (Math.abs(x - t.x) <= h.x && Math.abs(y - t.y) <= h.y) return !(stable && t.props.crumbling === true);
+  const tiles = ctx.world.ofKind('tile');
+  if (tiles.size === 0) return true;
+  for (const t of tiles) {
+    const hw = typeof t.props.hw === 'number' ? t.props.hw : t.r;
+    const hh = typeof t.props.hh === 'number' ? t.props.hh : t.r;
+    if (Math.abs(x - t.x) <= hw && Math.abs(y - t.y) <= hh) return !(stable && t.props.crumbling === true);
   }
-  return !any;
+  return false;
 }
 
 /** Stun contract shared by all blocks: props.stunUntil holds sim time in seconds. */

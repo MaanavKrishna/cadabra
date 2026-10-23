@@ -56,6 +56,8 @@
         "goldenMultiplier": 5,
         "stealOnBump": true,
         "stealCooldownSec": 1.5,
+        "goldenEventKind": "golden-ladoo",
+        "frenzyEventKind": "ladoo-frenzy",
         "callout": "heist"
       }
     }

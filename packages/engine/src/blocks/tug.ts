@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { InputFrame } from '@cadabra/spec';
 import type { BlockCtx, BlockDef } from '../block';
 import { AVATAR_R, boostOf, callout, clamp, pressed, stateOf } from './util';
 
@@ -11,24 +12,48 @@ export const tugSchema = z.object({
   suddenDeathAtSec: z.number().min(5).max(120).describe('Sim second at which pulls get stronger (sudden death).'),
   pullButton: z.string().min(1).max(32).describe('Controller button / hold id used to pull (swipes also pull).'),
   winPoints: z.number().int().min(1).max(20).describe('Points to every member of a team that drags the knot over its line.'),
-  beatBonus: z.number().min(1).max(5).describe("beat mode: an on-beat tap pulls this many times harder than an off-beat one."),
-  surgeCombo: z.number().int().min(0).max(16).describe('Beats in a row where every team member lands an on-beat tap that trigger a SURGE (a big yank toward that team); 0 = off. beat/rhythm modes.'),
+  beatBonus: z.number().min(1).max(5).describe("beat mode: the first tap inside a beat's window (±150 ms, latency-compensated) pulls this many times harder than a normal tap."),
+  offBeatMul: z.number().min(0).max(1).describe('beat mode: pull of an off-beat (or second same-beat) tap, and such taps cost 2.5x the stamina: mashing loses to rhythm.'),
+  surgeCombo: z.number().int().min(0).max(16).describe('Beats in a row where every team member lands exactly one on-beat tap (no mashing) that trigger a SURGE (a big yank toward that team); 0 = off. beat/rhythm modes.'),
   suddenDeathBpmMul: z.number().min(1).max(2).describe('At sudden death the beat speeds up by this factor (rhythm/beat modes).'),
   underdogBoost: z.number().min(0).max(2).describe('Rubber band: the team behind on points pulls up to (1 + underdogBoost) times harder, scaling with the gap (full at 2 bouts behind). 0 = off.'),
+  swingEventKind: z.string().max(40).describe("Timeline event kind (exact) that makes the knot lurch toward the team behind on points (e.g. 'bear-sneeze'). '' = off."),
   callout: z.string().max(24).describe("Namespace for the headline events the TV calls out (<callout>.surge, .splash, .swing); '' = off."),
 });
 export type TugParams = z.infer<typeof tugSchema>;
+
+/** Per-player phone clock tracking: judges taps by when they were sent, not when they arrived. */
+interface Latency {
+  init: boolean;
+  lastT: number;
+  lastArr: number;
+  /** Floor-biased EWMA of arrival lag (arrival sim ms - frame t): the player's fast-path lag. */
+  floor: number;
+  /** First frame seen (t, arrival): the clock is trusted once t has advanced at about real-time rate. */
+  t0: number;
+  arr0: number;
+  clockOk: boolean;
+}
 
 interface Puller {
   stamina: number;
   buttons: Map<string, boolean>;
   taps: number;
+  /** Latency compensation (s) of each pending tap: how long before arrival it was really pressed. */
+  tapComp: number[];
+  lat: Latency;
+  /** Beat-cell bookkeeping: the cell of the last tap, taps in it, and whether one was on the beat. */
+  cell: number;
+  cellTaps: number;
+  cellOnBeat: boolean;
+  /** Last finished cell with exactly one on-beat tap (surge credit). */
+  cleanCell: number;
+  /** Cell that already paid the beat bonus (one bonus per beat). */
+  bonusCell: number;
   holding: boolean;
   lastTapAt: number;
   /** Rhythm mode: the beat this player already pulled on (one pull per beat). */
   lastCell: number;
-  /** Last beat this player hit on time (surge combos). */
-  onBeatCell: number;
 }
 
 interface TugBot {
@@ -81,9 +106,17 @@ const HOLD_TAPS_PER_SEC = 10;
 const HOLD_DRAIN_MUL = 2.5;
 /** Rhythm mode: a pull's strength falls from full (dead on the beat) to OFF_BEAT of it at this many seconds off. */
 const BEAT_WINDOW = 0.15;
-/** beat mode: a tap within this many seconds of a beat is "on the beat" (tighter: mashing can't fake it). */
-const BEAT_HIT = 0.1;
+/** beat mode: a tap within this many seconds of a beat (after latency compensation) is "on the beat". */
+const BEAT_HIT = 0.15;
 const hitWindow = (P: TugParams) => (P.mode === 'beat' ? BEAT_HIT : BEAT_WINDOW);
+/** beat mode: off-beat taps cost this many times the stamina. */
+const OFF_BEAT_FATIGUE = 2.5;
+/** Latency compensation never moves a tap earlier than this, s. */
+const MAX_COMP = 0.15;
+/** EWMA weight when lag rises above the floor (it drops to a new minimum at once). */
+const LAG_EWMA = 0.05;
+/** The phone clock rate is judged over at least this much play before compensating, ms. */
+const CLOCK_SPAN_MS = 500;
 const OFF_BEAT = 0.1;
 /** Rhythm mode: perfect on-beat pulling is worth this many taps per second at any bpm. */
 const RHYTHM_TAPS_PER_SEC = 5;
@@ -95,17 +128,59 @@ const SUDDEN_MUL = 2;
 const BOUT_PAUSE_SEC = 2;
 /** A surge yanks the knot this fast toward the surging team (fraction of the half rope per second). */
 const SURGE_KICK = 0.9;
-/** Timeline kinds that make the knot lurch toward the team behind. */
-export const TUG_SWING = /sneeze|swing|wobble|gust|lurch/i;
 const SWING_KICK = 1.4;
 
 function puller(s: State, id: string): Puller {
   let p = s.pullers.get(id);
   if (!p) {
-    p = { stamina: 1, buttons: new Map(), taps: 0, holding: false, lastTapAt: -1, lastCell: -1, onBeatCell: -1 };
+    p = {
+      stamina: 1, buttons: new Map(), taps: 0, tapComp: [], holding: false, lastTapAt: -1, lastCell: -1,
+      lat: { init: false, lastT: 0, lastArr: 0, floor: 0, t0: 0, arr0: 0, clockOk: false },
+      cell: -1, cellTaps: 0, cellOnBeat: false, cleanCell: -1, bonusCell: -1,
+    };
     s.pullers.set(id, p);
   }
   return p;
+}
+
+/**
+ * Track the phone clock on every new frame; returns how many seconds before its arrival this
+ * frame was sent, relative to the player's fastest recent lag (0 until the clock looks like ms).
+ */
+function latencyComp(ctx: BlockCtx<TugParams>, l: Latency, input: InputFrame): number {
+  const arr = ctx.time * 1000;
+  if (l.init && input.t === l.lastT) return 0; // the same held frame again
+  const lag = arr - input.t;
+  if (!l.init) {
+    l.init = true;
+    l.floor = lag;
+    l.t0 = input.t;
+    l.arr0 = arr;
+  } else {
+    // a phone clock in ms advances at about real time over a long run (single late frames jitter)
+    const span = arr - l.arr0;
+    if (span >= CLOCK_SPAN_MS) {
+      const rate = (input.t - l.t0) / span;
+      l.clockOk = rate >= 0.8 && rate <= 1.25;
+    }
+    if (Math.abs(lag - l.floor) > 2000) l.floor = lag; // clock jump: start over
+    else if (lag < l.floor) l.floor = lag;
+    else l.floor += (lag - l.floor) * LAG_EWMA;
+  }
+  l.lastT = input.t;
+  l.lastArr = arr;
+  return l.clockOk ? clamp((lag - l.floor) / 1000, 0, MAX_COMP) : 0;
+}
+
+/** Distance (s) from beat position `b` to its nearest beat. */
+function offsetAt(ctx: BlockCtx<TugParams>, s: State, b: number): number {
+  const frac = b - Math.floor(b);
+  return Math.min(frac, 1 - frac) * (60 / bpm(ctx, s));
+}
+
+/** Did this player land exactly one on-beat tap in `cell`? */
+function cleanOn(pu: Puller, cell: number): boolean {
+  return pu.cleanCell === cell || (pu.cell === cell && pu.cellTaps === 1 && pu.cellOnBeat);
 }
 
 /** Distance to the nearest beat, seconds (beat phase is an accumulator, so bpm tweaks don't jump). */
@@ -127,15 +202,19 @@ function judgeBeats(ctx: BlockCtx<TugParams>, s: State): void {
     const cell = ++s.judgedCell;
     if (P.surgeCombo <= 0 || (P.mode !== 'beat' && P.mode !== 'rhythm') || ctx.time < s.pausedUntil) continue;
     for (const team of [0, 1] as const) {
-      const members = ctx.players.filter((p) => p.team === team && p.connected);
-      const all = members.length > 0 && members.every((p) => puller(s, p.id).onBeatCell === cell);
-      s.combo[team] = all ? s.combo[team] + 1 : 0;
+      let first: string | undefined, all = true;
+      for (const p of ctx.players) {
+        if (p.team !== team || !p.connected) continue;
+        first ??= p.id;
+        if (!cleanOn(puller(s, p.id), cell)) all = false;
+      }
+      s.combo[team] = all && first !== undefined ? s.combo[team] + 1 : 0;
       if (s.combo[team] < P.surgeCombo) continue;
       s.combo[team] = 0;
       s.vel += team === 0 ? -SURGE_KICK : SURGE_KICK;
       s.surgeAt = ctx.time;
       s.surgeTeam = team;
-      callout(ctx as BlockCtx<unknown>, P.callout, 'surge', members[0]?.id, { team });
+      callout(ctx as BlockCtx<unknown>, P.callout, 'surge', first, { team });
       ctx.fx({ kind: 'shake', strength: 0.35 });
       ctx.fx({ kind: 'sfx', name: 'whoosh' });
     }
@@ -207,9 +286,11 @@ export const tug: BlockDef<TugParams> = {
     pullButton: 'pull',
     winPoints: 3,
     beatBonus: 2.5,
+    offBeatMul: 0.4,
     surgeCombo: 0,
     suddenDeathBpmMul: 1,
     underdogBoost: 0,
+    swingEventKind: '',
     callout: 'tug',
   },
   controls: ['button', 'hold', 'swipe'],
@@ -242,16 +323,23 @@ export const tug: BlockDef<TugParams> = {
     const s = S(ctx);
     const P = ctx.params;
     const pu = puller(s, playerId);
+    const comp = latencyComp(ctx, pu.lat, input);
     const down = input.buttons?.[P.pullButton] ?? false;
     const edge = pressed(pu.buttons, P.pullButton, down) || input.swipe !== undefined;
     pu.holding = P.mode === 'hold' && down;
-    if (P.mode !== 'hold' && edge) pu.taps++;
+    if (P.mode !== 'hold' && edge) {
+      pu.taps++;
+      pu.tapComp.push(comp);
+    }
   },
 
   update(ctx, dt) {
     const s = S(ctx);
     const P = ctx.params;
-    s.beat += (dt * bpm(ctx, s)) / 60;
+    // taps are judged on the beat as it was when they were pressed (before this step's advance)
+    const beatNow = s.beat;
+    const bps = bpm(ctx, s) / 60;
+    s.beat += dt * bps;
 
     if (!s.suddenDeath && ctx.time >= P.suddenDeathAtSec) {
       s.suddenDeath = true;
@@ -265,7 +353,6 @@ export const tug: BlockDef<TugParams> = {
     const paused = ctx.time < s.pausedUntil;
     const sizes = teamSizes(ctx);
     const force: [number, number] = [0, 0];
-    const offset = beatOffset(ctx, s);
     for (const p of ctx.players) {
       const pu = puller(s, p.id);
       let pulls = 0;
@@ -277,22 +364,40 @@ export const tug: BlockDef<TugParams> = {
           pu.stamina += RECOVER_PER_SEC * (1 - pu.stamina) * dt;
         }
       } else {
-        for (; pu.taps > 0; pu.taps--) {
-          let mul = 1;
-          const cellNow = Math.round(s.beat);
-          if (offset <= hitWindow(P)) pu.onBeatCell = cellNow;
-          if (P.mode === 'beat') mul = offset <= BEAT_HIT ? P.beatBonus : 1;
+        for (let k = 0; k < pu.taps; k++) {
+          // when it was really pressed (phone latency/jitter compensated)
+          const b = beatNow - (pu.tapComp[k] ?? 0) * bps;
+          const offset = offsetAt(ctx, s, b);
+          const cell = Math.round(b);
+          if (cell !== pu.cell) {
+            if (pu.cellTaps === 1 && pu.cellOnBeat) pu.cleanCell = pu.cell;
+            pu.cell = cell;
+            pu.cellTaps = 0;
+            pu.cellOnBeat = false;
+          }
+          pu.cellTaps++;
+          const onBeat = offset <= hitWindow(P);
+          if (onBeat) pu.cellOnBeat = true;
+          let mul = 1, cost = 1;
+          if (P.mode === 'beat') {
+            // one bonus per beat; everything else is a weak, tiring off-beat tug
+            const bonus = onBeat && pu.bonusCell !== cell;
+            if (bonus) pu.bonusCell = cell;
+            mul = bonus ? P.beatBonus : P.offBeatMul;
+            cost = bonus ? 1 : OFF_BEAT_FATIGUE;
+          }
           if (P.mode === 'rhythm') {
             // one pull per beat, scaled by timing; extra taps on the same beat are wasted effort
-            const cell = Math.round(s.beat);
             const acc = OFF_BEAT + (1 - OFF_BEAT) * clamp(1 - offset / BEAT_WINDOW, 0, 1);
             mul = cell === pu.lastCell ? 0 : acc * RHYTHM_TAPS_PER_SEC * (60 / P.rhythmBpm);
             pu.lastCell = cell;
           }
           pulls += mul * pu.stamina;
-          pu.stamina = Math.max(MIN_STAMINA, pu.stamina - P.fatigue * pu.stamina);
+          pu.stamina = Math.max(MIN_STAMINA, pu.stamina - Math.min(1, P.fatigue * cost) * pu.stamina);
           pu.lastTapAt = ctx.time;
         }
+        pu.taps = 0;
+        pu.tapComp.length = 0;
         pu.stamina += RECOVER_PER_SEC * (1 - pu.stamina) * dt;
       }
       if (paused || p.team === undefined || !p.connected) continue;
@@ -302,9 +407,8 @@ export const tug: BlockDef<TugParams> = {
 
     if (P.underdogBoost > 0) {
       // the team behind on points digs in harder (full boost at two bouts behind)
-      const tot: [number, number] = [0, 0];
-      for (const p of ctx.players) if (p.team !== undefined) tot[p.team] += p.score / sizes[p.team];
-      const gap = tot[0] - tot[1];
+      let gap = 0;
+      for (const p of ctx.players) if (p.team !== undefined) gap += ((p.team === 0 ? 1 : -1) * p.score) / sizes[p.team];
       const k = 1 + P.underdogBoost * clamp(Math.abs(gap) / (2 * P.winPoints), 0, 1);
       if (gap > 0) force[1] *= k;
       else if (gap < 0) force[0] *= k;
@@ -355,7 +459,7 @@ export const tug: BlockDef<TugParams> = {
   onTimeline(ctx, ev) {
     // a comedy swing ('bear-sneeze', 'gust', 'wobble'...): the knot lurches toward the team
     // that is behind on points, so nobody is ever out of it
-    if (!TUG_SWING.test(ev.kind)) return;
+    if (ctx.params.swingEventKind === '' || ev.kind !== ctx.params.swingEventKind) return;
     const s = S(ctx);
     const tot: [number, number] = [0, 0];
     for (const p of ctx.players) if (p.team !== undefined) tot[p.team] += p.score;
@@ -395,21 +499,20 @@ export const tug: BlockDef<TugParams> = {
     if (ctx.time < b.nextTapAt) return { t: 0, buttons: { [key]: false } };
     b.down = true;
     if (P.mode === 'beat') {
-      // rhythm-mash: tap between beats, but land a tap on every beat (timing error grows as
-      // skill drops). Tired or calm bots only tap the beats; a losing panic-masher forgets the beat.
+      // one tap per beat, aimed at the beat (timing error grows as skill drops); sloppy bots
+      // sometimes add a stray tap, and a losing panic-masher forgets the beat entirely
       const period = 60 / bpm(ctx, s);
-      const frac = s.beat - Math.floor(s.beat);
-      const toNext = (1 - frac) * period;
+      const toNext = (1 - (s.beat - Math.floor(s.beat))) * period;
       const team = ctx.players.find((p) => p.id === playerId)?.team;
-      const losing = team !== undefined && (team === 0 ? s.pos > 0.35 : s.pos < -0.35);
-      const panic = losing && b.mash > 0.6;
-      const hz = (2.5 + 4 * sk) * (0.8 + 0.5 * b.mash) * (panic ? 1.3 : 1);
-      const err = ctx.rng.range(-1, 1) * (0.04 + (1 - sk) * 0.5) * period;
-      const metronome = !panic && (pu.stamina < 0.35 + 0.25 * (1 - b.mash) || b.mash < 0.2);
-      const mashNext = (1 / hz) * ctx.rng.range(0.85, 1.15);
-      if (metronome || (!panic && toNext < mashNext + 0.05)) b.nextTapAt = ctx.time + toNext + err;
-      else b.nextTapAt = ctx.time + mashNext;
-      if (b.nextTapAt <= ctx.time + 2 / 60) b.nextTapAt += period;
+      const losing = team !== undefined && (team === 0 ? s.pos > 0.4 : s.pos < -0.4);
+      if (losing && b.mash > 0.75 && pu.stamina > 0.3) {
+        b.nextTapAt = ctx.time + (1 / 6) * ctx.rng.range(0.8, 1.2);
+      } else if (ctx.rng.next() < (1 - sk) * 0.25 * (0.5 + b.mash)) {
+        b.nextTapAt = ctx.time + toNext * ctx.rng.range(0.3, 0.7); // a stray extra tap
+      } else {
+        b.nextTapAt = ctx.time + toNext + ctx.rng.range(-1, 1) * (0.02 + (1 - sk) * 0.3) * period;
+        if (b.nextTapAt <= ctx.time + 2 / 60) b.nextTapAt += period;
+      }
     } else if (P.mode === 'rhythm') {
       // aim for the next beat; timing error grows as skill drops
       const period = 60 / bpm(ctx, s);

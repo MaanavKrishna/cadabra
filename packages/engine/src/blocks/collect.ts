@@ -27,6 +27,8 @@ export const collectSchema = z.object({
   bankBonus: z.number().int().min(0).max(5).describe('Carry mode: extra points per item beyond the first banked in one trip (1 => 1, 3, 6 for 1, 2, 3 items): rewards greedy trips.'),
   carrySlowdown: z.number().min(0).max(0.3).describe('Carry mode: top speed lost per carried item, as a fraction (0.12 => 3 items = 64% speed).'),
   carryNoise: z.number().min(0).max(2).describe('Carry mode: extra noise per carried item, as a multiple of normal (guards hear you better: 0.6 => 3 items = 2.8x as loud).'),
+  goldenEventKind: z.string().max(40).describe("Timeline event kind (exact) that drops one golden item next to the guard / arena centre: a mid-round jackpot. '' = off."),
+  frenzyEventKind: z.string().max(40).describe("Timeline event kind (exact) that fills the field with items at once (a loot frenzy). '' = off."),
   callout: z.string().max(24).describe("Namespace for the headline events the TV calls out (<callout>.bank, .steal, .golden); '' = off."),
 });
 export type CollectParams = z.infer<typeof collectSchema>;
@@ -145,7 +147,7 @@ function spawnItem(ctx: BlockCtx<CollectParams>, s: State): void {
   const m = 40 + P.itemRadius;
   const g = goalPos(ctx);
   let x = w / 2, y = h / 2;
-  const guards = ctx.world.byKind('guard');
+  const guards = ctx.world.ofKind('guard');
   // a few tries to avoid goals, guards, players' feet and missing floor; deterministic via ctx.rng
   for (let tries = 0; tries < 12; tries++) {
     if (P.spawnArea === 'centre') {
@@ -159,7 +161,9 @@ function spawnItem(ctx: BlockCtx<CollectParams>, s: State): void {
     }
     if (P.carryToGoal && !P.homeBases && len(x - g.x, y - g.y) < P.goalRadius + P.itemRadius + 40) continue;
     if ([...s.bases.values()].some((id) => { const b = ctx.world.get(id); return b && len(b.x - x, b.y - y) < b.r + P.itemRadius + 30; })) continue;
-    if (guards.some((gd) => len(gd.x - x, gd.y - y) < gd.r + P.itemRadius + 24)) continue;
+    let nearGuard = false;
+    for (const gd of guards) if (len(gd.x - x, gd.y - y) < gd.r + P.itemRadius + 24) nearGuard = true;
+    if (nearGuard) continue;
     if (!onFloor(ctx as BlockCtx<unknown>, x, y, true)) continue;
     if (ctx.players.some((p) => { const e = ctx.entityOf(p.id); return e && len(e.x - x, e.y - y) < e.r + 60; })) continue;
     break;
@@ -292,9 +296,6 @@ function fumble(ctx: BlockCtx<CollectParams>, s: State, id: string, e: Entity): 
   ctx.fx({ kind: 'particles', preset: 'burst', x: e.x, y: e.y });
 }
 
-/** Timeline kinds collect reacts to: '*golden*' drops one golden item near the centre; '*frenzy*' / '*rain*' / '*loot*' fill the field. */
-export const COLLECT_TIMELINE = { golden: /golden|jackpot/i, frenzy: /frenzy|rain|loot|tray/i } as const;
-
 export const collect: BlockDef<CollectParams> = {
   id: 'collect',
   name: 'Collect',
@@ -321,6 +322,8 @@ export const collect: BlockDef<CollectParams> = {
     bankBonus: 0,
     carrySlowdown: 0,
     carryNoise: 0,
+    goldenEventKind: '',
+    frenzyEventKind: '',
     callout: 'play',
   },
   controls: ['joystick'],
@@ -361,16 +364,16 @@ export const collect: BlockDef<CollectParams> = {
     const s = S(ctx);
     const P = ctx.params;
     const { width: w, height: h } = ctx.world;
-    if (COLLECT_TIMELINE.golden.test(ev.kind)) {
+    if (P.goldenEventKind !== '' && ev.kind === P.goldenEventKind) {
       // the jackpot lands in the risky middle (next to a guard if there is one)
-      const g = ctx.world.byKind('guard')[0];
+      const g = ctx.world.ofKind('guard').values().next().value as Entity | undefined;
       const cx = g ? g.x : w / 2, cy = g ? g.y : h / 2;
       const a = ctx.rng.range(0, Math.PI * 2), r = (g ? g.r : 0) + P.itemRadius + 40;
       const it = spawnAt(ctx, s, clamp(cx + Math.cos(a) * r, 40, w - 40), clamp(cy + Math.sin(a) * r, 40, h - 40), true);
       callout(ctx as BlockCtx<unknown>, P.callout, 'golden', undefined, { phase: 'spawn', item: it.id, x: it.x, y: it.y });
       ctx.fx({ kind: 'flash', color: '#ffd84a' });
       ctx.fx({ kind: 'sfx', name: 'score' });
-    } else if (COLLECT_TIMELINE.frenzy.test(ev.kind)) {
+    } else if (P.frenzyEventKind !== '' && ev.kind === P.frenzyEventKind) {
       // fill the field (a little past the cap: it is a frenzy)
       const cap = Math.min(40, P.maxItems + 6);
       while (s.items.length < cap) spawnItem(ctx, s);
@@ -499,7 +502,8 @@ export const collect: BlockDef<CollectParams> = {
     const go = (x: number, y: number) => ({ t: 0, axes: steer(ctx as BlockCtx<unknown>, m!, e, x, y, sk) });
 
     // guards (sneak) are read from their published props: run from a chase, freeze in a stare
-    for (const g of ctx.world.byKind('guard')) {
+    const guards = ctx.world.ofKind('guard');
+    for (const g of guards) {
       const d = len(e.x - g.x, e.y - g.y);
       const hunted = g.props.chaseTarget === playerId && (g.props.phase === 'awake' || (g.props.phase === 'waking' && ctx.rng.next() < sk));
       if (hunted) {
@@ -530,8 +534,12 @@ export const collect: BlockDef<CollectParams> = {
       if (it && it.props.carriedBy === '') free.push(it);
     }
     // loose items next to a hunting guard are bait: avoid them
-    const hot = ctx.world.byKind('guard').filter((g) => g.props.phase === 'awake' || g.props.phase === 'waking');
-    const safe = (it: Entity) => !hot.some((g) => len(it.x - g.x, it.y - g.y) < 150) && onFloor(ctx as BlockCtx<unknown>, it.x, it.y, true);
+    const safe = (it: Entity) => {
+      for (const g of guards) {
+        if ((g.props.phase === 'awake' || g.props.phase === 'waking') && len(it.x - g.x, it.y - g.y) < 150) return false;
+      }
+      return onFloor(ctx as BlockCtx<unknown>, it.x, it.y, true);
+    };
 
     if (P.carryToGoal) {
       const held = carriedBy(ctx, s, playerId).length;
