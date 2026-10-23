@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCom
 import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import {
-  BackendToClientSchema, ClientToBackendSchema, DEFAULT_SETTINGS, FALLBACK_SPECS, parseSpec, pickFallback,
+  BackendToClientSchema, ClientToBackendSchema, DEFAULT_SETTINGS, FALLBACK_SPECS, THEME_PALETTES, parseSpec, pickFallback,
   type BackendToClient, type GameSpec, type Pitch,
 } from '@cadabra/spec';
 
@@ -175,7 +175,10 @@ describe('forge orchestration', () => {
     expect(r.fallback).toBe(true);
     expect(r.spec.title).toBe('Goat Paint Wars');
     expect(r.spec.blocks[0].params.paint).toBe(true);
-    expect(r.spec.theme.palette).toEqual(PITCHES[2]!.palette);
+    // the room's ingredients (grumpy cat, jelly) pick the toybox look; the pitch's dark palette clashes with it
+    expect(r.spec.theme.look).toBe('toybox');
+    expect(r.spec.theme.sfxSet).toBe('toybox');
+    expect(r.spec.theme.palette).toEqual(THEME_PALETTES.toybox);
     expect(runPlaytest(r.spec, 4).report.ok).toBe(true);
     expect(BackendToClientSchema.safeParse(r).success).toBe(true);
   });

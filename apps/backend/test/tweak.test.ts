@@ -69,7 +69,7 @@ describe('presets', () => {
   test('presetHint is a valid patch of params', () => {
     const ops = presetHint(spec('fallback-core-rush'), ['faster']);
     expect(ops.length).toBeGreaterThan(0);
-    expect(ops.every((o) => o.path.startsWith('/blocks/') || o.path === '/comeback')).toBe(true);
+    expect(ops.every((o) => o.path.startsWith('/blocks/') || o.path === '/comeback' || o.path === '/world')).toBe(true);
   });
 });
 

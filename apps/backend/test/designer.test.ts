@@ -246,7 +246,7 @@ describe('designer', () => {
 
   test('system prompt contains every catalog block id and the design rules', () => {
     const sys = designerSystemPrompt();
-    expect(CATALOG.length).toBe(8);
+    expect(CATALOG.length).toBeGreaterThanOrEqual(8);
     for (const k of CATALOG) expect(sys).toContain(`### ${k.id} `);
     for (const k of CATALOG) for (const param of Object.keys((k.params as { properties: object }).properties)) expect(sys).toContain(param);
     expect(sys).toMatch(/players' real names/);
@@ -262,5 +262,58 @@ describe('designer', () => {
       const { report } = runPlaytest(spec);
       expect(report.reasons, ex.title).toEqual([]);
     }
+  });
+});
+
+describe('looks (R2)', () => {
+  test('lookFor maps ingredients to a look', async () => {
+    const { lookFor } = await import('../src/ai/designer');
+    expect(lookFor(['space cats'])).toBe('cosmos');
+    expect(lookFor(['lego', 'dragons'])).toBe('retro');
+    expect(lookFor(['lego'])).toBe('toybox');
+    expect(lookFor(['laser tag'])).toBe('neon');
+    expect(lookFor(['two teams'])).toBe('neon'); // "teams" is not "tea"
+  });
+
+  test('fallback pitches come in three different looks with fitting palettes', async () => {
+    const { fallbackPitches, paletteFits } = await import('../src/ai/designer');
+    const ps = fallbackPitches(['space cats', 'pizza']);
+    expect(ps.map((p) => p.look)).toEqual(['cosmos', 'toybox', 'retro']);
+    for (const p of ps) {
+      expect(PitchSchema.safeParse(p).success).toBe(true);
+      expect(paletteFits(p.look!, p.palette.bg)).toBe(true);
+    }
+  });
+
+  test('model pitches keep their look; a clashing palette is replaced by the look default', async () => {
+    script.push(textReply(JSON.stringify([
+      { title: 'Cat Comets', hook: 'h', look: 'cosmos', keyArtPrompt: 'k, no text', palette: { bg: '#070B1F', primary: '#7C5CFF', accent: '#FF7A59', glow: '#5CF2E6', text: '#EEF0FF' }, blocksSketch: ['arena-move'] },
+      { title: 'Toy Brawl', hook: 'h', look: 'toybox', keyArtPrompt: 'k, no text', palette: { bg: '#0A0E27', primary: '#00E5FF', accent: '#FF2BD6', glow: '#B6FF3B', text: '#F4F7FF' }, blocksSketch: ['arena-move'] },
+      { title: 'Pixel Run', hook: 'h', look: 'bogus', keyArtPrompt: 'k, no text', blocksSketch: ['race'] },
+    ])));
+    const ps = await pitch(['cats'], ['Asha'], { familySafe: true, deadlineMs: 5000 }) as (Pitch & { look?: string })[];
+    expect(ps.map((p) => p.look)).toEqual(['cosmos', 'toybox', 'cosmos']);
+    expect(ps[1]!.palette.bg).toBe('#F3EEE4');
+  });
+
+  test('design stamps the look and its sound set; the brief carries the pitch look', async () => {
+    script.push(reply(tool('playtest_spec', { spec: { ...heistBody, theme: { ...heistBody.theme, look: 'retro', sfxSet: 'neon' } } })), reply(tool('submit_spec')));
+    const { c } = ctx();
+    const r = await design({ ...P, look: 'retro' } as Pitch, c);
+    expect(r.spec.theme.look).toBe('retro');
+    expect(r.spec.theme.sfxSet).toBe('retro');
+    expect(JSON.stringify(calls[0]!.messages[0])).toContain('\\"look\\":\\"retro\\"');
+  });
+
+  test('a spec without a look gets the pitch look', async () => {
+    script.push(reply(tool('playtest_spec', { spec: heistBody })), reply(tool('submit_spec')));
+    const { c } = ctx();
+    const r = await design({ ...P, look: 'cosmos' } as Pitch, c);
+    expect(r.spec.theme).toMatchObject({ look: 'cosmos', sfxSet: 'cosmos' });
+  });
+
+  test('system prompt teaches looks, physics and fun', () => {
+    const sys = designerSystemPrompt();
+    for (const w of ['"toybox"', '"cosmos"', '"retro"', 'world.physics', 'restitution', 'barrel', 'risk/reward', 'physical comedy']) expect(sys).toContain(w);
   });
 });

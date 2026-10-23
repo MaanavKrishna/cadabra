@@ -1,5 +1,8 @@
 import type { BlockDef, KitEntry, RequiredControl } from '@cadabra/engine';
-import { FALLBACK_SPECS, NEON_ART_KEYS, type GameSpec } from '@cadabra/spec';
+import {
+  FALLBACK_SPECS, NEON_ART_KEYS, PHYSICS_DEFAULTS, THEME_LOOKS, THEME_PALETTES, WorldPhysicsSchema, WorldPropSchema,
+  type GameSpec, type ThemeLook,
+} from '@cadabra/spec';
 import { CATALOG, REGISTRY } from './tools';
 
 /**
@@ -65,19 +68,22 @@ const compactSpec = (id: string) => {
 };
 
 /**
- * Example specs: the neon fallbacks, themed with the room's ingredients the way the designer
- * should (ingredients become the shape of neon objects, never cartoons). Each one is checked by
- * the test suite to pass validate + playtest.
+ * Example specs: the fallbacks, themed with the room's ingredients the way the designer should,
+ * in three different looks. Each one is checked by the test suite to pass validate + playtest.
  */
 export const EXAMPLE_SPECS: Omit<GameSpec, 'version' | 'id' | 'origin'>[] = [
   {
     ...compactSpec('fallback-ring-out'),
     title: 'Pizza Ring Out',
-    hook: 'A glowing pizza-slice ring floats in the void. Dash rivals off the crust.',
+    hook: 'A giant toy pizza spins on the table. Bump rivals off the crust!',
     theme: {
       ...compactSpec('fallback-ring-out').theme,
-      keyArtPrompt: 'A floating neon ring platform shaped like a giant pizza, its crust tiles breaking into sparks over a deep navy void, glowing light-trail avatars colliding, vector arcade style, no text',
-      sprites: { player: 'glowing neon disc avatar with a light trail', tile: 'glowing neon pizza-slice floor tile, top-down', hole: 'dark void with faint magenta edge glow' },
+      look: 'toybox',
+      sfxSet: 'toybox',
+      palette: { ...THEME_PALETTES.toybox },
+      artStyle: 'glossy plastic toy diorama, soft shadows',
+      keyArtPrompt: 'A giant glossy plastic toy pizza ring on a clean play table, crust tiles popping off, four jelly-vinyl figures bumping each other, bright primaries, soft shadows, no text',
+      sprites: { player: 'glossy jelly vinyl toy figure with big eyes, top-down', tile: 'glossy plastic pizza-slice floor tile, top-down', hole: 'soft shadow gap in a toy table' },
     },
     timeline: [
       { atSec: 30, kind: 'quake', params: {}, hostLine: 'QUAKE! The crust drops now, Asha!' },
@@ -91,50 +97,112 @@ export const EXAMPLE_SPECS: Omit<GameSpec, 'version' | 'id' | 'origin'>[] = [
   },
   {
     ...compactSpec('fallback-core-rush'),
-    title: 'Mango Core Rush',
-    hook: 'Neon mango cores spawn mid-field. Carry them home, dash carriers to knock them loose.',
+    title: 'Comet Core Rush',
+    hook: 'Comet cores crash mid-field. Carry them home, dash carriers to knock them loose.',
     theme: {
       ...compactSpec('fallback-core-rush').theme,
-      keyArtPrompt: 'Glowing neon mango-shaped energy cores in the centre of a dark grid arena, a cyan team base on the left and a magenta base on the right, light-trail avatars racing, vector arcade style, no text',
-      sprites: { player: 'glowing neon disc avatar', core: 'glowing neon mango-shaped energy core', base: 'glowing team base ring pad' },
+      look: 'cosmos',
+      sfxSet: 'cosmos',
+      palette: { ...THEME_PALETTES.cosmos },
+      artStyle: 'deep space arena, starfield and nebula glow',
+      keyArtPrompt: 'Glowing comet cores tumbling onto a ringed asteroid arena in deep space, a violet team base and a coral team base, little astronaut orbs racing, nebula glow, no text',
+      sprites: { player: 'little astronaut orb with a glowing visor, top-down', core: 'glowing icy comet core with a short tail', base: 'glowing landing-pad ring on an asteroid' },
     },
     timeline: [
-      { atSec: 30, kind: 'mega-core', params: {}, hostLine: 'MEGA MANGO in the middle, Sam! Worth 3!' },
-      { atSec: 50, kind: 'core-storm', params: {}, hostLine: 'FINAL 10! CORE STORM!' },
+      { atSec: 30, kind: 'mega-core', params: {}, hostLine: 'MEGA COMET in the middle, Sam! Worth 3!' },
+      { atSec: 50, kind: 'core-storm', params: {}, hostLine: 'FINAL 10! METEOR SHOWER!' },
     ],
     host: {
-      intro: 'Sam, Zoe: carry mango cores to your base. Dash carriers!',
+      intro: 'Sam, Zoe: carry comet cores to your base. Dash carriers!',
       finale: 'FINAL 10! CORE STORM! Banks count double!',
       tutorial: 'Grab cores (max 2, they slow you). Bank at your base: +1. DASH into a carrier to knock one loose.',
     },
   },
   {
     ...compactSpec('fallback-neon-dash'),
-    title: 'Chai Laser Dash',
-    hook: 'A four-lane light race through steaming chai lasers. Mash, jump the live gates, win.',
+    title: 'Robot Pixel Dash',
+    hook: 'A four-lane 8-bit robot race through zapping gates. Mash, jump the live ones, win.',
     theme: {
       ...compactSpec('fallback-neon-dash').theme,
-      keyArtPrompt: 'Four glowing neon racing lanes over a deep navy void, pulsing laser gates shaped like curls of chai steam, cyan boost chevrons, light-trail runners, vector arcade style, no text',
-      sprites: { player: 'glowing neon runner avatar with a light trail', laser: 'glowing neon laser gate like a curl of chai steam', boost: 'glowing cyan chevron boost pad', finish: 'glowing checkered finish line' },
+      look: 'retro',
+      sfxSet: 'retro',
+      palette: { ...THEME_PALETTES.retro },
+      artStyle: 'crisp 8-bit pixel art arcade',
+      keyArtPrompt: 'Four chunky pixel-art racing lanes, little robots sprinting through zapping pixel gates, blinking boost arrows, CRT arcade colours, no text',
+      sprites: { player: 'chunky 8-bit pixel robot runner, side view', laser: 'pixel zapper gate with blinking sparks', boost: 'blinking pixel arrow boost pad', finish: 'pixel checkered finish line' },
     },
     timeline: [
-      { atSec: 30, kind: 'heat', params: {}, hostLine: 'Heat two, Mia! Jump only live lasers!' },
+      { atSec: 30, kind: 'heat', params: {}, hostLine: 'Heat two, Mia! Jump only live zappers!' },
       { atSec: 50, kind: 'final', params: {}, hostLine: 'FINAL 10! Every point doubles!' },
     ],
     host: {
-      intro: 'Mia, Leo: mash RUN, JUMP the live lasers, cross first!',
+      intro: 'Mia, Leo: mash RUN, JUMP the live zappers, cross first!',
       finale: 'FINAL 10! Every point doubles!',
-      tutorial: 'Mash RUN to sprint. JUMP when a laser gate is live. Boost pads speed you up.',
+      tutorial: 'Mash RUN to sprint. JUMP when a zapper gate is live. Boost pads speed you up.',
     },
   },
 ];
 
 const compact = (x: unknown) => JSON.stringify(x);
 
+/** Sprite keys the renderer draws: the neon set plus the physics props and goals. */
+export const ART_KEYS = [...new Set([...NEON_ART_KEYS, 'ball', 'crate', 'bumper', 'barrel', 'goal'])];
+
+const BALL_SPORT_LINE = CATALOG.some((k) => k.id === 'ball-sport')
+  ? '\n  - ball-sport: one big physics ball, two goals (teams 2 for 2v2, or free-for-all keep-away). Perfect for sports, soccer, hockey, pinball, "kick", "goal" ingredients; pair it with a bouncy physics world.'
+  : '';
+
+const LOOK_GUIDE: Record<ThemeLook, { when: string; style: string; sprite: string }> = {
+  neon: { when: 'arcade, lasers, cyber, racing, music, light, night city, sci-fi tech', style: 'glowing vector shapes on a deep navy void (Geometry Wars / Tron); artStyle "neon arcade vector"', sprite: 'glowing neon' },
+  toybox: { when: 'lego, toys, food, animals, sports, kitchen, school, candy, cute things, everyday objects', style: 'glossy plastic toys on a clean light floor, bright primaries, soft shadows (Fall Guys polish); the ONLY light-background look: light bg, dark text', sprite: 'glossy plastic toy' },
+  cosmos: { when: 'space, cats in space, aliens, planets, stars, rockets, magic, wizards, dreams, the ocean deep', style: 'deep-space arena: starfield, nebula glow, planets as props, astronaut orbs with visors', sprite: 'glowing space' },
+  retro: { when: '8-bit, arcade classics, retro, robots, dungeons, knights, dragons, ninjas, pixel anything, old consoles', style: 'crisp pixel-art CRT arcade, a 4–6 colour palette, chunky pixel popups', sprite: 'chunky 8-bit pixel-art' },
+};
+
+const fmtPal = (l: ThemeLook) => Object.entries(THEME_PALETTES[l]).map(([k, v]) => `${k} ${v}`).join(', ');
+
+const LOOKS_TEXT = `- Pick theme.look to MATCH THE INGREDIENTS (not everything is neon; variety across games is good). Set theme.sfxSet to the same value.
+${THEME_LOOKS.map((l) => `  - "${l}": ${LOOK_GUIDE[l].style}. Fits: ${LOOK_GUIDE[l].when}. Default palette: ${fmtPal(l)}.`).join('\n')}
+  Examples: "space cats" => cosmos; "lego" => toybox; "arcade" => neon or retro; "pizza party" => toybox; "robot ninjas" => retro.
+- Palette: start from the look's default and re-tint primary/accent/glow toward the ingredients; text must contrast bg (dark bg + light text for neon/cosmos/retro, light bg + dark text for toybox). Five "#rrggbb" values.
+- Ingredients become objects in the look's style (toybox: a glossy toy pizza; cosmos: a glowing comet core; retro: a pixel robot; neon: a glowing pizza-slice outline). Fun and readable, family-safe, never gross or scary.`;
+
+type ZDef = { typeName?: string; innerType?: { _def: ZDef }; checks?: { kind: string; value: number }[]; values?: string[]; description?: string };
+/** One line per field of a zod object: name, type/range, default, description. */
+function zodFields(schema: unknown, defaults: Record<string, unknown> = {}): string {
+  const shape = (schema as { shape?: Record<string, { _def: ZDef }> }).shape ?? {};
+  return Object.entries(shape).map(([name, f]) => {
+    let d = f._def;
+    const desc = d.description ?? '';
+    while (d.innerType && (d.typeName === 'ZodOptional' || d.typeName === 'ZodDefault')) d = d.innerType._def;
+    let type = d.typeName?.replace(/^Zod/, '').toLowerCase() ?? 'any';
+    if (d.typeName === 'ZodNumber') {
+      const min = d.checks?.find((c) => c.kind === 'min')?.value;
+      const max = d.checks?.find((c) => c.kind === 'max')?.value;
+      const int = d.checks?.some((c) => c.kind === 'int');
+      type = `${int ? 'int' : 'num'} ${min ?? ''}..${max ?? ''}`;
+    } else if (d.typeName === 'ZodEnum') type = (d.values ?? []).map((v) => `"${v}"`).join('|');
+    const def = name in defaults ? ` =${JSON.stringify(defaults[name])}` : '';
+    return `  - ${name}: ${type}${def} — ${desc || (d.description ?? '')}`.trimEnd();
+  }).join('\n');
+}
+
+/** The physics world section, generated from the spec schema (descriptions included). */
+export function physicsText(): string {
+  return `# Physics world (optional; topdown arenas only)
+Add "world": {"physics": {...}, "props": [...]} to make a game PHYSICAL: players become round rigid bodies, bumps transfer momentum and spin, dashes are impulses, props tumble. Use it for sumo / shoving / ball / crate / pinball / explosion games and whenever the ingredients bounce, slide, roll or explode. Omit it for races, quizzes, drawing and tug.
+world.physics (all optional, omit to keep the default):
+${zodFields(WorldPhysicsSchema, PHYSICS_DEFAULTS as unknown as Record<string, unknown>)}
+world.props (≤ 4 entries, ≤ 40 props in total; ≤ 12 reads best on a TV):
+${zodFields(WorldPropSchema)}
+Recipes: floaty/low gravity => linearDamping 0.2–0.4, playerMass 0.6; ice => friction 0, linearDamping 0.3; pinball => restitution 1.0–1.2 plus bumpers in a ring; demolition => barrels scatter, barrelPower 1200+; heavy sumo => playerMass 2, knockback 1.5; tilted table => gravityY 300–500.`;
+}
+
 const SPEC_SHAPE = `{
   "title": string ≤40, "hook": string ≤120 (one line that sells the fun),
   "theme": { "palette": {"bg","primary","accent","glow","text"} each "#rrggbb", "artStyle": string ≤120,
-             "keyArtPrompt": string ≤600, "sprites": { spriteKey: prompt ≤300 }, "sfxSet": "neon" (always) },
+             "keyArtPrompt": string ≤600, "sprites": { spriteKey: prompt ≤300 }, "look": "neon"|"toybox"|"cosmos"|"retro",
+             "sfxSet": same as look },
   "arena": { "kind": "topdown"|"lanes"|"tug"|"canvas"|"quiz", "width": 1280, "height": 720 },
   "teams": 0 | 2,
   "durationSec": int 60..90,
@@ -147,11 +215,12 @@ const SPEC_SHAPE = `{
      {"kind":"joystick","id"} {"kind":"button","id","label"≤20} {"kind":"hold","id","label"≤20} {"kind":"tilt","id"}
      {"kind":"swipe","id"} {"kind":"draw","id","prompt"≤80} {"kind":"vote","id","options":[2..6 strings]} {"kind":"text","id","placeholder"}
      (widget ids ≤32 chars, unique),
-  "host": { "intro": ≤240, "finale": ≤240, "tutorial": ≤240 }
+  "host": { "intro": ≤240, "finale": ≤240, "tutorial": ≤240 },
+  "world"?: { "physics"?: {...}, "props"?: [ {"kind","count",...} ] (≤4 entries) }  (topdown only; see Physics)
 }
 "version", "id" and "origin" are filled in by the server: omit them.`;
 
-const ROLE = `You are the game designer inside Cadabra, a competitive party game for a couch: the game runs on a TV, phones are the controllers, 2–4 players (bots fill empty seats). The look is NEON ARCADE (Geometry Wars / Tron): glowing vector shapes on a deep navy void. The room threw in ingredients and voted for a pitch; you turn that pitch into a GameSpec JSON that the Cadabra engine runs. You cannot write code: you combine the kit blocks below and tune their params. A good game is readable in 3 seconds, has a real skill or decision, keeps scores close, and is over before anyone gets bored.`;
+const ROLE = `You are the game designer inside Cadabra, a competitive party game for a couch: the game runs on a TV, phones are the controllers, 1–4 players (bots fill empty seats, so a solo player still gets rivals). The TV draws every game procedurally in one of four looks (neon, toybox, cosmos, retro) that you pick to match the ingredients. The room threw in ingredients and voted for a pitch; you turn that pitch into a GameSpec JSON that the Cadabra engine runs. You cannot write code: you combine the kit blocks below and tune their params. A good game is readable in 3 seconds, has a real skill or decision, keeps scores close, and is over before anyone gets bored.`;
 
 const WORKFLOW = `# How to work (every second counts: the room is watching a progress bar)
 1. In your FIRST reply, write the complete spec and call playtest_spec({"spec": ...}). The catalog below is complete: do not call list_blocks or get_block_schema unless an error confuses you.
@@ -170,15 +239,16 @@ function knowledge(): string {
 - Host lines are ON-SCREEN TEXT only (no voice): ≤ 10 words, punchy, says what to do or what just changed. host.intro is ONE line telling players what to do.
 - Use the players' real names (given in the brief) in host.intro and in at least one timeline hostLine. Never invent player names; with no names, address "everyone".
 - Competitive arcade mechanics first. Best modes (see the catalog):
-  - arena-move ringOut: free-for-all sumo on a crumbling neon ring (dash to shove rivals off).
+  - arena-move ringOut: free-for-all sumo on a crumbling ring (dash to shove rivals off).
   - arena-move overload: hot potato with unstable cores and hidden fuses (touch to pass).
   - arena-move paint: territory, teams 2 (or free-for-all), dash to splash.
   - arena-move + collect with carryToGoal, teamBases, stealNeedsDash, knockLoose: capture/carry, teams 2.
   - race with gateCycleSec > 0: lane race with timed laser gates and boost pads.
-  sneak, dodge, tug, trivia and draw-judge still work but must look neon too.
-- Neon look, always: theme.sfxSet "neon"; palette dark navy bg (like #0A0E27) with bright neon primary/accent/glow (cyan #00E5FF, magenta #FF2BD6, lime #B6FF3B, amber #FFB020, red #FF3355) and near-white text; artStyle "neon arcade vector". No cartoons, mascots, animals or food characters: an ingredient becomes the SHAPE of a neon object (pizza => a neon pizza-slice core, cat => a cat-ear shaped laser gate).
-- Art keys: every sprite key you use (theme.sprites keys and the itemSprite / guardSprite / hazardSprite / obstacleSprite / padSprite params) must be one of: ${NEON_ART_KEYS.join(', ')}. Include "player". Sprite prompts: "glowing neon <ingredient-shaped thing>, top-down (side view for race), vector arcade style, no text".
-- keyArtPrompt: one vivid neon arcade scene with the ingredients as glowing shapes, bold readable composition, ends with "no text".
+  sneak, dodge, tug, trivia and draw-judge still work too.${BALL_SPORT_LINE}
+- Design for FUN, every time: (1) a goal anyone gets in 3 seconds; (2) a risk/reward choice (carry more = slower, dash = big shove but you're open, stand near the barrel for bonus points); (3) a comeback (comeback.enabled plus an underdog rule or a late swing event); (4) physical comedy: bodies that bounce, spin, slide and get launched (physics world, bumpers, barrels, knockback).
+${LOOKS_TEXT}
+- Art keys: every sprite key you use (theme.sprites keys and the itemSprite / guardSprite / hazardSprite / obstacleSprite / padSprite params) must be one of: ${ART_KEYS.join(', ')}. Include "player". Sprite prompts follow the look: "<look style> <ingredient-shaped thing>, top-down (side view for race), no text".
+- keyArtPrompt: one vivid scene in the chosen look with the ingredients, bold readable composition, ends with "no text".
 - TV readability: few, big, distinct things. Items/hazards radius ≥ 14, maxItems ≤ 24, at most ~3 sprite types.
 - Family-safe, always: arcade action only, no gore, no weapons hurting people, no romance, no mocking real people, no brands or copyrighted characters, no scary-for-kids imagery. English only.
 - Only the blocks and params in the catalog. Unknown params are rejected. Omit params you keep at their default (shorter specs are faster to write).
@@ -186,7 +256,9 @@ function knowledge(): string {
 - Fun: every player must score from the first seconds (a 0.4-skill bot must score). Penalties are small (≤ 3) and never the only way to score. Short popups: score reasons are set by the blocks ("+3 RING OUT!", "+1 BANKED").
 - win: "highScore" for free-for-all; "teamScore" for teams 2 (paint, team bases, tug); "lastStanding" only with dodge onHit "eliminate"; "firstTo" needs a target high enough that nobody reaches it before 80% of the round.
 - host.tutorial names every phone control and what it does, in one short sentence.
-- Turn the ingredients into the theme: sprites, title, hook, host lines, event names. The pitch tells you the vibe and suggested blocks; keep its title and palette unless they break a rule.
+- Turn the ingredients into the theme: sprites, title, hook, host lines, event names. The pitch tells you the vibe and suggested blocks; keep its title, look and palette unless they break a rule.
+
+${physicsText()}
 
 # Arenas (every block must support the spec's arena.kind)
 - topdown (1280×720): arena-move, collect, dodge, sneak — combine 1 to 4 of them (ringOut / overload / paint modes are arena-move alone).
@@ -248,14 +320,14 @@ export const DESIGN_KICKOFF = 'New Cadabra job. The brief follows.';
 export const REMIX_KICKOFF = 'Cadabra remix job. The request follows.';
 
 export function designBrief(p: {
-  title: string; hook: string; blocksSketch: string[]; palette: object; keyArtPrompt: string;
+  title: string; hook: string; blocksSketch: string[]; palette: object; keyArtPrompt: string; look?: string;
 }, ctx: { ingredients: string[]; players: string[]; householdBlocks: string[]; secondsLeft: number }): string {
   const players = ctx.players.length ? ctx.players.join(', ') : '(none yet — address "everyone")';
   const household = ctx.householdBlocks.length
     ? `\nThis household's favourite blocks lately: ${ctx.householdBlocks.join(', ')} (variety is welcome).`
     : '';
   return `Design the full game for this pitch (the room voted for it).
-Pitch: ${compact({ title: p.title, hook: p.hook, blocksSketch: p.blocksSketch, palette: p.palette, keyArtPrompt: p.keyArtPrompt })}
+Pitch: ${compact({ title: p.title, hook: p.hook, ...(p.look ? { look: p.look } : {}), blocksSketch: p.blocksSketch, palette: p.palette, keyArtPrompt: p.keyArtPrompt })}
 Ingredients: ${ctx.ingredients.join(', ') || '(none)'}
 Players: ${players}${household}
 Budget: about ${ctx.secondsLeft} s and at most 8 replies. Write the whole spec and call playtest_spec now.`;
@@ -264,20 +336,23 @@ Budget: about ${ctx.secondsLeft} s and at most 8 replies. Write the whole spec a
 /** Fast-model prompt for three light pitches. */
 export function pitchSystemPrompt(familySafe: boolean): string {
   const blocks = CATALOG.map((k) => `- ${k.id} [${k.arenaKinds.join('/')}]: ${k.summary}`).join('\n');
-  return `You pitch competitive NEON ARCADE party games (Geometry Wars / Tron look: glowing vector shapes on a deep navy void) for Cadabra: a TV game for 2–4 people on a couch, phones as controllers, rounds of 60–90 s. Given the room's ingredients, invent exactly 3 different games, each buildable from these kit blocks:
+  return `You pitch competitive party games for Cadabra: a TV game for 1–4 people on a couch (bots fill empty seats), phones as controllers, rounds of 60–90 s. Each game is drawn in one of four looks: neon (glowing vector arcade on deep navy), toybox (glossy plastic toys on a light floor), cosmos (deep space, nebula, astronaut orbs), retro (crisp 8-bit pixel arcade). Given the room's ingredients, invent exactly 3 different games, each buildable from these kit blocks:
 ${blocks}
-Strong arcade modes: arena-move ringOut (sumo: shove rivals off a crumbling ring), arena-move overload (hot potato: pass the unstable core), arena-move paint (team territory), arena-move + collect with team bases (capture and carry, dash to knock loose), race with laser gates. Topdown blocks mix freely; race, tug (two teams), draw-judge and trivia stand alone.
+Strong arcade modes: arena-move ringOut (sumo: shove rivals off a crumbling ring), arena-move overload (hot potato: pass the unstable core), arena-move paint (team territory), arena-move + collect with team bases (capture and carry, dash to knock loose), race with laser gates${CATALOG.some((k) => k.id === 'ball-sport') ? ', ball-sport (one big bouncy ball, two goals)' : ''}. Topdown games can add a physics world (bouncy bodies, crates, bumpers, explosive barrels). Topdown blocks mix freely; race, tug (two teams), draw-judge and trivia stand alone.
 
 Rules:
 - The 3 pitches must feel different: different modes / block combos, all competitive with a real skill or decision.
-- Weave the ingredients in as neon SHAPES, never cartoons (pizza => a glowing pizza-slice core; a cat => cat-ear laser gates). Every ingredient should appear in at least one pitch.
+- Pick each pitch's look to fit the ingredients (space cats => cosmos, lego => toybox, arcade => neon or retro, food/animals/toys => toybox, robots/knights => retro). Vary looks across the 3 pitches when the ingredients allow.
+- Make them FUN: a clear goal, a risk/reward choice, a comeback, and physical comedy (things bounce, spin, get launched).
+- Every ingredient should appear in at least one pitch.
 - title ≤ 40 chars, punchy arcade name. hook ≤ 120 chars: one line saying what you do to win.
-- keyArtPrompt: one vivid neon arcade scene for an image model (glowing vector shapes on deep navy), bold readable composition, ends with "no text".
-- palette: five "#rrggbb" colours {bg, primary, accent, glow, text}: deep navy bg (like #0A0E27), neon primary/accent/glow (cyan #00E5FF, magenta #FF2BD6, lime #B6FF3B, amber #FFB020), near-white text.
+- keyArtPrompt: one vivid scene in the pitch's look for an image model, bold readable composition, ends with "no text".
+- look: "neon" | "toybox" | "cosmos" | "retro".
+- palette: five "#rrggbb" colours {bg, primary, accent, glow, text} in the look's style, text contrasting bg. Defaults: ${THEME_LOOKS.map((l) => `${l} ${JSON.stringify(THEME_PALETTES[l])}`).join('; ')}.
 - blocksSketch: 1–3 block ids from the list.
 - English only. ${familySafe ? 'Family-safe: arcade action only, nothing scary, gross-out, violent, romantic or mean.' : 'Cheeky humour is fine, but nothing hateful or explicit.'}
 
-Reply with ONLY a JSON array of 3 objects: [{"title","hook","keyArtPrompt","palette":{"bg","primary","accent","glow","text"},"blocksSketch":[...]}]`;
+Reply with ONLY a JSON array of 3 objects: [{"title","hook","look","keyArtPrompt","palette":{"bg","primary","accent","glow","text"},"blocksSketch":[...]}]`;
 }
 
 export function pitchUserPrompt(ingredients: string[], players: string[]): string {

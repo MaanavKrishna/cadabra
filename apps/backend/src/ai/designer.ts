@@ -2,7 +2,7 @@ import type { ContentBlock, Message, ToolResultBlock } from '@aws-sdk/client-bed
 import jsonpatch, { type Operation } from 'fast-json-patch';
 import { z } from 'zod';
 import type { PlaytestReport } from '@cadabra/engine';
-import { PaletteSchema, PitchSchema, type GameSpec, type Pitch } from '@cadabra/spec';
+import { PaletteSchema, PitchSchema, THEME_LOOKS, THEME_PALETTES, type GameSpec, type Pitch, type ThemeLook } from '@cadabra/spec';
 import { converse, screen, screenOutput, type ConverseOutput, type ConverseRequest, type ToolSpec } from './bedrock';
 import {
   DESIGN_KICKOFF, REMIX_KICKOFF, designBrief, designerSystemPrompt, pitchSystemPrompt, pitchUserPrompt, remixPrompt,
@@ -79,17 +79,42 @@ export const newSpecId = (title: string) => `${slug(title)}-${rand()}`;
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 
-export function stamp(spec: unknown, fields: { id: string; origin: GameSpec['origin'] }): unknown {
+export function stamp(spec: unknown, fields: { id: string; origin: GameSpec['origin']; look?: ThemeLook }): unknown {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return spec;
   const s = { ...(spec as Record<string, unknown>) };
   s.version = 1;
   s.id = fields.id;
   s.origin = fields.origin;
   if (s.modifiers === undefined) s.modifiers = [];
-  // the neon arcade sound set is the house style, whatever the model picked
-  if (isObj(s.theme)) s.theme = { ...s.theme, sfxSet: 'neon' };
+  // The sound set always follows the look (neon when the model gave none or an unknown one).
+  if (isObj(s.theme)) {
+    const look = (THEME_LOOKS as readonly unknown[]).includes(s.theme.look) ? (s.theme.look as ThemeLook) : (fields.look ?? 'neon');
+    s.theme = { ...s.theme, look, sfxSet: look };
+  }
   return s;
 }
+
+/** A pitch may carry the look the pitch model chose (kept in-process; the TV ignores the extra key). */
+export type LookPitch = Pitch & { look?: ThemeLook };
+
+const LOOK_WORDS: [ThemeLook, RegExp][] = [
+  ['cosmos', /\b(?:space|star|planet|alien|moon|galax|rocket|comet|astro|orbit|nebula|ufo|magic|wizard|witch|dream|ocean|deep sea|night sky|cosmic)/],
+  ['retro', /\b(?:8.?bit|pixel|retro|arcade classic|robot|dungeon|knight|dragon|ninja|castle|console|joystick|cassette|80s|vhs|pirate)/],
+  ['toybox', /\b(?:lego|toy|brick|block|food|pizza|cake|candy|sweet|fruit|mango|banana|kitchen|school|cat|dog|duck|penguin|bear|animal|pet|farm|sport|soccer|football|ball|hockey|golf|bath|jelly|teddy|dino|ladoo|chai|tea\b|cookie|donut|burger)/],
+  ['neon', /\b(?:neon|laser|cyber|synth|disco|glow|tron|light|night city|hacker|race|racing|music|dj|electric)/],
+];
+/** The look that fits a set of ingredients (keyword heuristic for fallbacks; the AI chooses otherwise). */
+export function lookFor(words: readonly string[]): ThemeLook {
+  const t = words.join(' ').toLowerCase();
+  for (const [look, re] of LOOK_WORDS) if (re.test(t)) return look;
+  return 'neon';
+}
+/** Dark-background looks need light text and vice versa. */
+export const paletteFits = (look: ThemeLook, bg: string) => {
+  const n = parseInt(bg.slice(1), 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return look === 'toybox' ? lum > 0.6 : lum < 0.35;
+};
 
 /** Progress label for the Forge animation, from the tool being run. */
 function progressLabel(name: string, input: unknown, state: ToolState): string {
@@ -135,10 +160,11 @@ export async function design(p: Pitch, ctx: {
   const id = newSpecId(p.title);
   const origin = { ingredients: ctx.ingredients.slice(0, 8), wild: false };
   // Playtest with the room's real head count (bots fill seats, min 2, max 4).
-  const state: ToolState = { normalize: (s) => stamp(s, { id, origin }), players: Math.min(4, Math.max(2, ctx.seats ?? ctx.players.length)) };
+  const look = (p as LookPitch).look ?? lookFor([...ctx.ingredients, p.title]);
+  const state: ToolState = { normalize: (s) => stamp(s, { id, origin, look }), players: Math.min(4, Math.max(2, ctx.seats ?? ctx.players.length)) };
   const familySafe = ctx.familySafe ?? true;
   const system = designerSystemPrompt();
-  const brief = designBrief(p, {
+  const brief = designBrief({ ...p, look }, {
     ingredients: ctx.ingredients,
     players: ctx.players,
     householdBlocks: ctx.householdBlocks.filter((b) => known.has(b)),
@@ -266,11 +292,12 @@ export async function screenSpec(spec: GameSpec, familySafe: boolean, deadline: 
 // ---------------------------------------------------------------- pitches
 
 /** Neon arcade palettes (deep navy + neon), rotated across the hand-made pitches. */
-const FALLBACK_PALETTES: Pitch['palette'][] = [
-  { bg: '#0A0E27', primary: '#00E5FF', accent: '#FF2BD6', glow: '#B6FF3B', text: '#F4F7FF' },
-  { bg: '#0A0E27', primary: '#B6FF3B', accent: '#00E5FF', glow: '#FFB020', text: '#F4F7FF' },
-  { bg: '#0A0E27', primary: '#FF2BD6', accent: '#FFB020', glow: '#00E5FF', text: '#F4F7FF' },
-];
+const LOOK_ART: Record<ThemeLook, string> = {
+  neon: 'glowing neon vector arcade style on a deep navy void',
+  toybox: 'glossy plastic toy diorama on a clean light play table, bright primaries, soft shadows',
+  cosmos: 'deep-space arena with a starfield and nebula glow, little astronaut orbs',
+  retro: 'crisp 8-bit pixel-art arcade scene, chunky pixels, CRT colours',
+};
 
 /** `p`, or `fallback` if it hasn't settled within `ms`. */
 export async function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -285,24 +312,27 @@ export async function within<T>(p: Promise<T>, ms: number, fallback: T): Promise
 const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`);
 
-/** Hand-made pitches from the ingredients, for slots the model left empty or broken. */
-export function fallbackPitches(ingredients: string[]): Pitch[] {
+/** Hand-made pitches from the ingredients, for slots the model left empty or broken (three different looks). */
+export function fallbackPitches(ingredients: string[]): LookPitch[] {
   const ing = ingredients.map((i) => i.trim()).filter(Boolean);
   const a = ing[0] ?? 'star';
   const b = ing[1] ?? 'comet';
   const c = ing[2] ?? a;
-  const mk = (title: string, hook: string, art: string, blocksSketch: string[], i: number): Pitch => ({
+  const first = lookFor(ing);
+  const looks: ThemeLook[] = [first, first === 'cosmos' ? 'toybox' : 'cosmos', first === 'retro' ? 'neon' : 'retro'];
+  const mk = (title: string, hook: string, art: string, blocksSketch: string[], i: number): LookPitch => ({
     id: `p-${rand()}`,
     title: clip(titleCase(title), 40),
     hook: clip(hook, 120),
-    keyArtPrompt: clip(`${art}, glowing neon vector arcade style on a deep navy void, no text`, 600),
-    palette: FALLBACK_PALETTES[i % FALLBACK_PALETTES.length]!,
+    keyArtPrompt: clip(`${art}, ${LOOK_ART[looks[i]!]}, no text`, 600),
+    palette: { ...THEME_PALETTES[looks[i]!] },
     blocksSketch,
+    look: looks[i]!,
   });
   return [
-    mk(`${a} ring out`, `A floating ${a}-shaped neon ring is crumbling. Dash rivals off the edge.`, `A floating neon ring platform shaped like a ${a}, edge tiles breaking into sparks, light-trail avatars colliding`, ['arena-move'], 0),
-    mk(`${b} core rush`, `Carry glowing ${b} cores to your base. Dash carriers to knock them loose.`, `Glowing ${b}-shaped energy cores between a cyan base and a magenta base, light-trail avatars racing`, ['arena-move', 'collect'], 1),
-    mk(`${c} laser dash`, `A four-lane light race through ${c} laser gates. Mash, jump the live ones, win.`, `Four neon racing lanes with pulsing ${c}-shaped laser gates and a bright finish line`, ['race'], 2),
+    mk(`${a} ring out`, `A floating ${a} arena is crumbling. Bump rivals off the edge, stay on!`, `A floating ring arena shaped like a ${a}, edge tiles breaking away, four players colliding`, ['arena-move'], 0),
+    mk(`${b} core rush`, `Carry ${b} cores to your base. Dash carriers to knock them loose.`, `${b}-shaped cores between two team bases, players racing and bumping`, ['arena-move', 'collect'], 1),
+    mk(`${c} gate dash`, `A four-lane race through ${c} gates. Mash, jump the live ones, win.`, `Four racing lanes with pulsing ${c}-shaped gates and a bright finish line`, ['race'], 2),
   ];
 }
 
@@ -311,21 +341,27 @@ const RawPitch = z.object({
   hook: z.string(),
   keyArtPrompt: z.string(),
   palette: z.unknown().optional(),
+  look: z.unknown().optional(),
   blocksSketch: z.array(z.string()).optional(),
 }).passthrough();
 
-function cleanPitch(raw: unknown, i: number): Pitch | undefined {
+const LOOK_CYCLE: ThemeLook[] = ['neon', 'toybox', 'cosmos', 'retro'];
+
+function cleanPitch(raw: unknown, i: number): LookPitch | undefined {
   const r = RawPitch.safeParse(raw);
   if (!r.success) return undefined;
+  const look: ThemeLook = (THEME_LOOKS as readonly unknown[]).includes(r.data.look) ? (r.data.look as ThemeLook) : LOOK_CYCLE[i % LOOK_CYCLE.length]!;
   const pal = PaletteSchema.safeParse(r.data.palette);
   const known = new Set(CATALOG.map((k) => k.id));
-  const pitch: Pitch = {
+  const pitch: LookPitch = {
     id: `p-${rand()}`,
     title: clip(r.data.title.trim(), 40),
     hook: clip(r.data.hook.trim(), 120),
     keyArtPrompt: clip(r.data.keyArtPrompt.trim(), 600),
-    palette: pal.success ? pal.data : FALLBACK_PALETTES[i % FALLBACK_PALETTES.length]!,
+    // A palette that clashes with the look (dark toybox, light cosmos) falls back to the look's default.
+    palette: pal.success && paletteFits(look, pal.data.bg) ? pal.data : { ...THEME_PALETTES[look] },
     blocksSketch: (r.data.blocksSketch ?? []).filter((b) => known.has(b)).slice(0, 4),
+    look,
   };
   return PitchSchema.safeParse(pitch).success ? pitch : undefined;
 }
@@ -348,7 +384,7 @@ export async function pitch(
     }, opts.familySafe ? Math.max(Date.now() + 1, deadline - PITCH_SCREEN_RESERVE_MS) : deadline, 'pitch');
     const json = extractJson(out.text);
     const arr = Array.isArray(json) ? json : isObj(json) && Array.isArray(json.pitches) ? json.pitches : [];
-    pitches = arr.map(cleanPitch).filter((x): x is Pitch => !!x).slice(0, 3);
+    pitches = arr.map(cleanPitch).filter((x): x is LookPitch => !!x).slice(0, 3);
   } catch (e) {
     log('pitch failed; using fallbacks:', (e as Error)?.name, (e as Error)?.message);
   }

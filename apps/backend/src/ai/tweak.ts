@@ -1,7 +1,7 @@
 import type { ContentBlock, Message, ToolResultBlock } from '@aws-sdk/client-bedrock-runtime';
 import type { PlaytestReport } from '@cadabra/engine';
 import {
-  TWEAK_CHIPS, TWEAK_CHIP_LABELS, parseSpec, type GameSpec, type TweakChip, type TweakRequest,
+  PHYSICS_DEFAULTS, TWEAK_CHIPS, TWEAK_CHIP_LABELS, parseSpec, type GameSpec, type TweakChip, type TweakRequest,
 } from '@cadabra/spec';
 import { screen, screenOutput, type ToolSpec } from './bedrock';
 import {
@@ -51,7 +51,13 @@ const propOf = (block: string, param: string): Prop | undefined =>
 const round = (v: number, p: Prop) => (p.type === 'integer' ? Math.round(v) : Math.round(v * 100) / 100);
 const clamp = (v: number, p: Prop) => Math.min(p.maximum ?? Infinity, Math.max(p.minimum ?? -Infinity, v));
 
-interface Draft { spec: GameSpec; tags: string[] }
+/** k: preset strength (1 = full; 0.5 = the gentler retry when the full preset fails playtest). */
+interface Draft { spec: GameSpec; tags: string[]; k: number }
+
+/** Multiply by `f` at strength k (f=1.3, k=0.5 -> 1.15). */
+const mul = (d: Draft, f: number) => (v: number) => v * (1 + (f - 1) * d.k);
+/** Add `n` at strength k (rounded by the param type later). */
+const add = (d: Draft, n: number) => (v: number) => v + n * d.k;
 
 /** Scale (or set) a numeric block param, clamped to the catalog range. True when it changed. */
 function scale(d: Draft, block: string, param: string, f: (v: number) => number): boolean {
@@ -79,96 +85,124 @@ function set(d: Draft, block: string, param: string, value: unknown, only?: (par
 const has = (d: Draft, block: string) => d.spec.blocks.some((b) => b.block === block);
 const mode = (d: Draft, flag: string) => d.spec.blocks.some((b) => b.block === 'arena-move' && b.params[flag] === true);
 
-/** World physics (R2 engine): scale a numeric field when the spec has a physics world. */
-function physics(d: Draft, field: string, f: (v: number) => number, dflt: number, lo: number, hi: number): boolean {
-  const s = d.spec as unknown as { world?: { physics?: Record<string, unknown> } };
-  const ph = s.world?.physics;
-  if (!isObj(ph)) return false;
-  const cur = typeof ph[field] === 'number' ? (ph[field] as number) : dflt;
-  const next = Math.round(Math.min(hi, Math.max(lo, f(cur))) * 100) / 100;
+/** The spec's physics world when physics is on (world.physics present and not disabled). */
+function world(d: Draft): Record<string, unknown> | undefined {
+  const ph = d.spec.world?.physics as Record<string, unknown> | undefined;
+  return isObj(ph) && ph.enabled !== false ? ph : undefined;
+}
+/** Scale a numeric world.physics field (default from PHYSICS_DEFAULTS), clamped to the schema range. */
+function physics(d: Draft, field: keyof typeof PHYSICS_DEFAULTS, f: (v: number) => number): boolean {
+  const ph = world(d);
+  const lim = PHYSICS_RANGE[field];
+  if (!ph || !lim) return false;
+  const cur = typeof ph[field] === 'number' ? (ph[field] as number) : (PHYSICS_DEFAULTS[field] as number);
+  const next = Math.round(Math.min(lim[1], Math.max(lim[0], f(cur))) * 100) / 100;
   if (next === cur) return false;
   ph[field] = next;
   return true;
 }
+const PHYSICS_RANGE: Partial<Record<keyof typeof PHYSICS_DEFAULTS, [number, number]>> = {
+  gravityX: [-1500, 1500], gravityY: [-1500, 1500], restitution: [0, 1.2], friction: [0, 1], linearDamping: [0, 10],
+  angularDamping: [0, 10], playerMass: [0.25, 4], knockback: [0.25, 4], bumperKick: [0, 1500], barrelPower: [0, 2500],
+};
+const propCount = (d: Draft) => (d.spec.world?.props ?? []).reduce((n, p) => n + p.count, 0);
 
 const PRESETS: Record<TweakChip, (d: Draft) => void> = {
   'low-gravity': (d) => {
-    const g = physics(d, 'gravityScale', (v) => v * 0.4, 1, 0, 3);
-    const damp = physics(d, 'linearDamping', (v) => v * 0.35, 1, 0, 10);
-    // Without a physics world: floaty means slidey (low friction, soft acceleration, longer dashes).
-    const slide = scale(d, 'arena-move', 'friction', (v) => v * 0.5);
-    scale(d, 'arena-move', 'accel', (v) => v * 0.8);
-    scale(d, 'arena-move', 'dashMs', (v) => v * 1.25);
-    const soft = scale(d, 'race', 'stumbleSec', (v) => v * 0.6);
-    const drift = scale(d, 'dodge', 'hazardSpeed', (v) => v * 0.7);
-    if (g) d.tags.push('Gravity ×0.4');
-    else if (damp || slide || soft) d.tags.push('Floaty ↑');
+    const ph = world(d);
+    const tilted = !!ph && (Number(ph.gravityX ?? 0) !== 0 || Number(ph.gravityY ?? 0) !== 0);
+    const g = physics(d, 'gravityX', mul(d, 0.4)) || physics(d, 'gravityY', mul(d, 0.4));
+    // Top-down physics: floaty = bodies drift (low damping), players are light, spins last.
+    const damp = physics(d, 'linearDamping', mul(d, 0.3));
+    physics(d, 'angularDamping', mul(d, 0.4));
+    physics(d, 'playerMass', mul(d, 0.7));
+    // Classic movement: floaty means slidey (low friction, soft acceleration, longer dashes).
+    const slide = scale(d, 'arena-move', 'friction', mul(d, 0.5));
+    scale(d, 'arena-move', 'accel', mul(d, 0.8));
+    scale(d, 'arena-move', 'dashMs', mul(d, 1.25));
+    const soft = scale(d, 'race', 'stumbleSec', mul(d, 0.6));
+    const drift = scale(d, 'dodge', 'hazardSpeed', mul(d, 0.7));
+    if (g && tilted) d.tags.push(`Gravity ×${Math.round((1 - 0.6 * d.k) * 10) / 10}`);
+    if (damp) d.tags.push('Floaty ↑');
+    else if (slide || soft) d.tags.push('Slidey ↑');
     else if (drift) d.tags.push('Hazards drift');
   },
   faster: (d) => {
     let hit = false;
-    hit = scale(d, 'arena-move', 'speed', (v) => v * 1.3) || hit;
-    hit = scale(d, 'arena-move', 'accel', (v) => v * 1.3) || hit;
-    hit = scale(d, 'arena-move', 'dashCooldownSec', (v) => v * 0.75) || hit;
-    hit = scale(d, 'collect', 'spawnEverySec', (v) => v * 0.75) || hit;
-    hit = scale(d, 'dodge', 'hazardSpeed', (v) => v * 1.25) || hit;
-    hit = scale(d, 'dodge', 'startRate', (v) => v * 1.2) || hit;
-    hit = scale(d, 'race', 'runSpeed', (v) => v * 1.25) || hit;
-    hit = scale(d, 'race', 'mashPower', (v) => v * 1.2) || hit;
-    hit = scale(d, 'sneak', 'chaseSpeed', (v) => v * 1.2) || hit;
-    hit = scale(d, 'tug', 'rhythmBpm', (v) => v * 1.2) || hit;
-    hit = scale(d, 'trivia', 'secondsPerQuestion', (v) => v * 0.75) || hit;
-    hit = scale(d, 'draw-judge', 'drawSec', (v) => v * 0.75) || hit;
-    if (hit) d.tags.push('Speed ×1.3');
+    hit = scale(d, 'arena-move', 'speed', mul(d, 1.3)) || hit;
+    hit = scale(d, 'arena-move', 'accel', mul(d, 1.3)) || hit;
+    hit = scale(d, 'arena-move', 'dashCooldownSec', mul(d, 0.75)) || hit;
+    hit = scale(d, 'collect', 'spawnEverySec', mul(d, 0.75)) || hit;
+    hit = scale(d, 'dodge', 'hazardSpeed', mul(d, 1.25)) || hit;
+    hit = scale(d, 'dodge', 'startRate', mul(d, 1.2)) || hit;
+    hit = scale(d, 'race', 'runSpeed', mul(d, 1.25)) || hit;
+    hit = scale(d, 'race', 'mashPower', mul(d, 1.2)) || hit;
+    hit = scale(d, 'sneak', 'chaseSpeed', mul(d, 1.2)) || hit;
+    hit = scale(d, 'tug', 'rhythmBpm', mul(d, 1.2)) || hit;
+    hit = scale(d, 'trivia', 'secondsPerQuestion', mul(d, 0.75)) || hit;
+    hit = scale(d, 'draw-judge', 'drawSec', mul(d, 0.75)) || hit;
+    hit = physics(d, 'linearDamping', mul(d, 0.8)) || hit;
+    if (hit) d.tags.push(`Speed ×${Math.round((1 + 0.3 * d.k) * 100) / 100}`);
   },
   'bigger-arena': (d) => {
     let hit = false;
-    hit = scale(d, 'arena-move', 'ringRadius', (v) => v * 1.2) || hit;
-    hit = scale(d, 'arena-move', 'ringShrinkTo', (v) => v * 1.2) || hit;
-    hit = scale(d, 'arena-move', 'avatarScale', (v) => v * 0.85) || hit;
-    hit = scale(d, 'arena-move', 'paintCols', (v) => v + 4) || hit;
-    hit = scale(d, 'arena-move', 'paintRows', (v) => v + 2) || hit;
-    hit = scale(d, 'collect', 'spawnRadius', (v) => v * 1.25) || hit;
-    hit = scale(d, 'collect', 'maxItems', (v) => v + 3) || hit;
-    hit = scale(d, 'race', 'trackLength', (v) => v * 1.25) || hit;
-    hit = scale(d, 'tug', 'ropeLength', (v) => v * 1.2) || hit;
-    hit = scale(d, 'sneak', 'hearingRadius', (v) => v * 0.85) || hit;
+    hit = scale(d, 'arena-move', 'ringRadius', mul(d, 1.2)) || hit;
+    hit = scale(d, 'arena-move', 'ringShrinkTo', mul(d, 1.2)) || hit;
+    hit = scale(d, 'arena-move', 'avatarScale', mul(d, 0.85)) || hit;
+    hit = scale(d, 'arena-move', 'paintCols', add(d, 4)) || hit;
+    hit = scale(d, 'arena-move', 'paintRows', add(d, 2)) || hit;
+    hit = scale(d, 'collect', 'spawnRadius', mul(d, 1.25)) || hit;
+    hit = scale(d, 'collect', 'maxItems', add(d, 3)) || hit;
+    hit = scale(d, 'race', 'trackLength', mul(d, 1.25)) || hit;
+    hit = scale(d, 'tug', 'ropeLength', mul(d, 1.2)) || hit;
+    hit = scale(d, 'sneak', 'hearingRadius', mul(d, 0.85)) || hit;
+    for (const p of d.spec.world?.props ?? []) {
+      if (p.layout === 'ring' && p.radius !== undefined) { p.radius = Math.min(500, Math.round(p.radius * (1 + 0.2 * d.k))); hit = true; }
+    }
     if (hit) d.tags.push('Arena ↑');
   },
   bouncier: (d) => {
-    const r = physics(d, 'restitution', (v) => Math.max(v + 0.35, v * 1.6), 0.4, 0, 1.2);
-    let hit = r;
-    hit = scale(d, 'arena-move', 'dashShove', (v) => v * 1.4) || hit;
+    let hit = physics(d, 'restitution', (v) => v + Math.max(0.25, v * 0.5) * d.k);
+    hit = physics(d, 'knockback', mul(d, 1.3)) || hit;
+    hit = physics(d, 'bumperKick', mul(d, 1.3)) || hit;
+    hit = scale(d, 'arena-move', 'dashShove', mul(d, 1.4)) || hit;
     hit = set(d, 'arena-move', 'bounceWalls', true, (p) => p.ringOut !== true) || hit;
-    hit = scale(d, 'dodge', 'hitKnockback', (v) => Math.max(400, v * 1.5)) || hit;
-    hit = scale(d, 'arena-move', 'friction', (v) => v * 0.75) || hit;
+    hit = scale(d, 'dodge', 'hitKnockback', (v) => Math.max(400 * d.k, v * (1 + 0.5 * d.k))) || hit;
+    hit = scale(d, 'arena-move', 'friction', mul(d, 0.75)) || hit;
     // Lanes: springier boost pads, quicker recovery from a stumble.
-    hit = scale(d, 'race', 'padBoost', (v) => v * 1.3) || hit;
-    hit = scale(d, 'race', 'stumbleSec', (v) => v * 0.7) || hit;
+    hit = scale(d, 'race', 'padBoost', mul(d, 1.3)) || hit;
+    hit = scale(d, 'race', 'stumbleSec', mul(d, 0.7)) || hit;
     if (hit) d.tags.push('Bounce ↑');
   },
   'more-chaos': (d) => {
     let hit = false;
-    hit = scale(d, 'collect', 'maxItems', (v) => v * 1.5) || hit;
-    hit = scale(d, 'collect', 'spawnEverySec', (v) => v * 0.7) || hit;
-    hit = scale(d, 'collect', 'goldenChance', (v) => Math.max(0.2, v * 2)) || hit;
-    hit = scale(d, 'dodge', 'maxRate', (v) => v * 1.35) || hit;
-    hit = scale(d, 'dodge', 'rampPerSec', (v) => v * 1.5) || hit;
-    hit = scale(d, 'race', 'obstacleDensity', (v) => v + 0.15) || hit;
-    hit = scale(d, 'race', 'boostPads', (v) => v + 2) || hit;
-    if (mode(d, 'overload')) hit = scale(d, 'arena-move', 'overloadCores', (v) => v + 1) || hit;
-    hit = scale(d, 'arena-move', 'dashCooldownSec', (v) => v * 0.7) || hit;
-    hit = scale(d, 'arena-move', 'dashShove', (v) => v * 1.2) || hit;
-    hit = scale(d, 'sneak', 'guardCount', (v) => v + 1) || hit;
-    hit = scale(d, 'tug', 'fatigue', (v) => v * 0.5) || hit;
-    hit = physics(d, 'knockback', (v) => v * 1.3, 1, 0, 4) || hit;
+    hit = scale(d, 'collect', 'maxItems', mul(d, 1.5)) || hit;
+    hit = scale(d, 'collect', 'spawnEverySec', mul(d, 0.7)) || hit;
+    hit = scale(d, 'collect', 'goldenChance', (v) => Math.max(0.2 * d.k, v * (1 + d.k))) || hit;
+    hit = scale(d, 'dodge', 'maxRate', mul(d, 1.35)) || hit;
+    hit = scale(d, 'dodge', 'rampPerSec', mul(d, 1.5)) || hit;
+    hit = scale(d, 'race', 'obstacleDensity', add(d, 0.15)) || hit;
+    hit = scale(d, 'race', 'boostPads', add(d, 2)) || hit;
+    if (mode(d, 'overload')) hit = scale(d, 'arena-move', 'overloadCores', add(d, 1)) || hit;
+    hit = scale(d, 'arena-move', 'dashCooldownSec', mul(d, 0.7)) || hit;
+    hit = scale(d, 'arena-move', 'dashShove', mul(d, 1.2)) || hit;
+    hit = scale(d, 'sneak', 'guardCount', add(d, 1)) || hit;
+    hit = scale(d, 'tug', 'fatigue', mul(d, 0.5)) || hit;
+    hit = physics(d, 'knockback', mul(d, 1.3)) || hit;
+    // A physics arena gets explosive barrels (within the 40-prop cap).
+    if (world(d) && d.spec.arena.kind === 'topdown' && d.k >= 1 && propCount(d) + 3 <= 40 && (d.spec.world?.props?.length ?? 0) < 4
+      && !(d.spec.world?.props ?? []).some((p) => p.kind === 'barrel')) {
+      d.spec.world!.props = [...(d.spec.world!.props ?? []), { kind: 'barrel', count: 3, layout: 'scatter', respawnSec: 6 }];
+      d.tags.push('Barrels!');
+      hit = true;
+    }
     if (hit) d.tags.push('Chaos ↑');
   },
   'harder-for-leader': (d) => {
     const before = d.spec.comeback.strength;
-    d.spec.comeback = { enabled: true, strength: Math.min(1, Math.max(0.6, before + 0.25)) };
+    d.spec.comeback = { enabled: true, strength: Math.min(1, Math.max(0.6, before + 0.25 * d.k)) };
     if (mode(d, 'paint')) set(d, 'arena-move', 'paintUnderdog', true);
-    if (has(d, 'tug')) scale(d, 'tug', 'underdogBoost', (v) => Math.max(0.6, v + 0.4));
+    if (has(d, 'tug')) scale(d, 'tug', 'underdogBoost', (v) => Math.max(0.6, v + 0.4 * d.k));
     d.tags.push('Comeback ↑');
   },
 };
@@ -196,14 +230,17 @@ export function presetTweak(spec: GameSpec, chips: TweakChip[], opts: { players?
   spec: GameSpec; changes: string[]; summary: string; report: PlaytestReport;
 } | undefined {
   const list = uniq(chips).filter((c) => (TWEAK_CHIPS as readonly string[]).includes(c));
+  // Full strength first, then a gentler version, then fewer chips.
   for (let n = list.length; n > 0; n--) {
-    const d: Draft = { spec: structuredClone(spec), tags: [] };
-    for (const c of list.slice(0, n)) PRESETS[c](d);
-    if (!d.tags.length) continue;
-    const { report, spec: parsed } = runPlaytest(d.spec, opts.players ?? 4);
-    if (report.ok && parsed) {
-      const changes = uniq(d.tags).slice(0, 4);
-      return { spec: parsed, changes, summary: changes.join(', '), report };
+    for (const k of [1, 0.5]) {
+      const d: Draft = { spec: structuredClone(spec), tags: [], k };
+      for (const c of list.slice(0, n)) PRESETS[c](d);
+      if (!d.tags.length) continue;
+      const { report, spec: parsed } = runPlaytest(d.spec, opts.players ?? 4);
+      if (report.ok && parsed) {
+        const changes = uniq(d.tags).slice(0, 4);
+        return { spec: parsed, changes, summary: changes.join(', '), report };
+      }
     }
   }
   return undefined;
@@ -212,7 +249,7 @@ export function presetTweak(spec: GameSpec, chips: TweakChip[], opts: { players?
 /** JSON patch ops between two specs (shallow on blocks' params), as the AI's starting hint. */
 export function presetHint(spec: GameSpec, chips: TweakChip[]): { op: 'replace' | 'add'; path: string; value: unknown }[] {
   if (!chips.length) return [];
-  const d: Draft = { spec: structuredClone(spec), tags: [] };
+  const d: Draft = { spec: structuredClone(spec), tags: [], k: 1 };
   for (const c of uniq(chips)) PRESETS[c](d);
   const ops: { op: 'replace' | 'add'; path: string; value: unknown }[] = [];
   d.spec.blocks.forEach((b, i) => {
