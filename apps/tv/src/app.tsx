@@ -344,7 +344,11 @@ export function App() {
     clearTweakTimers();
     setEndsAt(undefined);
     rebuildAt.current = performance.now();
-    if (t.asks.length === 0) return finishTweak(t.id, { spec: t.base, summary: 'Same rules, round two!', changes: [], source: 'none' });
+    if (t.asks.length === 0) {
+      // nothing to rebuild: straight to "What changed" (no dead second on the ask screen with live chips)
+      rebuildAt.current = 0;
+      return finishTweak(t.id, { spec: t.base, summary: 'Same rules, round two!', changes: [], source: 'none' });
+    }
     dispatch({ type: 'tweakRebuild' });
     const seats = Math.min(MAX_PLAYERS, Math.max(1, s.players.length, isQuick(t.base) ? cardFor(t.base).seats : 1));
     const ok = !!s.code && room.send({
