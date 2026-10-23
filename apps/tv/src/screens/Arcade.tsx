@@ -20,7 +20,8 @@ export interface ArcadeProps {
 const artOf = (g: ArcadeGameSummary) =>
   keyArtFor({ id: g.id, theme: { palette: g.palette } as GameSpec['theme'], arena: { kind: 'topdown', width: 1, height: 1 } }, g.keyArt);
 
-const ago = (ms: number) => {
+const ago = (t: number) => {
+  const ms = t < 1e12 ? t * 1000 : t; // the backend stores epoch seconds
   const d = Math.max(0, Date.now() - ms) / 60_000;
   return d < 60 ? `${Math.max(1, Math.round(d))} min ago` : d < 1440 ? `${Math.round(d / 60)} h ago` : `${Math.round(d / 1440)} d ago`;
 };

@@ -10,7 +10,7 @@ import type { PartyState } from '../state/machine';
 
 /** Standings auto-advance after this long (OK skips). */
 export const STANDINGS_MS = 12_000;
-const ROW_H = 132;
+const ROW_H = 120;
 
 const ghost = (id: string): Player => ({ id, name: 'Player', avatar: '', isBot: false, connected: false, score: 0 });
 
@@ -37,7 +37,7 @@ export function PartyStandings({ state, status, run, next, onNext, onQuit }: Sta
   }, []);
   return (
     <section class="screen party-standings">
-      <NeonBg url={HERO.party} />
+      <NeonBg url={HERO.party} quiet />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="party-head">
         <div class="eyebrow">Party, round {run.played} of {run.rounds.length}</div>
@@ -95,7 +95,7 @@ export function PartyChampion({ state, status, run, onAgain, onLobby }: { state:
   const headline = names.length === 1 ? `${names[0]} is the champion!` : `${names.join(' & ')} share the crown!`;
   return (
     <section class="screen party-champion">
-      <NeonBg url={HERO.party} />
+      <NeonBg url={HERO.party} quiet />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="confetti" aria-hidden="true">
         {CONFETTI.map((i) => <i key={i} style={{ left: `${(i * 29) % 100}%`, animationDelay: `${0.6 + (i % 9) * 0.16}s`, ['--hue' as string]: `${[186, 312, 84, 38][i % 4]}` }} />)}
