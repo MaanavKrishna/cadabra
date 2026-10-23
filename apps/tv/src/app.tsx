@@ -200,6 +200,7 @@ export function App() {
     again.current.clear();
     setWinnerTeam(undefined);
     voice.clear();
+    setCaption(null); // the last screen's line does not follow us into the intro
     // dev only: ?dur=N shortens rounds for a quick look at the finale and results
     const dur = import.meta.env.DEV ? Number(new URLSearchParams(location.search).get('dur')) : 0;
     dispatch({ type: 'start', spec: withRoundLength(spec, dur >= 30 ? dur : durationSec ?? s.settings.roundSec), ...(art ? { art } : {}) });

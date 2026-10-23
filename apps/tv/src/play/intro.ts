@@ -1,7 +1,6 @@
 // The intro card's content: the goal as icon steps ("[ladoo] Grab ladoos -> [basket] bank them ->
 // [bear] tiptoe past the bear") and the controls as phone-button glyphs. Hand-tuned lines for the
 // built-in games, derived from the blocks for generated ones.
-import { DEFAULT_SPRITES } from '@cadabra/render';
 import type { GameSpec } from '@cadabra/spec';
 
 export interface IntroStep {
@@ -25,7 +24,7 @@ export interface Intro {
 }
 
 /** Neon glyph icons (drawn as inline SVG by the intro card): `neon:<name>`. */
-export const NEON_GLYPHS = ['ring', 'shove', 'skull', 'core', 'bomb', 'paint', 'splash', 'base', 'bolt', 'gate', 'flag', 'star'] as const;
+export const NEON_GLYPHS = ['eye', 'ring', 'shove', 'skull', 'core', 'bomb', 'paint', 'splash', 'base', 'bolt', 'gate', 'flag', 'star'] as const;
 export type NeonGlyph = (typeof NEON_GLYPHS)[number];
 const g = (n: NeonGlyph) => `neon:${n}`;
 
@@ -72,7 +71,6 @@ const LINES: Record<string, string> = {
 };
 
 const word = (s: unknown, d: string) => (typeof s === 'string' && s.trim() ? s.trim() : d);
-const art = (key: unknown): string | undefined => (typeof key === 'string' ? DEFAULT_SPRITES[key] ?? key : undefined);
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Goal steps from the blocks (generated games). */
@@ -89,15 +87,15 @@ function stepsFromBlocks(spec: GameSpec): IntroStep[] {
         break;
       case 'collect': {
         const it = word(p.itemSprite, 'item');
-        out.push({ icon: art(it) ?? g('core'), text: `Grab ${it}s` });
+        out.push({ icon: g('core'), text: `Grab ${it}s` });
         if (p.carryToGoal) out.push({ icon: g('base'), text: 'Bank them at your base' });
         break;
       }
       case 'sneak':
-        out.push({ icon: art(word(p.guardSprite, 'guard')), text: `Sneak past the ${word(p.guardSprite, 'guard')}` });
+        out.push({ icon: g('eye'), text: `Sneak past the ${word(p.guardSprite, 'guard')}` });
         break;
       case 'dodge':
-        out.push({ icon: art(word(p.hazardSprite, 'hazard')), text: `Dodge the ${word(p.hazardSprite, 'hazards')}` });
+        out.push({ icon: g('gate'), text: `Dodge the ${word(p.hazardSprite, 'hazards')}` });
         break;
       case 'race':
         out.push({ icon: g('flag'), text: 'Race to the finish' });

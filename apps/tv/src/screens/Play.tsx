@@ -94,6 +94,7 @@ export function ControlGlyph({ c }: { c: IntroControl }) {
 /** Neon line-art icons for the intro goal steps (no raster art). */
 export function NeonIcon({ name }: { name: string }) {
   const d: Record<string, JSX.Element> = {
+    eye: <><path d="M6 32q26-26 52 0q-26 26-52 0z" /><circle cx="32" cy="32" r="8" /></>,
     ring: <><circle cx="32" cy="32" r="24" /><circle cx="32" cy="32" r="12" stroke-dasharray="6 5" /></>,
     shove: <><circle cx="20" cy="32" r="9" /><path d="M32 32h22M46 24l8 8-8 8" /></>,
     skull: <><path d="M16 30a16 16 0 1 1 32 0v8h-6v8H22v-8h-6z" /><circle cx="26" cy="30" r="3" /><circle cx="38" cy="30" r="3" /></>,
