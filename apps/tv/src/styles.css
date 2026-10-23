@@ -108,7 +108,8 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
   transition: transform 0.2s var(--ease), background-color 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
 .pill-btn .icon { font-size: 30px; }
-.pill-btn.is-primary { background: rgba(255, 255, 255, 0.9); color: #0b0d16; border-color: transparent; }
+/* only the focused button is solid white; an unfocused primary is just a brighter glass pill */
+.pill-btn.is-primary { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.35); }
 .pill-btn.is-focused { background: #fff; color: #0b0d16; transform: scale(1.06); box-shadow: var(--focus-ring); }
 .pill-btn.is-disabled { opacity: 0.45; }
 .round-btn {
