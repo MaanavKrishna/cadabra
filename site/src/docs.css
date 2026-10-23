@@ -30,9 +30,9 @@ body.docs { background: radial-gradient(1000px 500px at 100% 0%, rgba(86, 58, 19
 }
 .results a { display: block; padding: 10px 12px; border-radius: 10px; text-decoration: none; }
 .results a:hover, .results a[aria-selected="true"] { background: rgba(255, 255, 255, .08); }
-.results b { display: block; font-weight: 600; font-size: 15px; }
-.results small { color: var(--faint); font-size: 12.5px; }
-.results p { margin: 4px 0 0; font-size: 13.5px; color: var(--mute); line-height: 1.45; }
+.results a > b { display: block; font-weight: 600; font-size: 15px; }
+.results a > small { color: var(--faint); font-size: 12.5px; }
+.results a > p { margin: 4px 0 0; font-size: 13.5px; color: var(--mute); line-height: 1.45; }
 .results mark { background: rgba(111, 214, 255, .22); color: #fff; border-radius: 3px; padding: 0 1px; }
 .results .none { padding: 12px; color: var(--mute); font-size: 14px; }
 
@@ -101,7 +101,7 @@ body.docs { background: radial-gradient(1000px 500px at 100% 0%, rgba(86, 58, 19
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 64px; }
 .pager a { display: block; padding: 18px 20px; border: 1px solid var(--line-2); border-radius: 14px; text-decoration: none; color: var(--ink); font-size: 17px; transition: background .18s, color .18s; }
 .pager a:hover, .pager a:focus-visible { background: #fff; color: #05060c; }
-.pager a small { display: block; color: var(--faint); font-size: 13px; }
+.pager a > small { display: block; color: var(--faint); font-size: 13px; }
 .pager .next { text-align: right; }
 .edit { margin-top: 28px; color: var(--faint); font-size: 13.5px; }
 .edit a { color: var(--mute); }

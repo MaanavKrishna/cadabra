@@ -146,10 +146,7 @@
     </div>
     <div class="tweak-copy">
       <h2 id="tweak-title" class="split">Don't like a rule? Change it from your phone.</h2>
-      <p class="intro">After every round, the phones get ten seconds to ask for something different. The AI patches the game, shows what it changed, and you play the new version.</p>
-      <ul class="ask" aria-label="Tweak chips on the phone">
-        <li>Low gravity</li><li>Faster</li><li>Bigger arena</li><li>Bouncier</li><li>More chaos</li><li>Harder for leader</li><li class="typed">or type your own</li>
-      </ul>
+      <p class="intro">After every round, the phones get ten seconds to ask for something different: tap Low gravity, Faster, Bigger arena, Bouncier, More chaos or Harder for leader, or type your own. The AI patches the game, shows what it changed, and you play the new version.</p>
       <ol class="loop">
         <li><b>10 s</b><div><strong>Ask</strong><span>Up to three requests from the room, chips or 80 typed characters, screened by Guardrails.</span></div></li>
         <li><b>~5 s</b><div><strong>Patch and playtest</strong><span>The AI edits the game spec with a JSON Patch, then bots play a full round before you see it.</span></div></li>
@@ -178,6 +175,7 @@
     <h2 id="tech-title" class="split">The AI designs. It never writes code.</h2>
     <p class="intro">A game is a <code>GameSpec</code>: data that composes nine tested blocks with a physics world and a look. The designer builds specs with tool calls, and a spec only reaches the TV after four bots finish a full round with it.</p>
     <div class="arch-scroll" tabindex="0" aria-label="Architecture diagram, scrolls sideways on small screens">{{ARCH}}</div>
+    <p class="swipe-hint">Swipe sideways to see the whole diagram.</p>
     <div class="rules">
       <div><h3>The TV is in charge</h3><p>A deterministic, seeded engine and the physics run on the stick. Phones only send inputs.</p></div>
       <div><h3>Bots test every game</h3><p>The playtest gate says exactly what failed, like "only 1 of 4 bots scored", so the model fixes it in its next call.</p></div>

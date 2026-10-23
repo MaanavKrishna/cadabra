@@ -68,18 +68,18 @@ html.pin .step-rail { display: block; }
 .ov-storm .ph.l { left: 6%; } .ov-storm .ph.r { right: 6%; } .ov-storm .ph.c { left: 43.5%; bottom: -14%; }
 .screen[data-step="storm"] .ov-storm .ph { transform: none; }
 .ov-storm .idea { position: absolute; left: var(--x); top: var(--y); padding: .5em 1em; border-radius: 999px; font-size: clamp(11px, 1.15vw, 16px); white-space: nowrap; color: #fff; background: rgba(21, 24, 39, .92); border: 1px solid rgba(255, 255, 255, .3); box-shadow: 0 0 0 1px rgba(111, 214, 255, .2), 0 12px 30px rgba(0, 0, 0, .5); opacity: 0; transform: translate(var(--fx), var(--fy)) scale(.35); transition: transform 1.1s cubic-bezier(.2, .9, .25, 1.15), opacity .4s; transition-delay: calc(var(--d) * 1ms); }
-.ov-storm .idea b { color: var(--c, var(--cyan)); font-weight: 600; margin-right: .35em; }
+.ov-storm .idea > b { color: var(--c, var(--cyan)); font-weight: 600; margin-right: .35em; }
 .screen[data-step="storm"] .ov-storm .idea { opacity: 1; transform: none; }
 .ov-label { position: absolute; left: 4%; top: 6%; font-size: clamp(14px, 1.6vw, 24px); font-weight: 300; color: #fff; }
-.ov-label small { display: block; font-size: .6em; color: var(--mute); margin-top: 2px; }
+.ov-label > small { display: block; font-size: .6em; color: var(--mute); margin-top: 2px; }
 
 /* pitches: fan out, votes fill */
 .ov-pitch .cards { position: absolute; left: 50%; top: 52%; width: 0; height: 0; }
 .ov-pitch .card { position: absolute; left: -8.5vw; top: -6.5vw; width: 17vw; margin-left: 0; padding: 14px; border-radius: 16px; background: linear-gradient(180deg, #262b4a, #161a2c); border: 1px solid rgba(255, 255, 255, .2); box-shadow: 0 24px 60px rgba(0, 0, 0, .6); transform: translate(0, 0) rotate(0) scale(.8); opacity: 0; transition: transform 1s cubic-bezier(.16, 1, .3, 1), opacity .4s, box-shadow .3s; transition-delay: calc(var(--d) * 1ms); }
 @media (min-width: 1360px) { .ov-pitch .card { left: -115px; top: -92px; width: 230px; } }
 .ov-pitch .card .art { height: 70px; border-radius: 10px; background: var(--art); margin-bottom: 10px; }
-.ov-pitch .card b { display: block; font-size: 15px; font-weight: 600; }
-.ov-pitch .card span { display: block; font-size: 12px; color: var(--mute); margin-top: 2px; }
+.ov-pitch .card > b { display: block; font-size: 15px; font-weight: 600; }
+.ov-pitch .card > span { display: block; font-size: 12px; color: var(--mute); margin-top: 2px; }
 .ov-pitch .vote { margin-top: 10px; height: 6px; border-radius: 6px; background: rgba(255, 255, 255, .1); overflow: hidden; }
 .ov-pitch .vote i { display: block; height: 100%; width: 0; border-radius: 6px; background: var(--c); transition: width 1.4s cubic-bezier(.16, 1, .3, 1); transition-delay: calc(var(--d) * 1ms + 700ms); }
 .screen[data-step="pitches"] .card { opacity: 1; transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(1); }
@@ -122,7 +122,7 @@ html.m .home .bg img.on { animation: kenburns 9s ease-out forwards; }
   .looks figure { cursor: pointer; }
   .looks img { height: 300px; aspect-ratio: auto; transition: filter .6s, opacity .6s; }
   .looks[data-on] figure:not(.on) img { opacity: .55; filter: saturate(.6); }
-  .looks figure span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .looks figcaption > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ---------- tweak lab ---------- */
@@ -131,13 +131,13 @@ html.m .home .bg img.on { animation: kenburns 9s ease-out forwards; }
 .lab-stage canvas { width: 100%; height: 100%; display: block; }
 .lab-stage .changed { position: absolute; right: 16px; top: 16px; width: min(270px, 60%); padding: 14px 16px; border-radius: 16px; background: linear-gradient(180deg, rgba(38, 43, 74, .96), rgba(22, 26, 44, .96)); border: 1px solid rgba(255, 255, 255, .22); box-shadow: 0 24px 50px rgba(0, 0, 0, .55); transform-origin: 100% 0; transform: scale(.6) translateY(-10px); opacity: 0; transition: transform .55s cubic-bezier(.2, 1.4, .4, 1), opacity .25s; }
 .lab-stage .changed.show { transform: none; opacity: 1; }
-.lab-stage .changed small { color: var(--mute); font-size: 12px; }
-.lab-stage .changed b { display: block; font-weight: 400; font-size: 18px; margin: 2px 0 8px; }
+.lab-stage .changed > small { color: var(--mute); font-size: 12px; }
+.lab-stage .changed > b { display: block; font-weight: 400; font-size: 18px; margin: 2px 0 8px; }
 .lab-stage .changed .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .lab-stage .changed .tags span { padding: 3px 10px; border-radius: 999px; font-size: 12px; background: rgba(111, 214, 255, .16); color: #bfeeff; border: 1px solid rgba(111, 214, 255, .35); }
 .lab-stage .hud { position: absolute; left: 16px; bottom: 14px; font-size: 12.5px; color: var(--mute); font-variant-numeric: tabular-nums; }
 .lab h3 { margin: 0; font-weight: 300; font-size: clamp(28px, 3.4vw, 44px); letter-spacing: -0.02em; line-height: 1.08; }
-.lab p { color: var(--mute); }
+.lab > div > p { color: var(--mute); }
 .lab .ask button { all: unset; cursor: pointer; padding: 9px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line-2); font-size: 15px; transition: background .18s, color .18s, transform .18s; }
 .lab .ask button:hover, .lab .ask button:focus-visible { background: #fff; color: #05060c; transform: scale(1.05); }
 .lab .ask button[aria-pressed="true"] { background: rgba(111, 214, 255, .18); border-color: var(--cyan); color: #fff; }
@@ -148,8 +148,8 @@ html.m .home .bg img.on { animation: kenburns 9s ease-out forwards; }
 /* ---------- numbers ---------- */
 html.m .bars .track i { width: 0; transition: width 1.3s cubic-bezier(.16, 1, .3, 1); transition-delay: calc(var(--k) * 90ms); }
 html.m .bars.in .track i { width: var(--w); }
-html.m .bars em { opacity: 0; transition: opacity .5s; transition-delay: calc(var(--k) * 90ms + 600ms); }
-html.m .bars.in em { opacity: 1; }
+html.m .bars li > em { opacity: 0; transition: opacity .5s; transition-delay: calc(var(--k) * 90ms + 600ms); }
+html.m .bars.in li > em { opacity: 1; }
 
 /* ---------- architecture ---------- */
 html.m .arch .a-edges path:not(.a-dash), html.m .arch .a-rtc { transition: stroke-dashoffset 1.6s cubic-bezier(.65, 0, .35, 1); transition-delay: calc(var(--k, 0) * 70ms); }
