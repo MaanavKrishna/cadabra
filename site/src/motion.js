@@ -196,6 +196,7 @@
     const rail = $('.step-rail i'); if (rail) rail.style.setProperty('--sp', (i + 1) / stepBtns.length);
   });
   stepBtns.forEach((b) => obs.observe(b, { attributes: true, attributeFilter: ['aria-selected'] }));
+  if (screen && !screen.dataset.step) screen.dataset.step = 'join';
 
   // ---------- scroll loop: progress bar, hero parallax, pinned steps ----------
   const bar = $('#progress');
@@ -226,10 +227,28 @@
   const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(frame); } };
   addEventListener('scroll', onScroll, { passive: true });
   addEventListener('resize', () => {
-    const want = motion && innerWidth >= 1024 && innerHeight >= 820;
+    const want = motion && innerWidth >= 900 && innerHeight >= 560;
     d.classList.toggle('pin', want);
     onScroll();
   });
+  // compact pinned layout: the stage is sized from the room left under the heading
+  const sizeHow = () => {
+    if (!d.classList.contains('pin')) return;
+    const wrap = how.querySelector('.wrap');
+    const flow = how.querySelector('.flow');
+    const head = flow.getBoundingClientRect().top - wrap.getBoundingClientRect().top;
+    how.style.setProperty('--how-head', `${Math.round(head + 28)}px`);
+  };
+  sizeHow();
+  addEventListener('resize', sizeHow);
+  // without pinning: a step activates as it crosses the middle of the viewport
+  if (motion) {
+    const stepIO = new IntersectionObserver((es) => {
+      if (d.classList.contains('pin')) return;
+      for (const e of es) if (e.isIntersecting) { const b = e.target.querySelector('button'); if (b && b.getAttribute('aria-selected') !== 'true') b.click(); }
+    }, { rootMargin: '-45% 0px -45% 0px' });
+    stepBtns.forEach((b) => stepIO.observe(b.parentElement));
+  }
   frame();
   // clicking a step while pinned scrolls to its slot, so scroll and selection agree
   if (motion) stepBtns.forEach((b, i) => b.addEventListener('click', (e) => {

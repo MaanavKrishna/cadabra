@@ -184,3 +184,31 @@ html.pin #how .flow { grid-template-columns: minmax(0, 1.9fr) minmax(260px, 1fr)
   .lab .ask { gap: 10px; }
 }
 @media (max-width: 560px) { .lab-stage { aspect-ratio: 1 / 1; } }
+
+/* compact pinned story: fits any laptop window from 560px tall */
+html.pin #how > .wrap { padding-top: 76px; padding-bottom: 16px; justify-content: center; }
+html.pin #how h2 { max-width: none; font-size: clamp(30px, min(4.4vw, 6.6vh), 68px); }
+html.pin #how .flow { margin-top: clamp(14px, 3vh, 36px); align-items: center; }
+html.pin #how .screen { width: min(100%, calc((100vh - var(--how-head, 300px) - 16px) * 16 / 9)); justify-self: start; }
+@media (max-height: 820px) {
+  html.pin #how .intro { display: none; }
+  html.pin .steps button { padding: 10px 12px; }
+  html.pin .steps .t { font-size: 18px; }
+  html.pin .steps .d { font-size: 14px; }
+  html.pin .steps button[aria-selected="true"] .d { max-height: 90px; }
+}
+@media (max-height: 680px) {
+  html.pin .steps button { padding: 7px 12px; }
+  html.pin .steps .t { font-size: 16.5px; }
+  html.pin .steps .d { display: none; }
+}
+@media (max-width: 700px) {
+  .ov-pitch .card { width: 25vw; left: -12.5vw; top: -13vw; padding: 7px; border-radius: 10px; }
+  .ov-pitch .card .art { height: 8vw; margin-bottom: 6px; border-radius: 6px; }
+  .ov-pitch .card > b { font-size: 10.5px; line-height: 1.25; }
+  .ov-pitch .card > span { display: none; }
+  .ov-pitch .vote { margin-top: 6px; height: 4px; }
+  .ov-label { font-size: 14px; }
+  .ov-storm .idea { font-size: 10.5px; }
+  .ov-forge .ticks { display: none; }
+}
