@@ -311,6 +311,7 @@ export function App() {
     busyRetried.current = false;
     focusedPitch.current = 1;
     voice.clear();
+    setCaption(null); // the lobby's welcome line does not follow us into the storm
     dispatch({ type: 'storm' });
     const end = performance.now() + STORM_SEC * 1000;
     setEndsAt(end);
