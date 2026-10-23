@@ -28,7 +28,7 @@ interface Voice {
   delay?: number;
 }
 
-export type SfxName = 'score' | 'hit' | 'whoosh' | 'win' | 'lose' | 'tick' | 'wake' | 'pass' | 'splash' | 'coin';
+export type SfxName = 'score' | 'hit' | 'whoosh' | 'win' | 'lose' | 'tick' | 'wake' | 'pass' | 'splash' | 'coin' | 'bumper' | 'boom' | 'kick' | 'crate' | 'goal';
 
 export const SFX_BANK: Record<SfxName, Voice[]> = {
   coin: [{ wave: 'square', freq: 988, arp: [[0.065, 1.335]], attack: 0.002, sustain: 0.07, decay: 0.24, punch: 0.4, duty: 0.25, vol: 0.5 }],
@@ -53,6 +53,27 @@ export const SFX_BANK: Record<SfxName, Voice[]> = {
     { wave: 'noise', freq: 1, attack: 0.05, sustain: 0.3, decay: 0.3, lp: [300, 700], vol: 0.35 },
   ],
   pass: [{ wave: 'tri', freq: 700, arp: [[0.06, 1.43]], attack: 0.002, sustain: 0.08, decay: 0.12, vol: 0.45 }],
+  // physics (round R2)
+  bumper: [
+    { wave: 'square', freq: 330, slide: 2.4, attack: 0.001, sustain: 0.05, decay: 0.16, punch: 0.5, duty: 0.4, vol: 0.4 },
+    { wave: 'sine', freq: 990, slide: 1.4, attack: 0.001, sustain: 0.03, decay: 0.14, vol: 0.3 },
+  ],
+  boom: [
+    { wave: 'noise', freq: 1, attack: 0.002, sustain: 0.12, decay: 0.7, punch: 0.8, lp: [3800, 180], vol: 0.85 },
+    { wave: 'saw', freq: 110, slide: 0.25, attack: 0.002, sustain: 0.1, decay: 0.5, lp: [1200, 200], vol: 0.55 },
+  ],
+  kick: [
+    { wave: 'sine', freq: 180, slide: 0.35, attack: 0.001, sustain: 0.03, decay: 0.12, punch: 0.6, vol: 0.7 },
+    { wave: 'noise', freq: 1, attack: 0.001, sustain: 0.01, decay: 0.05, lp: [7000, 2000], vol: 0.3 },
+  ],
+  crate: [
+    { wave: 'noise', freq: 1, attack: 0.001, sustain: 0.02, decay: 0.12, punch: 0.5, lp: [2200, 500], vol: 0.6 },
+    { wave: 'tri', freq: 240, slide: 0.6, attack: 0.001, sustain: 0.02, decay: 0.1, vol: 0.4 },
+  ],
+  goal: [
+    { wave: 'square', freq: 392, arp: [[0.09, 1.26], [0.18, 1.5], [0.27, 2]], attack: 0.004, sustain: 0.5, decay: 0.5, punch: 0.3, duty: 0.3, vol: 0.4 },
+    { wave: 'noise', freq: 1, attack: 0.15, sustain: 0.5, decay: 0.6, lp: [1600, 3200], vol: 0.22 },
+  ],
   splash: [
     { wave: 'noise', freq: 1, attack: 0.003, sustain: 0.05, decay: 0.38, punch: 0.4, lp: [5000, 400], vol: 0.6 },
     { wave: 'sine', freq: 900, slide: 0.3, attack: 0.002, sustain: 0.03, decay: 0.12, vol: 0.3 },

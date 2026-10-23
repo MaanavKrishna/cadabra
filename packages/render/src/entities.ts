@@ -1420,8 +1420,29 @@ export class EntityLayer {
     }
     const [glow, ring, face] = v.marks as [Sprite, Sprite, Sprite];
     const R = Math.max(48, e.r);
-    const pk = R * 4099 + col;
-    if (v.flags.pk !== pk) {
+    // CRATE CRASH platform zones are rectangles (hw / hh): a mat in the owner's colour, no face
+    const zone = e.props.zone === true && typeof e.props.hw === 'number';
+    const zw = num(e.props.hw, R), zh = num(e.props.hh, R);
+    const pk = R * 4099 + col + (zone ? zw * 7 + zh * 13 : 0);
+    if (zone && v.flags.pk !== pk) {
+      v.flags.pk = pk;
+      const rad = Math.min(zw, zh) * 0.22;
+      const g = v.g!.clear();
+      const L = this.L;
+      if (L.pixel) {
+        g.rect(-zw, -zh, zw * 2, zh * 2).fill({ color: col, alpha: 0.14 }).rect(-zw, -zh, zw * 2, zh * 2).stroke({ width: 6, color: col, alpha: 1 });
+      } else if (!L.additive) {
+        // toy mat: soft tint, white moulded rim, coloured edge
+        g.roundRect(-zw, -zh, zw * 2, zh * 2, rad).fill({ color: col, alpha: 0.2 })
+          .roundRect(-zw, -zh, zw * 2, zh * 2, rad).stroke({ width: 10, color: 0xffffff, alpha: 0.9 })
+          .roundRect(-zw, -zh, zw * 2, zh * 2, rad).stroke({ width: 4, color: col, alpha: 1 });
+      } else {
+        g.roundRect(-zw, -zh, zw * 2, zh * 2, rad).fill({ color: col, alpha: 0.1 })
+          .roundRect(-zw, -zh, zw * 2, zh * 2, rad).stroke({ width: 12, color: col, alpha: 0.14 })
+          .roundRect(-zw, -zh, zw * 2, zh * 2, rad).stroke({ width: 2.5, color: lighten(col, 0.6), alpha: 1 });
+      }
+    }
+    if (!zone && v.flags.pk !== pk) {
       v.flags.pk = pk;
       // pixel art has no hexagons: a square zone
       const sides = this.L.pixel ? 4 : 6, rot = this.L.pixel ? Math.PI / 4 : 0;
@@ -1446,14 +1467,16 @@ export class EntityLayer {
     const pop = this.popScale(v, c);
     v.g!.position.set(x, y);
     v.g!.scale.set(thump * pop);
-    v.g!.rotation = Math.sin(c.vt * 0.6 + e.id) * 0.05;
+    v.g!.rotation = zone ? 0 : Math.sin(c.vt * 0.6 + e.id) * 0.05;
     v.body.visible = false;
     v.shadow.visible = false;
     v.root.position.set(x, y);
     v.root.zIndex = Z_ZONE;
-    glow.visible = ring.visible = true;
+    glow.visible = true;
+    ring.visible = !zone;
     glow.position.set(x, y);
-    glow.scale.set(((R * 2.4) / 64) * thump);
+    if (zone) glow.scale.set((zw * 2.2) / 64 * thump, (zh * 2.2) / 64 * thump);
+    else glow.scale.set(((R * 2.4) / 64) * thump);
     glow.tint = col;
     glow.alpha = 0.16 + Math.sin(c.vt * 3) * 0.05 + (since < 0.4 ? 0.5 * (1 - since / 0.4) : 0);
     const ph = (c.vt * 0.7) % 1;
@@ -1461,7 +1484,7 @@ export class EntityLayer {
     ring.scale.set(((R * 1.9) / 56) * (0.7 + ph * 0.5));
     ring.tint = col;
     ring.alpha = 0.7 * (1 - ph);
-    const pl = owner ? c.players.get(owner) : undefined;
+    const pl = owner && !zone ? c.players.get(owner) : undefined;
     face.visible = !!pl;
     if (pl) {
       const ft = this.avatarTexture(pl, c);
@@ -1470,7 +1493,7 @@ export class EntityLayer {
       face.position.set(x, y + Math.sin(c.vt * 2 + e.id) * 3);
       face.alpha = 0.9;
     }
-    v.top = y - R;
+    v.top = y - (zone ? zh : R);
   }
 
   /** Everything else in neon: by art key (laser, boost, hole, finish, core, gem, ...). */
@@ -1557,14 +1580,18 @@ export class EntityLayer {
     }
   }
 
-  private propColor(key: string, e: Entity): number {
+  private propColor(key: string, e: Entity, c: FrameCtx): number {
     const C = this.C, L = this.L;
     switch (key) {
       case 'ball': return L.id === 'toybox' ? C.magenta : L.id === 'retro' ? C.white : L.id === 'cosmos' ? C.cyan : C.amber;
-      case 'crate':
+      case 'crate': {
+        // CRATE CRASH: crates wear their owner's colour
+        const owner = e.owner ?? (typeof e.props.owner === 'string' ? e.props.owner : '');
+        if (owner && c.playerIndex.has(owner)) return this.colorOf(c.players.get(owner)?.team, c.playerIndex.get(owner)!, c);
         if (L.id === 'retro') return 0xab5236;
         if (L.id === 'neon') return C.amber;
         return L.players[e.id % 4]!;
+      }
       case 'bumper': return L.id === 'neon' ? C.cyan : C.magenta;
       default: return C.red;
     }
@@ -1576,7 +1603,7 @@ export class EntityLayer {
    */
   private prop(v: View, e: Entity, x: number, y: number, c: FrameCtx, key: NeonKey): void {
     const L = this.L;
-    const col = this.propColor(key, e);
+    const col = this.propColor(key, e, c);
     const tex = this.nx!.get(key, col);
     if (v.tex !== tex) {
       v.tex = tex;
@@ -1631,6 +1658,18 @@ export class EntityLayer {
     const sq = key === 'bumper' ? 0 : wob * 0.28;
     const pulse = key === 'bumper' && t < 0.35 ? 1 + 0.28 * kk * Math.sin((t / 0.35) * Math.PI) : 1;
     v.body.scale.set(k * (1 + sq) * pulse, k * (1 - sq) * pulse);
+    // a crate knocked off its platform: debris burst, then it topples and shrinks away
+    if (key === 'crate' && (e.props.out === true || e.props.broken === true)) {
+      if (v.flags.outAt === undefined) {
+        v.flags.outAt = c.vt;
+        v.flags.debrisDone = true;
+        this.crateDebris(v, x, y, col, c);
+      }
+      const q = Math.min(1, (c.vt - num(v.flags.outAt)) / 0.7);
+      v.body.scale.set(k * (1 - 0.55 * q), k * (1 - 0.55 * q));
+      v.body.rotation += q * 1.6;
+      v.body.alpha = 1 - q * q;
+    } else v.body.alpha = 1;
     // a bumper lights up when hit (white flash: additive copy of its texture)
     if (key === 'bumper') {
       if (!v.flashS) {
@@ -1654,7 +1693,12 @@ export class EntityLayer {
           v.trailAt = c.vt;
           this.spawnTrail(v, 0xffffff);
         }
-      } else this.neonRibbon(v, x, y, (size * this.propFrac(key)) / 3.2, L.id === 'toybox' ? 0xffffff : lighten(col, 0.3), c);
+      } else {
+        // the trail takes the last toucher's colour
+        const lt = typeof e.props.lastTouch === 'string' ? e.props.lastTouch : '';
+        const tc = lt && c.playerIndex.has(lt) ? this.colorOf(c.players.get(lt)?.team, c.playerIndex.get(lt)!, c) : L.id === 'toybox' ? 0xffffff : lighten(col, 0.3);
+        this.neonRibbon(v, x, y, (size * this.propFrac(key)) / 3.2, tc, c);
+      }
       if (L.additive) {
         const gl = this.glowOf(v);
         gl.tint = col;
@@ -1694,6 +1738,32 @@ export class EntityLayer {
     return was ? 0 : best;
   }
 
+  /** A crate breaks: chunks in its colour, dust, a knock. */
+  private crateDebris(v: View, x: number, y: number, col: number, c: FrameCtx): void {
+    const L = this.L;
+    for (let i = 0; i < (c.degraded ? 5 : 10); i++) {
+      const a = Math.random() * TAU, sp = 420 * (0.5 + Math.random() * 0.7);
+      const o = this.po;
+      o.life = 0.55 + Math.random() * 0.35;
+      o.s0 = L.pixel ? 0.18 : 0.38 + Math.random() * 0.25;
+      o.tint = i % 3 === 0 ? lighten(col, 0.35) : col;
+      o.add = false;
+      o.a0 = 1;
+      o.vx = Math.cos(a) * sp;
+      o.vy = Math.sin(a) * sp;
+      o.grow = -0.4;
+      o.aspect = L.pixel ? 1 : 0.7;
+      o.spin = L.pixel ? 0 : (Math.random() - 0.5) * 18;
+      o.rot = Math.random() * TAU;
+      o.gravity = 0;
+      o.drag = 2.6;
+      this.particles.one(L.pixel ? 'px' : 'confetti', x, y, o);
+    }
+    this.particles.emit(this.dustPreset, x, y, 0.7);
+    this.onImpact?.(x, y, 0.8, 'crate');
+    void v;
+  }
+
   /** A prop left the world: crates break into debris, barrels explode, balls pop. */
   private propDeath(v: View, c: FrameCtx): void {
     const key = String(v.flags.propKey);
@@ -1720,9 +1790,7 @@ export class EntityLayer {
       }
     };
     if (key === 'crate') {
-      chunk(c.degraded ? 5 : 10, 420, col);
-      this.particles.emit(this.dustPreset, v.px, v.py, 0.7);
-      this.onImpact?.(v.px, v.py, 0.8, 'crate');
+      if (v.flags.debrisDone !== true) this.crateDebris(v, v.px, v.py, col, c);
     } else if (key === 'barrel') {
       chunk(c.degraded ? 6 : 12, 620, L.id === 'cosmos' ? 0x8a93b8 : col);
       this.particles.emit(this.sparkPreset, v.px, v.py, 1.2);
@@ -1747,6 +1815,11 @@ export class EntityLayer {
     }
     const w = num(e.props.w, e.r * 1.4), h = num(e.props.h, e.r * 3);
     const side = num(e.props.side, x < this.arenaW / 2 ? -1 : 1);
+    const hitAt = num(e.props.hitAt, -1);
+    if (hitAt > num(v.flags.netHit, -1)) {
+      if (v.flags.netHit !== undefined) v.flags.bankAt = c.vt;
+      v.flags.netHit = hitAt;
+    }
     const since = c.vt - num(v.flags.bankAt, -9);
     const rip = since < 0.8 ? Math.exp(-since * 5) * Math.sin(since * 38) : 0;
     v.root.position.set(x, y);
@@ -2209,7 +2282,11 @@ export class EntityLayer {
     // unstable cores pulse faster as the fuse runs out
     const hz = nk === 'core-unstable' ? (typeof e.props.pulseHz === 'number' && e.props.pulseHz > 0 ? e.props.pulseHz : fusePulseHz(fuseLeft(e.props, c.time))) : 0;
     const beat = hz ? 1 + 0.14 * Math.sin(c.vt * hz * TAU) : 1;
-    if (nk && nk !== 'gem') {
+    if (typeof e.props.angle === 'number' && (e.props.body === 'dynamic' || e.props.flying === true || e.props.group === 'loot')) {
+      // a physics body (a knocked-loose core rolling away, a passed core in flight): its real spin
+      v.body.scale.set(k * beat, k * beat);
+      v.body.rotation = e.props.angle;
+    } else if (nk && nk !== 'gem') {
       v.body.scale.set(k * beat, k * beat);
       v.body.rotation += c.dt * (nk === 'core' ? 0.8 : 1 + hz * 0.3);
     } else {

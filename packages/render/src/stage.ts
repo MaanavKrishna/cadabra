@@ -271,7 +271,7 @@ export class GameView {
     this.entities.onImpact = (_x, _y, p, key) => {
       if (p < 0.45 || this.rt - this.impactSfxAt < 0.12) return;
       this.impactSfxAt = this.rt;
-      sfx(key === 'bumper' ? 'pass' : 'hit');
+      sfx(key === 'bumper' ? 'bumper' : key === 'crate' ? 'crate' : 'kick');
     };
     this.hud = new Hud(this.W / this.hudScale, this.H / this.hudScale);
     this.hud.root.scale.set(this.hudScale);
@@ -730,7 +730,7 @@ export class GameView {
     this.hitStop.trigger(60);
     this.juice.apply({ kind: 'shake', strength: 0.5 * Math.min(1.2, power) });
     this.juice.apply({ kind: 'flash', color: this.look === 'toybox' ? '#FFFFFF' : '#FF5A3C' });
-    sfx('wake');
+    sfx('boom');
   }
 
   /** GOAL!: the net ripples, the camera punches toward it, a big banner drops in. */
@@ -753,7 +753,7 @@ export class GameView {
     this.cam.punch(0.07, this.tmpC.x, this.tmpC.y, 0.6);
     this.juice.apply({ kind: 'shake', strength: 0.3 });
     this.bigBanner('GOAL!', pid && snap ? this.playerTint(pid, snap) : undefined);
-    sfx('win');
+    sfx('goal');
   }
 
   private playerTint(pid: string, snap: Snapshot): number | undefined {
