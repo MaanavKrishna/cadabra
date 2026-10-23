@@ -77,6 +77,8 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 const rand = () => Math.random().toString(36).slice(2, 7);
 export const newSpecId = (title: string) => `${slug(title)}-${rand()}`;
 
+const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+
 function stamp(spec: unknown, fields: { id: string; origin: GameSpec['origin'] }): unknown {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return spec;
   const s = { ...(spec as Record<string, unknown>) };
@@ -84,10 +86,10 @@ function stamp(spec: unknown, fields: { id: string; origin: GameSpec['origin'] }
   s.id = fields.id;
   s.origin = fields.origin;
   if (s.modifiers === undefined) s.modifiers = [];
+  // the neon arcade sound set is the house style, whatever the model picked
+  if (isObj(s.theme)) s.theme = { ...s.theme, sfxSet: 'neon' };
   return s;
 }
-
-const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 
 /** Progress label for the Forge animation, from the tool being run. */
 function progressLabel(name: string, input: unknown, state: ToolState): string {
@@ -104,7 +106,7 @@ function progressLabel(name: string, input: unknown, state: ToolState): string {
     case 'patch_spec': {
       const spec = isObj(state.current) ? state.current : undefined;
       const blocks = Array.isArray(spec?.blocks) ? (spec.blocks as { params?: Record<string, unknown> }[]) : [];
-      const sprites = blocks.flatMap((b) => [b.params?.guardSprite, b.params?.hazardSprite, b.params?.itemSprite])
+      const sprites = blocks.flatMap((b) => [b.params?.guardSprite, b.params?.hazardSprite, b.params?.itemSprite, b.params?.obstacleSprite])
         .filter((x): x is string => typeof x === 'string');
       const ops = isObj(input) && Array.isArray(input.patch) ? (input.patch as { path?: string }[]) : [];
       const paths = ops.map((o) => String(o.path ?? '')).join(' ');
@@ -263,10 +265,11 @@ export async function screenSpec(spec: GameSpec, familySafe: boolean, deadline: 
 
 // ---------------------------------------------------------------- pitches
 
+/** Neon arcade palettes (deep navy + neon), rotated across the hand-made pitches. */
 const FALLBACK_PALETTES: Pitch['palette'][] = [
-  { bg: '#1a1033', primary: '#ff6b9d', accent: '#4cc9f0', glow: '#ffd166', text: '#fff8f0' },
-  { bg: '#0f2027', primary: '#2ec4b6', accent: '#ff9f1c', glow: '#cbf3f0', text: '#f7fff7' },
-  { bg: '#2b1a12', primary: '#ff9f1c', accent: '#e63946', glow: '#ffd166', text: '#fff6e5' },
+  { bg: '#0A0E27', primary: '#00E5FF', accent: '#FF2BD6', glow: '#B6FF3B', text: '#F4F7FF' },
+  { bg: '#0A0E27', primary: '#B6FF3B', accent: '#00E5FF', glow: '#FFB020', text: '#F4F7FF' },
+  { bg: '#0A0E27', primary: '#FF2BD6', accent: '#FFB020', glow: '#00E5FF', text: '#F4F7FF' },
 ];
 
 /** `p`, or `fallback` if it hasn't settled within `ms`. */
@@ -285,21 +288,21 @@ const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1)
 /** Hand-made pitches from the ingredients, for slots the model left empty or broken. */
 export function fallbackPitches(ingredients: string[]): Pitch[] {
   const ing = ingredients.map((i) => i.trim()).filter(Boolean);
-  const a = ing[0] ?? 'snack';
-  const b = ing[1] ?? 'grumpy cat';
+  const a = ing[0] ?? 'star';
+  const b = ing[1] ?? 'comet';
   const c = ing[2] ?? a;
   const mk = (title: string, hook: string, art: string, blocksSketch: string[], i: number): Pitch => ({
     id: `p-${rand()}`,
     title: clip(titleCase(title), 40),
     hook: clip(hook, 120),
-    keyArtPrompt: clip(`${art}, bright bold cartoon, no text`, 600),
+    keyArtPrompt: clip(`${art}, glowing neon vector arcade style on a deep navy void, no text`, 600),
     palette: FALLBACK_PALETTES[i % FALLBACK_PALETTES.length]!,
     blocksSketch,
   });
   return [
-    mk(`${a} heist`, `Sneak past the ${b}. Grab the ${a}. Don't get caught.`, `A sleeping ${b} guarding a mountain of ${a}`, ['sneak', 'collect'], 0),
-    mk(`${c} panic`, `${titleCase(c)} chaos: grab, dodge, and never stop moving.`, `Players scrambling for ${a} while ${c} rains from the sky`, ['arena-move', 'collect', 'dodge'], 1),
-    mk(`${b} tug`, `Two teams, one rope, one very confused ${b}.`, `Two teams pulling a rope over a ${b}`, ['tug'], 2),
+    mk(`${a} ring out`, `A floating ${a}-shaped neon ring is crumbling. Dash rivals off the edge.`, `A floating neon ring platform shaped like a ${a}, edge tiles breaking into sparks, light-trail avatars colliding`, ['arena-move'], 0),
+    mk(`${b} core rush`, `Carry glowing ${b} cores to your base. Dash carriers to knock them loose.`, `Glowing ${b}-shaped energy cores between a cyan base and a magenta base, light-trail avatars racing`, ['arena-move', 'collect'], 1),
+    mk(`${c} laser dash`, `A four-lane light race through ${c} laser gates. Mash, jump the live ones, win.`, `Four neon racing lanes with pulsing ${c}-shaped laser gates and a bright finish line`, ['race'], 2),
   ];
 }
 

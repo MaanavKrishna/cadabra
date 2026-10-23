@@ -25,7 +25,7 @@ export async function themedFallback(pitch: Pitch, opts: {
   /** Players in the round including bots (2..4, default 4). */
   seats?: number;
 } = {}): Promise<GameSpec> {
-  const base = pickFallback(pitch.blocksSketch, { seats: opts.seats });
+  const base = pickFallback(pitch.blocksSketch, { seats: opts.seats, hint: `${pitch.title} ${pitch.hook}` });
   const id = newSpecId(pitch.title);
   const themed = reskinFallback(base, pitch, { id, ingredients: opts.ingredients });
   const text = [

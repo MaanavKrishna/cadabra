@@ -36,12 +36,22 @@ export function fallbackById(id: string): GameSpec | undefined {
 
 const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`);
 
+/** Pitch words that point at one neon mode (breaks block-overlap ties: three games are arena-move only). */
+const MODE_WORDS: readonly [string, RegExp][] = [
+  ['fallback-overload', /\b(overload|hot ?potato|bomb|fuse|tag|pass|explod\w*|detonat\w*|unstable)\b/i],
+  ['fallback-paint-wars', /\b(paint\w*|colou?r\w*|territor\w*|splat\w*|splash\w*|graffiti|tiles?)\b/i],
+  ['fallback-neon-dash', /\b(race|racing|lane|lanes|run|sprint|finish|laser)\b/i],
+  ['fallback-core-rush', /\b(carry|heist|steal\w*|bank|base|capture|grab|loot|rush|cores?)\b/i],
+  ['fallback-ring-out', /\b(ring|sumo|shove|push|knock\w*|edge|arena|bump\w*|crumbl\w*)\b/i],
+];
+
 /**
- * Fallback whose blocks best overlap `blocksSketch` (Jaccard; ties keep library order).
- * `seats` = players in the round including bots (default 4). Team games (tug) only pass the bot
+ * Fallback whose blocks best overlap `blocksSketch` (Jaccard), with `hint` (pitch title + hook)
+ * nudging toward the mode its words name; ties keep library order.
+ * `seats` = players in the round including bots (default 4). Team games only pass the bot
  * playtest as 2 vs 2, so they are skipped for fewer seats.
  */
-export function pickFallback(blocksSketch: readonly string[], opts: { seats?: number } = {}): GameSpec {
+export function pickFallback(blocksSketch: readonly string[], opts: { seats?: number; hint?: string } = {}): GameSpec {
   const seats = opts.seats ?? 4;
   const want = new Set(blocksSketch);
   let best = FALLBACK_SPECS[0]!;
@@ -51,7 +61,9 @@ export function pickFallback(blocksSketch: readonly string[], opts: { seats?: nu
     const have = new Set(spec.blocks.map((b) => b.block));
     const inter = [...have].filter((b) => want.has(b)).length;
     const union = new Set([...have, ...want]).size;
-    const score = union ? inter / union : 0;
+    let score = union ? inter / union : 0;
+    const words = MODE_WORDS.find(([id]) => id === spec.id)?.[1];
+    if (opts.hint && words?.test(opts.hint)) score += 0.3;
     if (score > bestScore) { best = spec; bestScore = score; }
   }
   return best;

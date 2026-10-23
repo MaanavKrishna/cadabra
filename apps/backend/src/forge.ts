@@ -240,7 +240,7 @@ export async function runForge(job: ForgeJob, deps: ForgeDeps): Promise<ForgeRes
         .catch((e: unknown) => {
           // Reskin failed: the plain prebuilt game is still playable.
           log('themed fallback failed', (e as Error)?.message);
-          const spec = structuredClone(pickFallback(pitches[i]!.blocksSketch, { seats })) as GameSpec;
+          const spec = structuredClone(pickFallback(pitches[i]!.blocksSketch, { seats, hint: `${pitches[i]!.title} ${pitches[i]!.hook}` })) as GameSpec;
           spec.id = newSpecId(spec.title);
           return spec;
         })

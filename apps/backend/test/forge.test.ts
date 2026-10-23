@@ -29,7 +29,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PITCHES: Pitch[] = [
   { id: 'pa', title: 'Samosa Heist', hook: 'Sneak samosas past a grumpy cat.', keyArtPrompt: 'cat and samosas, no text', palette: FALLBACK_SPECS[0]!.theme.palette, blocksSketch: ['sneak', 'collect'] },
   { id: 'pb', title: 'Jelly Panic', hook: 'Grab jelly, dodge falling spoons.', keyArtPrompt: 'jelly rain, no text', palette: FALLBACK_SPECS[1]!.theme.palette, blocksSketch: ['arena-move', 'collect', 'dodge'] },
-  { id: 'pc', title: 'Goat Tug', hook: 'Two teams, one rope, one goat.', keyArtPrompt: 'goat on a rope, no text', palette: FALLBACK_SPECS[2]!.theme.palette, blocksSketch: ['tug'] },
+  { id: 'pc', title: 'Goat Paint Wars', hook: 'Two teams paint the grid in glowing goat colours.', keyArtPrompt: 'neon goat-horn tiles, no text', palette: FALLBACK_SPECS[2]!.theme.palette, blocksSketch: ['arena-move'] },
 ];
 const aiSpec = (p: Pitch): GameSpec => ({ ...structuredClone(FALLBACK_SPECS[0]!), id: `ai-${p.id}`, title: p.title });
 
@@ -173,8 +173,8 @@ describe('forge orchestration', () => {
     await h.run();
     const r = posts(h.log, 'forge.ready').find((e) => (e.msg as any).pitchId === 'pc')!.msg as any;
     expect(r.fallback).toBe(true);
-    expect(r.spec.title).toBe('Goat Tug');
-    expect(r.spec.blocks[0].block).toBe('tug');
+    expect(r.spec.title).toBe('Goat Paint Wars');
+    expect(r.spec.blocks[0].params.paint).toBe(true);
     expect(r.spec.theme.palette).toEqual(PITCHES[2]!.palette);
     expect(runPlaytest(r.spec, 4).report.ok).toBe(true);
     expect(BackendToClientSchema.safeParse(r).success).toBe(true);
@@ -196,16 +196,20 @@ describe('forge orchestration', () => {
       }
     }
     expect(pickFallback(['tug'], { seats: 2 }).teams).toBe(0);
-    expect(pickFallback(['tug']).id).toBe('fallback-bear-tug');
-    expect(pickFallback(['arena-move', 'dodge']).id).toBe('fallback-lava-penguins');
-    expect(pickFallback(['sneak', 'collect']).id).toBe('fallback-ladoo-heist');
-    expect(pickFallback(['trivia']).id).toBe('fallback-ladoo-heist');
+    expect(pickFallback(['arena-move']).id).toBe('fallback-ring-out');
+    expect(pickFallback(['arena-move'], { hint: 'Hot potato: pass the unstable core' }).id).toBe('fallback-overload');
+    expect(pickFallback(['arena-move'], { hint: 'Paint the floor your colour' }).id).toBe('fallback-paint-wars');
+    expect(pickFallback(['arena-move'], { hint: 'Paint the floor your colour', seats: 2 }).teams).toBe(0);
+    expect(pickFallback(['arena-move', 'dodge']).id).toBe('fallback-ring-out');
+    expect(pickFallback(['sneak', 'collect']).id).toBe('fallback-core-rush');
+    expect(pickFallback(['race']).id).toBe('fallback-neon-dash');
+    expect(pickFallback(['trivia']).id).toBe('fallback-ring-out');
   });
 
   test('themed fallback uses generic text when screening blocks the pitch', async () => {
     const bad: Pitch = { ...PITCHES[0]!, title: 'BADWORD Heist' };
     const spec = await themedFallback(bad, { ingredients: ['samosa'], familySafe: true });
-    expect(spec.title).toBe(FALLBACK_SPECS[0]!.title);
+    expect(spec.title).toBe('CORE RUSH');
     expect(JSON.stringify(spec)).not.toContain('BADWORD');
     expect(spec.theme.palette).toEqual(bad.palette);
   });
