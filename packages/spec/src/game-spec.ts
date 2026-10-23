@@ -12,12 +12,67 @@ export const NEON_EXTRA = { amber: '#FFB020', red: '#FF3355' } as const;
 /** Entity art keys the neon renderer draws procedurally. */
 export const NEON_ART_KEYS = ['player', 'gem', 'core', 'core-unstable', 'spike', 'laser', 'boost', 'base', 'tile', 'hole', 'finish'] as const;
 
+/**
+ * Procedural art themes the TV renderer draws (packages/render). Pick the one that fits the
+ * ingredients: neon = glowing vector arcade on deep navy; toybox = glossy plastic toys, bright
+ * primaries on a light floor (lego, toys, food, animals, sports); cosmos = deep space, starfield,
+ * nebula, astronaut orbs (space, aliens, planets, magic, night); retro = crisp pixel-art CRT arcade
+ * (8-bit, arcade, robots, dungeons, classic games).
+ */
+export const THEME_LOOKS = ['neon', 'toybox', 'cosmos', 'retro'] as const;
+export type ThemeLook = (typeof THEME_LOOKS)[number];
+export const SFX_SETS = ['neon', 'toybox', 'cosmos', 'retro', 'arcade', 'cartoon', 'spooky', 'scifi', 'nature'] as const;
+
+/** Default palette per look (the AI may re-tint; keep bg dark for neon/cosmos/retro, light for toybox). */
+export const THEME_PALETTES: Readonly<Record<ThemeLook, { bg: Hex; primary: Hex; accent: Hex; glow: Hex; text: Hex }>> = {
+  neon: { bg: '#0A0E27', primary: '#00E5FF', accent: '#FF2BD6', glow: '#B6FF3B', text: '#F4F7FF' },
+  toybox: { bg: '#F3EEE4', primary: '#1E6BFF', accent: '#FF3B30', glow: '#FFC400', text: '#1B1F3B' },
+  cosmos: { bg: '#070B1F', primary: '#7C5CFF', accent: '#FF7A59', glow: '#5CF2E6', text: '#EEF0FF' },
+  retro: { bg: '#141021', primary: '#3EE0A0', accent: '#FF4F6D', glow: '#FFD23F', text: '#F7F1E3' },
+};
+
 export interface Theme {
   palette: { bg: Hex; primary: Hex; accent: Hex; glow: Hex; text: Hex };
   artStyle: string;
   keyArtPrompt: string;
   sprites: Record<string, string>; // spriteKey -> prompt
-  sfxSet: 'neon' | 'arcade' | 'cartoon' | 'spooky' | 'scifi' | 'nature';
+  sfxSet: (typeof SFX_SETS)[number];
+  /** Procedural art theme (default neon). */
+  look?: ThemeLook;
+}
+
+/** Physics props the runtime spawns (planck.js rigid bodies). */
+export const PROP_KINDS = ['ball', 'crate', 'bumper', 'barrel'] as const;
+export type PropKind = (typeof PROP_KINDS)[number];
+
+export interface WorldPhysics {
+  enabled?: boolean;
+  gravityX?: number;
+  gravityY?: number;
+  restitution?: number;
+  friction?: number;
+  linearDamping?: number;
+  angularDamping?: number;
+  playerMass?: number;
+  spin?: boolean;
+  knockback?: number;
+  walls?: boolean;
+  bumperKick?: number;
+  barrelPower?: number;
+}
+
+export interface WorldProp {
+  kind: PropKind;
+  count: number;
+  layout?: 'scatter' | 'center' | 'ring' | 'edges' | 'corners';
+  size?: number;
+  radius?: number;
+  respawnSec?: number;
+}
+
+export interface WorldSpec {
+  physics?: WorldPhysics;
+  props?: WorldProp[];
 }
 
 export interface BlockUse { block: string; params: Record<string, unknown> }
@@ -46,6 +101,8 @@ export interface GameSpec {
   controller: ControlWidget[];
   host: { intro: string; finale: string; tutorial: string };
   origin: { ingredients: string[]; parentId?: string; wild: boolean };
+  /** Rigid-body physics and physics props (optional; absent = classic arcade movement). */
+  world?: WorldSpec;
 }
 
 export interface Pitch {
@@ -66,8 +123,67 @@ export const ThemeSchema: z.ZodType<Theme> = z.object({
   artStyle: z.string().min(1).max(120),
   keyArtPrompt: z.string().min(1).max(600),
   sprites: z.record(z.string(), z.string().min(1).max(300)),
-  sfxSet: z.enum(['neon', 'arcade', 'cartoon', 'spooky', 'scifi', 'nature']),
-});
+  sfxSet: z.enum(SFX_SETS),
+  look: z.enum(THEME_LOOKS).optional(),
+}) as unknown as z.ZodType<Theme>;
+
+/** Defaults for every `world.physics` field (top-down: no gravity). */
+export const PHYSICS_DEFAULTS: Required<WorldPhysics> = {
+  enabled: true,
+  gravityX: 0,
+  gravityY: 0,
+  restitution: 0.6,
+  friction: 0.3,
+  linearDamping: 1.2,
+  angularDamping: 1.5,
+  playerMass: 1,
+  spin: true,
+  knockback: 1,
+  walls: true,
+  bumperKick: 520,
+  barrelPower: 900,
+};
+
+export const WorldPhysicsSchema: z.ZodType<WorldPhysics> = z.object({
+  enabled: z.boolean().optional().describe('Rigid-body physics on (default true when world.physics is present). Players become round bodies; bumps transfer momentum and spin.'),
+  gravityX: z.number().min(-1500).max(1500).optional().describe('Sideways pull on loose props (ball, crates, barrels) in px/s² (top-down default 0). Non-zero tilts the arena: things slide that way; players feel a gentle drift.'),
+  gravityY: z.number().min(-1500).max(1500).optional().describe('Downward (+) / upward (-) pull on loose props in px/s² (top-down default 0). E.g. 400 = a sloped table everything rolls down.'),
+  restitution: z.number().min(0).max(1.2).optional().describe('Bounciness of every body and wall: 0 = dead thud, 0.6 = default, 1 = superball, >1 = pinball chaos.'),
+  friction: z.number().min(0).max(1).optional().describe('Contact friction: how much grazing hits make things spin and drag along walls (0 = ice, 1 = rubber).'),
+  linearDamping: z.number().min(0).max(10).optional().describe('How fast loose props slow down (0 = slide forever / floaty low-gravity feel, 1.2 = default, 5 = mud). Also scales how long knocked players slide.'),
+  angularDamping: z.number().min(0).max(10).optional().describe('How fast spinning stops (0 = spins forever).'),
+  playerMass: z.number().min(0.25).max(4).optional().describe('Player body mass relative to a crate (1). Heavy players bulldoze props and shrug off knockback; light players fly.'),
+  spin: z.boolean().optional().describe('Bodies rotate and spin on grazing hits (false = fixed rotation).'),
+  knockback: z.number().min(0.25).max(4).optional().describe('Multiplier on every player knock: bumps, dash shoves, bumper kicks and barrel blasts (2 = twice the chaos).'),
+  walls: z.boolean().optional().describe('Arena edges are solid bouncy walls for props (false = props can leave the arena).'),
+  bumperKick: z.number().min(0).max(1500).optional().describe('Extra px/s a pinball bumper fires anything that hits it.'),
+  barrelPower: z.number().min(0).max(2500).optional().describe('Blast strength of an explosive barrel (px/s at the centre, falling off to 0 at 220 px).'),
+}) as unknown as z.ZodType<WorldPhysics>;
+
+export const WorldPropSchema: z.ZodType<WorldProp> = z.object({
+  kind: z.enum(PROP_KINDS).describe('ball = round bouncy body; crate = box that slides, rotates and spins; bumper = static pinball bumper that kicks; barrel = explodes with a radial blast when dashed into or slammed.'),
+  count: z.number().int().min(1).max(12).describe('How many (all props together at most 40).'),
+  layout: z.enum(['scatter', 'center', 'ring', 'edges', 'corners']).optional().describe('Where they spawn: scatter (random, default), center (clustered in the middle), ring (evenly on a circle of `radius` around the centre), edges (along the walls), corners.'),
+  size: z.number().min(0.5).max(2.5).optional().describe('Size multiplier (1 = about a player).'),
+  radius: z.number().min(40).max(500).optional().describe('ring layout: circle radius in px (default 200).'),
+  respawnSec: z.number().min(0).max(30).optional().describe('Barrels/balls that explode or leave come back at their spawn after this many seconds (0 = never; default 6).'),
+}) as unknown as z.ZodType<WorldProp>;
+
+export const WorldSpecSchema: z.ZodType<WorldSpec> = z.object({
+  physics: WorldPhysicsSchema.optional(),
+  props: z.array(WorldPropSchema).max(4).optional(),
+}) as unknown as z.ZodType<WorldSpec>;
+
+/** world.physics with defaults filled in, or undefined when physics is off. */
+export function resolvePhysics(spec: Pick<GameSpec, 'world'>, force = false): Required<WorldPhysics> | undefined {
+  const p = spec.world?.physics;
+  const on = p ? p.enabled !== false : force || (spec.world?.props?.length ?? 0) > 0;
+  if (!on) return undefined;
+  const out = { ...PHYSICS_DEFAULTS } as Record<string, unknown>;
+  for (const [k, v] of Object.entries(p ?? {})) if (v !== undefined) out[k] = v;
+  out.enabled = true;
+  return out as Required<WorldPhysics>;
+}
 
 const params = z.record(z.string(), z.unknown());
 const BlockUseSchema: z.ZodType<BlockUse> = z.object({ block: z.string().min(1), params });
@@ -122,8 +238,11 @@ export const GameSpecSchema = z
       parentId: z.string().optional(),
       wild: z.boolean(),
     }),
+    world: WorldSpecSchema.optional(),
   })
   .superRefine((spec, ctx) => {
+    const props = (spec.world?.props ?? []).reduce((n, p) => n + p.count, 0);
+    if (props > 40) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'props'], message: `at most 40 props in total (got ${props})` });
     spec.timeline.forEach((ev, i) => {
       if (ev.atSec >= spec.durationSec) {
         ctx.addIssue({
