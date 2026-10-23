@@ -232,6 +232,7 @@ export async function design(p: Pitch, ctx: {
         progress(progressLabel(name, tu.input, state));
         const r = runTool(name, tu.input, state);
         toolCalls++;
+        if (process.env.CADABRA_DEBUG) log(`turn ${turn} ${name} ${r.status}`, r.status === 'error' ? JSON.stringify(r.result).slice(0, 600) : '');
         if (r.submitted) return await finish(r.submitted);
         const block: ToolResultBlock = {
           toolUseId: tu.toolUseId!,
@@ -239,6 +240,11 @@ export async function design(p: Pitch, ctx: {
           status: r.status,
         };
         results.push({ toolResult: block });
+      }
+      // The latest spec just passed the bot playtest: that is the submission (saves a model round trip).
+      if (state.passing && state.passing.from === state.current) {
+        progress('Final bot playtest');
+        return await finish(state.passing);
       }
       messages.push({ role: 'user', content: results });
       overdue();

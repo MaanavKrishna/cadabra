@@ -69,7 +69,7 @@ describe('designer', () => {
     const { c, steps } = ctx();
     const r = await design(P, c);
     expect(r.report.ok).toBe(true);
-    expect(r.toolCalls).toBe(3);
+    expect(r.toolCalls).toBe(2); // a passing playtest of the latest spec is the submission
     expect(r.spec.title).toBe('Ladoo Heist');
     expect(r.spec.origin).toEqual({ ingredients: ['ladoo', 'sleeping bear'], wild: false });
     expect(r.spec.id).toMatch(/^ladoo-heist-/);
@@ -100,7 +100,7 @@ describe('designer', () => {
     expect(seen).toContain('missing controller widget for sneak');
     expect(r.report.ok).toBe(true);
     expect(r.spec.controller.some((w) => w.id === 'tiptoe')).toBe(true);
-    expect(r.toolCalls).toBe(4);
+    expect(r.toolCalls).toBe(3);
     expect(steps).toContain('Wiring the controllers');
   });
 
@@ -174,8 +174,8 @@ describe('designer', () => {
   test('cachePoint rejected once: caching off for the retry and every later turn', async () => {
     script.push(
       () => { throw awsErr('ValidationException', 'cachePoint is not supported for this model'); },
-      reply(tool('playtest_spec', { spec: heistBody })),
-      reply(tool('submit_spec')),
+      reply(tool('playtest_spec', { spec: noTiptoe })),
+      reply(tool('patch_spec', { patch: [{ op: 'add', path: '/controller/-', value: { kind: 'hold', id: 'tiptoe', label: 'Tiptoe' } }] }), tool('playtest_spec')),
     );
     const r = await design(P, ctx().c);
     expect(r.report.ok).toBe(true);
