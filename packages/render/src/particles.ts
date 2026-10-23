@@ -77,10 +77,23 @@ export class ParticleSystem {
   }
 
   /** Emit a named preset; `scale` multiplies the count. Returns particles granted. */
+  /**
+   * Most additive particles started per frame (neon: caps the overdraw brightness when several
+   * bursts land on one cluster in the same frame). Infinity = off.
+   */
+  additiveFrameCap = Infinity;
+  private addedThisFrame = 0;
+
   emit(preset: string, x: number, y: number, scale = 1, dir?: number): number {
     const P = PARTICLE_PRESETS[preset];
     if (!P) return 0;
-    const n = this.budget.request(Math.max(1, Math.round(P.count * scale)));
+    let want = Math.max(1, Math.round(P.count * scale));
+    if (P.additive) {
+      want = Math.min(want, Math.max(0, this.additiveFrameCap - this.addedThisFrame));
+      if (want === 0) return 0;
+    }
+    const n = this.budget.request(want);
+    if (P.additive) this.addedThisFrame += n;
     for (let i = 0; i < n; i++) this.spawn(P, x, y, dir);
     return n;
   }
@@ -149,6 +162,7 @@ export class ParticleSystem {
   }
 
   update(dt: number): void {
+    this.addedThisFrame = 0;
     const L = this.live;
     let dead = 0;
     for (let i = L.length - 1; i >= 0; i--) {

@@ -33,7 +33,7 @@ export const NEON_THEME: Theme = {
   artStyle: 'neon arcade',
   keyArtPrompt: 'neon arcade arena, glowing cyan and magenta outlines on deep navy',
   sprites: {},
-  sfxSet: 'arcade',
+  sfxSet: 'neon',
 };
 
 /** Art keys the neon renderer draws (contract with the engine specs, Task N2). */

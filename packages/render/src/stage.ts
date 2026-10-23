@@ -99,6 +99,8 @@ interface Float {
   pid: string;
   big: boolean;
   live: boolean;
+  /** Stack slot (0 = at the head): concurrent popups near one spot take different slots. */
+  slot: number;
 }
 
 /** Pulls only the new GameEvents from a runtime each frame (hosts: `feed.next(rt)`). */
@@ -249,6 +251,7 @@ export class GameView {
     setTextResolution(Math.max(this.hudScale, 1.4));
     this.store = new TextureStore();
     this.particles = new ParticleSystem(this.store, this.budget);
+    if (this.neon) this.particles.additiveFrameCap = 28;
     if (this.neon) this.nart = new NeonArt();
     this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH, this.nart);
     this.hud = new Hud(this.W / this.hudScale, this.H / this.hudScale);
@@ -310,6 +313,8 @@ export class GameView {
     this.rect = arenaRect(this.W, this.H, this.arenaW, this.arenaH);
     this.world.scale.set(this.rect.k);
     this.world.position.set(this.rect.x, this.rect.y);
+    // neon bodies are at least ~72 px across on a 1080p screen, whatever the engine radius
+    if (this.entities) this.entities.minBody = this.neon ? (72 * (this.H / 1080)) / this.rect.k : 0;
   }
 
   /**
@@ -534,12 +539,12 @@ export class GameView {
         this.ring(x, y, 0.3, 1.8, acc);
         break;
       case 'hit':
-        P.emit('nspark', x, y, 0.8);
+        P.emit('nspark', x, y, 0.5);
         this.ring(x, y, 0.3, 2, NEON.red);
         break;
       case 'blast':
-        P.emit('nboom', x, y);
-        P.emit('nlines', x, y, 0.6);
+        P.emit('nboom', x, y, 0.7);
+        P.emit('nlines', x, y, 0.4);
         this.ring(x, y, 0.55, 5.5, 0xffffff);
         this.ring(x, y, 0.7, 4, NEON.red);
         this.juice.apply({ kind: 'flash', color: '#FF3355' });
@@ -696,6 +701,10 @@ export class GameView {
     return t;
   }
 
+  private slotH(): number {
+    return (this.neon ? 60 : 46) * this.hudScale;
+  }
+
   private spawnFloat(text: string, color: number, x: number, y: number, pid: string, big: boolean): void {
     let f: Float | undefined;
     for (const o of this.floats) if (!o.live) f = o;
@@ -705,7 +714,7 @@ export class GameView {
         for (const o of this.floats) if (o.at < f.at) f = o;
         f.t.visible = false;
       } else {
-        f = { t: undefined as unknown as Text, str: '', at: 0, x: 0, y: 0, pid: '', big: false, live: false };
+        f = { t: undefined as unknown as Text, str: '', at: 0, x: 0, y: 0, pid: '', big: false, live: false, slot: 0 };
         this.floats.push(f);
       }
     }
@@ -716,10 +725,15 @@ export class GameView {
     f.t.scale.set(0);
     f.at = this.vt;
     f.x = x;
-    // stack popups that land on the same spot at the same time
-    let dy = 0;
-    for (const o of this.floats) if (o !== f && o.live && Math.abs(o.x - x) < 80 && this.vt - o.at < 0.3) dy += (this.neon ? 58 : 46) * this.hudScale;
-    f.y = y - dy;
+    y = Math.max(y, 120 * this.hudScale); // room to rise without leaving the screen
+    // stack popups near the same spot into slots: a live neighbour's slot is taken, use the lowest free one
+    let used = 0;
+    for (const o of this.floats) if (o !== f && o.live && Math.abs(o.x - x) < 260 && Math.abs(o.y - y) < 160 + o.slot * this.slotH()) used |= 1 << o.slot;
+    let slot = 0;
+    while (used & (1 << slot) && slot < 6) slot++;
+    f.slot = slot;
+    // near the top edge the stack grows downward so nothing is pushed off screen
+    f.y = y < this.H * 0.3 ? y + slot * this.slotH() : y - slot * this.slotH();
     f.pid = pid;
     f.big = big;
     f.live = true;

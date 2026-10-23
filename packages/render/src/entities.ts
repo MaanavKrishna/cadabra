@@ -88,6 +88,10 @@ interface Ribbon {
   color: number;
 }
 const RIB_N = 10;
+/** Share of a neon player texture the body fills (squircle ~80 of 128 px). */
+const BODY_FRAC = 0.625;
+/** Neon name plates: max characters shown in play (the HUD chips carry full names). */
+const PLATE_CHARS = 7;
 const RIB_EVERY = 0.028;
 
 interface Trail {
@@ -194,6 +198,10 @@ export class EntityLayer {
   private tileLayer = new Container();
   private finishS: Sprite[] = [];
   private readonly look = { x: 0, y: 0 };
+  /** Neon: minimum body diameter in world px (the stage sets it from the screen scale). */
+  minBody = 0;
+  /** Neon avatar views with a plate this frame (de-overlap pass; reused, no allocation). */
+  private plated: View[] = [];
 
   /** `neon` (task N1): procedural neon sprite set instead of the art pack. */
   constructor(private readonly store: TextureStore, private readonly particles: ParticleSystem, private arenaW: number, private arenaH: number, private readonly nx?: NeonArt) {
@@ -364,6 +372,7 @@ export class EntityLayer {
 
   sync(entities: Entity[], pos: (e: Entity) => { x: number; y: number }, c: FrameCtx): void {
     const frame = ++this.frameNo;
+    this.plated.length = 0;
     this.glowN = 0;
     this.glowCap = c.degraded ? GLOW_MAX / 2 : GLOW_MAX;
     let quiz: Entity | undefined;
@@ -396,6 +405,7 @@ export class EntityLayer {
       this.onDeath(v, c);
       this.dying.push(v);
     }
+    if (this.nx) this.spreadPlates();
     this.animateDying(c);
     this.animateTrails(c);
     this.syncLanes(entities, c);
@@ -533,7 +543,7 @@ export class EntityLayer {
 
   private onDeath(v: View, c: FrameCtx): void {
     if (v.kind === 'player' || v.kind === 'runner') {
-      this.particles.emit('hit', v.px, v.py, 0.6);
+      this.particles.emit(this.nx ? 'nspark' : 'hit', v.px, v.py, this.nx ? 0.4 : 0.6);
     } else if (v.kind === 'item') {
       // collected: fly to the nearest avatar, then burst there
       let best: View | undefined, bd = 160 * 160;
@@ -790,7 +800,7 @@ export class EntityLayer {
     const inv = num(e.props.invulnUntil, -1), stun = num(e.props.stunUntil, -1);
     if (v.flags.inv !== undefined && ((inv > num(v.flags.inv, -1) && inv > c.time) || (stun > num(v.flags.stun, -1) && stun > c.time))) {
       anim.hit(-anim.vx, -anim.vy);
-      if (!c.degraded) this.particles.emit('burst', x, y - e.r, 0.35);
+      if (!c.degraded) this.particles.emit(this.nx ? 'nspark' : 'burst', x, y - (this.nx ? 0 : e.r), this.nx ? 0.3 : 0.35);
     }
     v.flags.inv = inv;
     v.flags.stun = stun;
@@ -801,9 +811,11 @@ export class EntityLayer {
 
     const jump = num(e.props.jump);
     const jumpHop = jump > 0 ? Math.sin(jump * Math.PI) * 34 * AVATAR_SCALE : 0;
-    const hop = jumpHop + anim.hop * AVATAR_SCALE;
     const N = !!this.nx;
-    const size = e.r * (N ? 5 : 3.6 * AVATAR_SCALE) * (e.kind === 'runner' ? 0.85 : 1);
+    // neon is top-down: no walk hop (the body stays centred on its floor ring), squash only
+    const hop = jumpHop + (N ? 0 : anim.hop * AVATAR_SCALE);
+    // neon: the body is at least `minBody` world px across (cosmetic only: hitboxes are the engine's)
+    const size = (N ? Math.max(e.r * 5, this.minBody / BODY_FRAC) : e.r * 3.6 * AVATAR_SCALE) * (e.kind === 'runner' ? 0.85 : 1);
     const pop = this.popScale(v, c);
     const bx = x + anim.ox * AVATAR_SCALE, by = y + anim.oy * AVATAR_SCALE;
     const anchorY = N ? 0.5 : 0.72;
@@ -846,19 +858,20 @@ export class EntityLayer {
       v.g = new Graphics();
       v.floor.addChild(v.g);
     }
-    if (v.flags.ringColor !== color) {
+    if (v.flags.ringColor !== color || (N && v.flags.ringSize !== size)) {
       v.flags.ringColor = color;
+      v.flags.ringSize = size;
       const rr = e.r * AVATAR_SCALE;
       if (N) {
-        const q = e.r * 1.75;
+        const q = Math.max(e.r * 1.75, size * 0.36);
         v.g.clear().circle(0, 0, q).fill({ color, alpha: 0.1 }).circle(0, 0, q).stroke({ width: 7, color, alpha: 0.18 }).circle(0, 0, q).stroke({ width: 2.5, color, alpha: 0.85 });
       } else v.g.clear().ellipse(0, 0, rr * 1.25, rr * 0.5).fill({ color, alpha: 0.28 }).ellipse(0, 0, rr * 1.25, rr * 0.5).stroke({ width: 6, color, alpha: 0.95 });
     }
     v.g.position.set(bx, N ? y : y + e.r * 0.55);
     if (N) {
       this.neonEyes(v, e, nface!.portrait, size, k, anim.vx, anim.vy, fx.stunned, c);
-      this.neonRibbon(v, x, y, e.r, color, c);
-      this.neonHeld(v, e, bx, by - hop - size * 0.5, c);
+      this.neonRibbon(v, x, y, size / 5, color, c);
+      this.neonHeld(v, e, bx, by - hop + size * 0.12, c);
     }
     const hunted = c.hunted !== undefined && c.hunted === owner;
     v.g.scale.set(pop * (hunted ? 1.15 + 0.12 * Math.sin(c.vt * 18) : 1));
@@ -870,7 +883,7 @@ export class EntityLayer {
     gl.position.set(bx, by - hop - (N ? 0 : size * 0.25));
     if (N && !boosted) {
       gl.tint = color;
-      gl.scale.set(((e.r * 4.2) / 64) * pop);
+      gl.scale.set(((size * 0.84) / 64) * pop);
       gl.alpha = 0.32 + (anim.motion === 'dash' ? 0.35 : 0);
     } else if (boosted) {
       gl.tint = hexToNum(c.palette.glow);
@@ -986,16 +999,27 @@ export class EntityLayer {
     }
 
     // name plate (does not bob with the waddle: stays readable)
-    const plateY = Math.max(24, by - jumpHop - size * (N ? 0.4 : 0.72) - 22);
+    const plateY = Math.max(24, by - jumpHop - size * (N ? 0.36 : 0.72) - (N ? 14 : 22));
     v.top = plateY - 20;
     if (e.kind === 'player' && pl) {
       if (!v.name || v.flags.name !== pl.name || v.flags.nameColor !== color) {
         v.name?.destroy({ children: true });
         v.name = new Container();
-        const t = label(pl.name.length > 12 ? `${pl.name.slice(0, 11)}…` : pl.name, 20, 0xffffff, { stroke: 0 });
-        const bg = new Graphics()
-          .roundRect(-t.width / 2 - 12, -16, t.width + 24, 32, 16).fill({ color: 0x0b0b18, alpha: 0.72 })
-          .roundRect(-t.width / 2 - 12, -16, t.width + 24, 32, 16).stroke({ width: 3, color, alpha: 1 });
+        let bg: Graphics, t: Text;
+        if (N) {
+          // small pill, first 7 characters (full names live in the HUD chips)
+          t = label(pl.name.slice(0, PLATE_CHARS).toUpperCase(), 12, 0xffffff, { stroke: 0, weight: '800' });
+          t.style.letterSpacing = 1;
+          bg = new Graphics()
+            .roundRect(-t.width / 2 - 7, -10, t.width + 14, 20, 10).fill({ color: 0x070a1c, alpha: 0.78 })
+            .roundRect(-t.width / 2 - 7, -10, t.width + 14, 20, 10).stroke({ width: 2, color, alpha: 1 });
+          v.flags.plateW = t.width + 14;
+        } else {
+          t = label(pl.name.length > 12 ? `${pl.name.slice(0, 11)}…` : pl.name, 20, 0xffffff, { stroke: 0 });
+          bg = new Graphics()
+            .roundRect(-t.width / 2 - 12, -16, t.width + 24, 32, 16).fill({ color: 0x0b0b18, alpha: 0.72 })
+            .roundRect(-t.width / 2 - 12, -16, t.width + 24, 32, 16).stroke({ width: 3, color, alpha: 1 });
+        }
         v.name.addChild(bg, t);
         v.over.addChild(v.name);
         v.flags.name = pl.name;
@@ -1006,6 +1030,11 @@ export class EntityLayer {
       // fade plates that slide under the timer pill
       const underTimer = v.name.y < 120 && Math.abs(x - this.arenaW / 2) < 140;
       v.name.alpha = (pl.connected ? 1 : 0.45) * (underTimer ? 0.3 : 1);
+      if (N) {
+        v.flags.bodyR = size * BODY_FRAC * 0.5;
+        v.flags.plateA = v.name.alpha;
+        if (this.plated.length < 8) this.plated.push(v);
+      }
       const lead = c.leader === owner;
       if (lead && !v.crown) {
         v.crown = new Sprite(this.store.cell('crown'));
@@ -1019,7 +1048,7 @@ export class EntityLayer {
           // the crown lands with a bounce when the lead changes hands
           const since = c.vt - num(v.flags.leadAt, c.vt);
           if (v.flags.lead !== true) v.flags.leadAt = c.vt;
-          v.crown.position.set(bx, plateY - 30 + Math.sin(c.vt * 4) * 2);
+          v.crown.position.set(bx, plateY - (N ? 22 : 30) + Math.sin(c.vt * 4) * 2);
           v.crown.scale.set(0.7 * easeOutBack(since / 0.4));
           v.crown.rotation = Math.sin(c.vt * 3) * 0.08;
           v.top = plateY - 44;
@@ -1073,6 +1102,48 @@ export class EntityLayer {
   }
 
   // ---------- neon players ----------
+
+  /**
+   * Name plates never overlap: overlapping pairs are pushed apart vertically (the higher one
+   * goes up), and a plate fades while its body overlaps another body. At most a few players:
+   * an O(n²) pass over a reused array, no allocation. Crowns ride on their plate.
+   */
+  private spreadPlates(): void {
+    const L = this.plated, n = L.length, H = 22;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < n; i++) {
+        const a = L[i]!.name!;
+        for (let j = i + 1; j < n; j++) {
+          const b = L[j]!.name!;
+          const wa = num(L[i]!.flags.plateW, 60), wb = num(L[j]!.flags.plateW, 60);
+          if (Math.abs(a.x - b.x) >= (wa + wb) / 2 + 4) continue;
+          const dy = Math.abs(a.y - b.y);
+          if (dy >= H) continue;
+          const push = H - dy;
+          if (a.y <= b.y) a.y -= push;
+          else b.y -= push;
+        }
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const v = L[i]!;
+      let hidden = false;
+      const r = num(v.flags.bodyR, 20);
+      for (let j = 0; j < n && !hidden; j++) {
+        if (i === j) continue;
+        const o = L[j]!, ro = num(o.flags.bodyR, 20);
+        if ((o.px - v.px) ** 2 + (o.py - v.py) ** 2 < (r + ro) * (r + ro) * 0.8) hidden = true;
+      }
+      const want = num(v.flags.plateA, 1) * (hidden ? 0.15 : 1);
+      // ease toward the target so plates don't flicker as bodies brush past
+      const cur = num(v.flags.plateCur, want);
+      const a = cur + (want - cur) * 0.25;
+      v.flags.plateCur = a;
+      v.name!.alpha = a;
+      // the crown sits above its (possibly pushed) plate, never at the held core's anchor
+      if (v.crown?.visible) v.crown.y = v.name!.y - 20;
+    }
+  }
 
   /** Two eyes that look where the body is going and blink (hidden on selfie portraits). */
   private neonEyes(v: View, e: Entity, portrait: boolean, size: number, k: number, vx: number, vy: number, stunned: boolean, c: FrameCtx): void {
@@ -1177,8 +1248,8 @@ export class EntityLayer {
     const beat = Math.sin(c.vt * hz * TAU);
     const s = v.held;
     s.visible = true;
-    s.position.set(x, y - 30 + Math.sin(c.vt * 5) * 3);
-    s.scale.set((e.r * 2.6 / 84) * (1 + 0.14 * beat));
+    s.position.set(x, y + Math.sin(c.vt * 5) * 2);
+    s.scale.set((Math.max(e.r * 2.6, this.minBody * 0.55) / 84) * (1 + 0.14 * beat));
     s.rotation += c.dt * (1 + hz * 0.4);
     s.tint = beat > 0.6 && hz > 5 ? 0xffffff : 0xffffff;
     s.alpha = 0.85 + 0.15 * beat;
@@ -1818,8 +1889,9 @@ export class EntityLayer {
     } else tex = this.texFor(v, this.source(e.sprite, c, 'item'), c, 'item');
     const bob = carried ? Math.sin(c.vt * 9 + e.id) * 2 : Math.sin(c.vt * 3.2 + e.id * 1.7) * 5;
     const held = e.kind === 'core' && carried;
-    const size = e.r * 2.6 * ITEM_SCALE * (held ? 1.25 : carried ? 0.75 : 1) * (golden ? 1.3 : 1) * (e.props.critical === true ? 1.15 : 1);
-    if (held) y -= e.r * 1.6;
+    const size = e.r * 2.6 * ITEM_SCALE * (held ? 1.05 : carried ? 0.75 : 1) * (golden ? 1.3 : 1) * (e.props.critical === true ? 1.15 : 1);
+    // held: in front of the holder's body (the crown sits above the name plate instead)
+    if (held) y += Math.max(e.r * 0.5, this.minBody * 0.3);
     const pop = this.popScale(v, c);
     const k = this.place(v, x, y - 8 + bob, size * pop, tex);
     // slow coin-like spin + wobble

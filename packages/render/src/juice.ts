@@ -218,7 +218,7 @@ export const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
   // ---- neon arcade (task N1): sparks and line bursts, all additive ----
   nspark: {
     count: 14, tex: ['spark', 'dot'], speed: [160, 520], spread: Math.PI * 2, dir: 0, life: [0.25, 0.55],
-    scale: [0.25, 0.55], grow: -0.3, gravity: 0, drag: 3.5, spin: 8, colors: ['primary', 0xffffff, 'accent'], additive: true,
+    scale: [0.25, 0.55], grow: -0.3, gravity: 0, drag: 3.5, spin: 8, colors: ['primary', 0xffffff, 'accent'], additive: true, alpha: 0.8,
   },
   nlines: {
     count: 12, tex: ['line'], speed: [320, 760], spread: Math.PI * 2, dir: 0, life: [0.18, 0.38],
@@ -230,7 +230,7 @@ export const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
   },
   nboom: {
     count: 22, tex: ['line', 'spark', 'dot'], speed: [380, 900], spread: Math.PI * 2, dir: 0, life: [0.25, 0.55],
-    scale: [0.5, 1.1], grow: -0.4, gravity: 0, drag: 3.6, spin: 0, colors: [0xff3355, 0xffb020, 0xffffff], additive: true, align: true,
+    scale: [0.5, 1.1], grow: -0.4, gravity: 0, drag: 3.6, spin: 0, colors: [0xff3355, 0xffb020, 0xffffff], additive: true, align: true, alpha: 0.85,
   },
   ngold: {
     count: 16, tex: ['spark', 'line'], speed: [200, 520], spread: Math.PI * 2, dir: 0, life: [0.35, 0.7],
