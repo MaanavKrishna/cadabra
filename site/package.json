@@ -2,6 +2,11 @@
   "name": "cadabra-site",
   "private": true,
   "type": "module",
-  "scripts": { "build": "node build.mjs" },
-  "dependencies": { "marked": "^14.1.4" }
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "highlight.js": "^11.10.0",
+    "marked": "^14.1.4"
+  }
 }

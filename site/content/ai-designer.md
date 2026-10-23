@@ -55,7 +55,8 @@ After a round, phones get a 10 s window with three request slots. Each phone can
 
 Live timings over 16 runs: p50 5.7 s, p90 8.5 s.
 
-**Fallbacks.** If the AI misses its deadline (about 12 s), deterministic chip presets run instead, first at full strength and then at half strength, each playtest-checked. The hard cap is 15 s. The TV keeps its own copy of the presets for offline play, backend errors, or no answer in 16.5 s.
+> [!TIP]
+> **The room never waits.** If the AI misses its deadline (about 12 s), deterministic chip presets run instead, first at full strength and then at half strength, each playtest-checked. The hard cap is 15 s. The TV keeps its own copy of the presets for offline play, backend errors, or no answer in 16.5 s.
 
 **Remix** uses the same flow from the Home row or the Arcade, and saves the result as a new Arcade entry. A changed spec gets a new id with `origin.parentId`, so the Arcade keeps the lineage.
 
@@ -68,7 +69,8 @@ Live timings over 16 runs: p50 5.7 s, p90 8.5 s.
 - The choice is remembered for 2 minutes after throttling and 10 minutes after access errors. Then Bedrock is tried first again, so the system moves back to Bedrock on its own once quotas arrive.
 - The Bedrock client uses `maxAttempts: 1`. A throttled probe took 1.5 s with SDK retries and 0.17 s without, and the pitch and tweak budgets cannot afford the difference.
 
-On the hackathon account every Bedrock Claude quota was 0, so the live game runs on the fallback. The [friction log](friction-log.html) has the full story.
+> [!NOTE]
+> On the hackathon account every Bedrock Claude quota was 0, so the live game runs on the fallback. The [friction log](friction-log.html) has the full story.
 
 ## Guardrails
 
