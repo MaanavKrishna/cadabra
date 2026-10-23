@@ -548,7 +548,13 @@ export function App() {
     clearTimeout(arcadeTimer.current);
     arcadeTimer.current = setTimeout(() => { arcadeWant.current = undefined; setArcadeLoading(undefined); showToast('That game would not load. Try another!'); }, 9000);
   };
-  const closeArcade = useCallback(() => setView('main'), []);
+  const closeArcade = useCallback(() => {
+    // leaving while a game loads: drop it, or it would start on the home screen a moment later
+    clearTimeout(arcadeTimer.current);
+    arcadeWant.current = undefined;
+    setArcadeLoading(undefined);
+    setView('main');
+  }, []);
 
   const changeSettings = useCallback((p: Partial<S>) => dispatch({ type: 'settings', patch: p }), []);
   const closeSettings = useCallback(() => setView('main'), []);
