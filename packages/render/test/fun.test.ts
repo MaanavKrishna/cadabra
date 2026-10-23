@@ -31,7 +31,9 @@ describe('juice rules: fx director', () => {
     expect(comboForPreset('nope')).toBeNull();
     expect(comboForEvent('heist.bank', 'bank')).toBe('bank');
     expect(comboForEvent('play.chase.start', 'chase.start')).toBe('chase');
-    expect(comboForEvent('penguin.knockout', 'knockout')).toBe('hit');
+    expect(comboForEvent('penguin.knockout', 'knockout')).toBe('blast');
+    expect(comboForEvent('ringout.ringout', 'ringout')).toBe('blast');
+    expect(comboForEvent('overload.detonate', 'detonate')).toBe('blast');
     expect(comboForEvent('score')).toBeNull();
   });
 

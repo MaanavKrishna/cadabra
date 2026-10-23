@@ -42,13 +42,15 @@ export function darken(c: number, t: number): number {
   return mix(c, 0x000000, t);
 }
 
-/** Distinct, saturated player colours; the first two follow the palette. */
-const PLAYER_HUES = [0x4cc9f0, 0xf72585, 0x80ed99, 0xffd166, 0xb388ff, 0xff8c42, 0x2ec4b6, 0xff5d8f];
+/**
+ * Player colours in join order (neon arcade, task N1): cyan, magenta, lime, amber, then extras.
+ * The same everywhere (field, HUD chips, lobby) whatever the game's palette.
+ */
+export const PLAYER_HUES: readonly number[] = [0x00e5ff, 0xff2bd6, 0xb6ff3b, 0xffb020, 0x8c7bff, 0xff7a3d, 0x3dffb0, 0xff5d8f];
 
-export function playerColor(index: number, palette?: Palette): number {
-  if (palette && index === 0) return hexToNum(palette.primary);
-  if (palette && index === 1) return hexToNum(palette.accent);
-  return PLAYER_HUES[index % PLAYER_HUES.length]!;
+export function playerColor(index: number, _palette?: Palette): number {
+  return PLAYER_HUES[((index % PLAYER_HUES.length) + PLAYER_HUES.length) % PLAYER_HUES.length]!;
 }
 
-export const TEAM_COLORS: [number, number] = [0xff4d5e, 0x3d8bff];
+/** Team 0 cyan, team 1 magenta. */
+export const TEAM_COLORS: [number, number] = [0x00e5ff, 0xff2bd6];

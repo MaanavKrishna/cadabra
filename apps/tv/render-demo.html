@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cadabra render demo</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #fff; font-family: Figtree, sans-serif; }
+      html, body { margin: 0; height: 100%; background: #05070f; overflow: hidden; color: #fff; font-family: Figtree, sans-serif; }
       #stage { position: fixed; inset: 0; }
       #bar { position: fixed; left: 12px; top: 12px; z-index: 2; font-size: 14px; opacity: 0.85; display: flex; gap: 6px; }
       #bar a { color: #fff; background: #0008; padding: 4px 10px; border-radius: 12px; text-decoration: none; }
@@ -15,8 +15,9 @@
   <body>
     <div id="stage"></div>
     <div id="bar">
-      <a href="?game=ladoo-heist&res=1080">ladoo</a><a href="?game=lava-penguins&res=1080">penguins</a><a href="?game=bear-tug&res=1080">tug</a><a href="?game=heist">heist</a><a href="?game=dodge">dodge</a><a href="?game=sweep">sweep</a><a href="?game=race">race</a>
-      <a href="?game=tug">tug</a><a href="?game=quiz">quiz</a><a href="?game=draw">draw</a><span id="fps">--</span>
+      <a href="?game=gallery&res=1080">gallery</a><a href="?game=ringout&res=1080">ring out</a><a href="?game=overload&res=1080">overload</a><a href="?game=paint&res=1080">paint wars</a><a href="?game=corerush&res=1080">core rush</a><a href="?game=dash&res=1080">neon dash</a>
+      <a href="?game=fallback-0&res=1080">fb0</a><a href="?game=fallback-1&res=1080">fb1</a><a href="?game=fallback-2&res=1080">fb2</a><a href="?game=fallback-3&res=1080">fb3</a><a href="?game=fallback-4&res=1080">fb4</a>
+      <a href="?game=heist">heist</a><a href="?game=dodge">dodge</a><a href="?game=race">race</a><span id="fps">--</span>
     </div>
     <script type="module" src="./src/render-demo.ts"></script>
   </body>

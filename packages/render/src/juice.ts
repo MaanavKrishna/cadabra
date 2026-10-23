@@ -143,7 +143,7 @@ export class JuiceState {
 
 export const SLOWMO_SCALE = 0.3;
 
-export type ParticleTex = 'dot' | 'glow' | 'spark' | 'confetti' | 'smoke' | 'drop' | 'star' | 'ring' | 'soft';
+export type ParticleTex = 'dot' | 'glow' | 'spark' | 'confetti' | 'smoke' | 'drop' | 'star' | 'ring' | 'soft' | 'line';
 
 export interface ParticlePreset {
   count: number;
@@ -165,6 +165,8 @@ export interface ParticlePreset {
   additive?: boolean;
   /** Start alpha (default 1). */
   alpha?: number;
+  /** Point each particle along its flight direction (line streaks), no spin. */
+  align?: boolean;
 }
 
 export const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
@@ -212,6 +214,27 @@ export const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
   shock: {
     count: 8, tex: ['smoke'], speed: [140, 260], spread: Math.PI * 2, dir: 0, life: [0.4, 0.7],
     scale: [0.45, 0.7], grow: 1.2, gravity: 0, drag: 3, spin: 1, colors: [0xe8dccb], alpha: 0.55,
+  },
+  // ---- neon arcade (task N1): sparks and line bursts, all additive ----
+  nspark: {
+    count: 14, tex: ['spark', 'dot'], speed: [160, 520], spread: Math.PI * 2, dir: 0, life: [0.25, 0.55],
+    scale: [0.25, 0.55], grow: -0.3, gravity: 0, drag: 3.5, spin: 8, colors: ['primary', 0xffffff, 'accent'], additive: true,
+  },
+  nlines: {
+    count: 12, tex: ['line'], speed: [320, 760], spread: Math.PI * 2, dir: 0, life: [0.18, 0.38],
+    scale: [0.5, 0.95], grow: -0.5, gravity: 0, drag: 4, spin: 0, colors: [0xffffff, 'primary', 'accent'], additive: true, align: true,
+  },
+  ngem: {
+    count: 9, tex: ['line', 'spark'], speed: [180, 380], spread: Math.PI * 2, dir: 0, life: [0.2, 0.4],
+    scale: [0.3, 0.55], grow: -0.4, gravity: 0, drag: 4, spin: 0, colors: ['glow', 0xffffff], additive: true, align: true,
+  },
+  nboom: {
+    count: 22, tex: ['line', 'spark', 'dot'], speed: [380, 900], spread: Math.PI * 2, dir: 0, life: [0.25, 0.55],
+    scale: [0.5, 1.1], grow: -0.4, gravity: 0, drag: 3.6, spin: 0, colors: [0xff3355, 0xffb020, 0xffffff], additive: true, align: true,
+  },
+  ngold: {
+    count: 16, tex: ['spark', 'line'], speed: [200, 520], spread: Math.PI * 2, dir: 0, life: [0.35, 0.7],
+    scale: [0.4, 0.8], grow: -0.3, gravity: 0, drag: 2.8, spin: 0, colors: [0xffb020, 0xffe08a, 0xffffff], additive: true, align: true,
   },
   confetti: {
     count: 36, tex: ['confetti'], speed: [220, 620], spread: Math.PI * 0.7, dir: -Math.PI / 2, life: [1.1, 2],

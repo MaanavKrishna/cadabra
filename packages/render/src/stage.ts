@@ -1,4 +1,4 @@
-import { Application, Container, FillGradient, Graphics, Point, Sprite, Texture, type Text } from 'pixi.js';
+import { Application, Container, FillGradient, Graphics, Point, Sprite, Text, Texture } from 'pixi.js';
 import type { Entity, FxEvent, GameEvent, GameRuntime, Player } from '@cadabra/engine';
 import type { Theme } from '@cadabra/spec';
 import { Ambience } from './ambience';
@@ -19,6 +19,9 @@ import { AVATAR_ART, DEFAULT_SPRITES } from './sprites';
 import { TextureStore } from './textures';
 import { darken, hexToNum, lighten, type Palette } from './theme';
 import { SnapInterp } from './visual';
+import { NEON, NEON_PALETTE, NeonArt, type RenderStyle } from './neon';
+import { bandTexture, buildNeonScenery } from './neonScene';
+import { DISPLAY_FONT } from './theme';
 
 export type Snapshot = ReturnType<GameRuntime['snapshot']>;
 
@@ -34,6 +37,8 @@ export interface GameViewOpts {
   hud?: boolean;
   /** Draw the snapshot's host-line banner (default true; the TV captions host lines itself). */
   banner?: boolean;
+  /** Visual style: 'neon' (default, task N1) or the legacy 'cartoon' art pack. */
+  style?: RenderStyle;
 }
 
 const SIM_DT = 1 / 60;
@@ -44,7 +49,7 @@ const SHAKE_CAP = 16;
 /** Popups kept as ready-rasterised Text per distinct string (no re-raster per popup). */
 const POPUP_CACHE = 28;
 
-const DEFAULT_PALETTE: Palette = { bg: '#14102b', primary: '#4cc9f0', accent: '#f72585', glow: '#ffd166', text: '#ffffff' };
+const DEFAULT_PALETTE: Palette = NEON_PALETTE;
 
 /** Hue (0..360) and lightness of a '#rrggbb'. */
 function hsl(hex: string): { h: number; l: number; s: number } {
@@ -134,6 +139,12 @@ export class GameView {
   private arenaKind: string | undefined;
   private showHud: boolean;
   private showBanner: boolean;
+  /** Neon arcade look (default) vs the cartoon art pack. */
+  readonly neon: boolean;
+  private nart?: NeonArt;
+  /** Neon: one soft band drifting down the arena (the slow scanline pulse). */
+  private sweep?: Sprite;
+  private sweepTex?: Texture;
   private destroyed = false;
   private started = false;
 
@@ -212,6 +223,7 @@ export class GameView {
     this.arenaKind = opts.arenaKind;
     this.showHud = opts.hud !== false;
     this.showBanner = opts.banner !== false;
+    this.neon = (opts.style ?? 'neon') === 'neon';
     this.cam = new CameraRig(this.W, this.H);
     this.ready = this.init(canvasParent);
   }
@@ -237,7 +249,8 @@ export class GameView {
     setTextResolution(Math.max(this.hudScale, 1.4));
     this.store = new TextureStore();
     this.particles = new ParticleSystem(this.store, this.budget);
-    this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH);
+    if (this.neon) this.nart = new NeonArt();
+    this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH, this.nart);
     this.hud = new Hud(this.W / this.hudScale, this.H / this.hudScale);
     this.hud.root.scale.set(this.hudScale);
 
@@ -258,7 +271,18 @@ export class GameView {
     const en = this.entities;
     this.world.addChild(en.floor, en.glows, en.trails, en.bodies, this.particles.view, en.overlay);
     // on stage: ONE opaque background quad, then the world (no ambient motes: particles mean something)
-    this.shaker.addChild(this.bake.sprite, this.world);
+    this.shaker.addChild(this.bake.sprite);
+    if (this.neon) {
+      // the neon background bakes its own vignette and scanlines
+      this.vignette.visible = false;
+      this.ambience.light.visible = false;
+      this.sweepTex = bandTexture();
+      this.sweep = new Sprite(this.sweepTex);
+      this.sweep.blendMode = 'add';
+      this.sweep.anchor.set(0, 1);
+      this.shaker.addChild(this.sweep);
+    }
+    this.shaker.addChild(this.world);
     this.finaleGlow = new EdgeGlow(this.W, this.H, 110);
     this.flash = new EdgeGlow(this.W, this.H, 200);
     this.app.stage.addChild(this.shaker, this.finaleGlow.root, this.flash.root, this.popLayer);
@@ -319,6 +343,12 @@ export class GameView {
     this.store.beginTheme(Object.values(this.art));
     this.applyPalette();
     const jobs: Promise<unknown>[] = [];
+    if (this.neon) {
+      // procedural sprites: nothing to download (player selfies load lazily)
+      this.sceneKey = '';
+      this.rebuildScene();
+      return;
+    }
     for (const url of Object.values(this.art)) jobs.push(this.store.load(url, undefined, true));
     const sa = SCENE_ART[this.sceneKind];
     const wanted = new Set<string>([
@@ -345,6 +375,16 @@ export class GameView {
   /** The framed arena + themed surround, rebuilt into the bake once per theme (never per frame). */
   private rebuildScene(): void {
     if (!this.started) return;
+    if (this.neon) {
+      const key = `neon|${this.palette.bg}|${this.palette.primary}|${this.palette.accent}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
+      if (key === this.sceneKey) return;
+      this.sceneKey = key;
+      this.scene?.destroy({ children: true, texture: true, textureSource: true });
+      this.scene = buildNeonScenery(this.rect, this.W, this.H, SHAKE_PAD, this.palette, this.arenaKind);
+      this.bake.stack.addChildAt(this.scene, 1);
+      this.bake.invalidate();
+      return;
+    }
     const custom = this.art.floor ?? this.art.background;
     const key = `${this.sceneKind}|${this.palette.bg}|${this.palette.primary}|${custom ?? ''}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
     if (key === this.sceneKey) return;
@@ -459,6 +499,70 @@ export class GameView {
   /** One meaningful moment: its own particles, ring and (for big ones) a little shake. */
   private combo(kind: ComboKind, x: number, y: number): void {
     if (!this.director.allow(kind, x, y, this.rt)) return;
+    if (this.neon) this.neonCombo(kind, x, y);
+    else this.cartoonCombo(kind, x, y);
+    this.toScreen(x, y, this.tmpC);
+    this.fxX = this.tmpC.x;
+    this.fxY = this.tmpC.y;
+    this.fxAt = this.rt;
+  }
+
+  /** Neon juice: sparks, line bursts, shockwave rings; knockouts / detonations flash the edges. */
+  private neonCombo(kind: ComboKind, x: number, y: number): void {
+    const P = this.particles;
+    const prim = hexToNum(this.palette.primary), glow = hexToNum(this.palette.glow), acc = hexToNum(this.palette.accent);
+    switch (kind) {
+      case 'pickup':
+        P.emit('ngem', x, y);
+        this.ring(x, y, 0.25, 1.4, glow);
+        break;
+      case 'bank': {
+        P.emit('nspark', x, y);
+        this.ring(x, y, 0.45, 3, glow);
+        this.ring(x, y, 0.3, 1.8, 0xffffff);
+        this.juice.apply({ kind: 'shake', strength: 0.12 });
+        const g = this.entities.goalNear(x, y);
+        if (g >= 0) this.entities.thumpGoal(g, this.vt);
+        break;
+      }
+      case 'golden':
+        P.emit('ngold', x, y);
+        this.ring(x, y, 0.5, 3.4, NEON.amber);
+        break;
+      case 'steal':
+        P.emit('nlines', x, y, 0.7);
+        this.ring(x, y, 0.3, 1.8, acc);
+        break;
+      case 'hit':
+        P.emit('nspark', x, y, 0.8);
+        this.ring(x, y, 0.3, 2, NEON.red);
+        break;
+      case 'blast':
+        P.emit('nboom', x, y);
+        P.emit('nlines', x, y, 0.6);
+        this.ring(x, y, 0.55, 5.5, 0xffffff);
+        this.ring(x, y, 0.7, 4, NEON.red);
+        this.juice.apply({ kind: 'flash', color: '#FF3355' });
+        this.juice.apply({ kind: 'shake', strength: 0.4 });
+        break;
+      case 'wake':
+      case 'chase':
+        this.ring(x, y, 0.55, 4, NEON.red);
+        break;
+      case 'dash':
+        break;
+      case 'splash':
+        P.emit('nspark', x, y);
+        this.ring(x, y, 0.4, 2.6, prim);
+        break;
+      case 'win':
+        P.emit('confetti', x, y);
+        P.emit('ngold', x, y, 0.6);
+        break;
+    }
+  }
+
+  private cartoonCombo(kind: ComboKind, x: number, y: number): void {
     const P = this.particles;
     const glow = hexToNum(this.palette.glow);
     switch (kind) {
@@ -502,11 +606,11 @@ export class GameView {
         P.emit('confetti', x, y);
         P.emit('golden', x, y, 0.6);
         break;
+      case 'blast':
+        P.emit('hit', x, y - 10);
+        this.ring(x, y, 0.4, 3, 0xff5a4a);
+        break;
     }
-    this.toScreen(x, y, this.tmpC);
-    this.fxX = this.tmpC.x;
-    this.fxY = this.tmpC.y;
-    this.fxAt = this.rt;
   }
 
   private readonly ringO = { life: 0.4, s0: 0.5, tint: 0xffffff, add: true, a0: 1, vx: 0, vy: 0, grow: 2, aspect: 0.62, spin: 0, rot: 0, gravity: 0, drag: 0 };
@@ -515,6 +619,7 @@ export class GameView {
     o.life = life;
     o.grow = grow;
     o.tint = tint;
+    o.aspect = this.neon ? 1 : 0.62;
     this.particles.one('ring', x, y, o);
   }
 
@@ -544,7 +649,9 @@ export class GameView {
     if (!(av && this.entities.headOf(av.id, head))) head.set(av?.x ?? this.arenaW / 2, (av?.y ?? this.arenaH / 2) - (av ? av.r * 6 : 0));
     this.world.toGlobal(head, this.tmpB);
     const big = tone === 'big';
-    const color = tone === 'loss' ? 0xff6b6b : big ? 0xffffff : hexToNum(this.palette.glow);
+    const color = this.neon ? (tone === 'loss' ? NEON.red : big ? NEON.amber : hexToNum(this.palette.glow))
+      : tone === 'loss' ? 0xff6b6b : big ? 0xffffff : hexToNum(this.palette.glow);
+    if (this.neon) text = text.toUpperCase();
     this.spawnFloat(text, color, this.tmpB.x, this.tmpB.y, big && this.showHud ? pid : '', big);
   }
 
@@ -563,12 +670,29 @@ export class GameView {
         }
       }
     }
-    const t = label(str, big ? 46 : 38, color, { display: true, stroke: big ? 9 : 7 });
-    if (big) t.style.stroke = { color: darken(hexToNum(this.palette.glow), 0.5), width: 9, join: 'round' };
+    const t = this.neon ? this.neonLabel(str, big ? 50 : 40, color) : label(str, big ? 46 : 38, color, { display: true, stroke: big ? 9 : 7 });
+    if (big && !this.neon) t.style.stroke = { color: darken(hexToNum(this.palette.glow), 0.5), width: 9, join: 'round' };
     t.visible = false;
     this.popLayer.addChild(t);
     list.push(t);
     this.popCache.set(key, list);
+    return t;
+  }
+
+  /** Chunky glowing arcade text: white-hot fill, coloured outline and a soft colour glow. */
+  private neonLabel(str: string, size: number, color: number): Text {
+    const t = new Text({
+      text: str,
+      style: {
+        fontFamily: DISPLAY_FONT, fontSize: size, fontWeight: '800', letterSpacing: 2,
+        fill: lighten(color, 0.55),
+        stroke: { color: darken(color, 0.35), width: Math.round(size / 7), join: 'round' },
+        dropShadow: { color, alpha: 0.95, blur: 12, distance: 0, angle: 0 },
+        align: 'center', padding: 16,
+      },
+      resolution: Math.max(1, Math.min(2, this.hudScale)),
+    });
+    t.anchor.set(0.5);
     return t;
   }
 
@@ -736,6 +860,16 @@ export class GameView {
     }
     this.particles.update(vdt);
     this.animateFloats();
+    if (this.sweep) {
+      // a faint band rolls down the arena every 6 s (the "pulsing scanlines")
+      const r = this.rect, ph = (this.rt / 6) % 1;
+      this.sweep.position.set(r.x, r.y + ph * (r.h + 90));
+      this.sweep.width = r.w;
+      this.sweep.height = 90;
+      this.sweep.tint = hexToNum(this.palette.primary);
+      this.sweep.alpha = 0.07 * Math.sin(ph * Math.PI);
+      this.sweep.visible = this.sweep.alpha > 0.004 && this.sweep.y < r.y + r.h + 4;
+    }
 
     // camera: eased zoom about the focus + ≤ 2 px drift + capped shake (real time)
     this.cam.tick(dt);
@@ -825,6 +959,8 @@ export class GameView {
     this.store.destroy();
     this.grad?.destroy();
     this.vignetteTex?.destroy(true);
+    this.sweepTex?.destroy(true);
+    this.nart?.destroy();
     this.app.destroy(true, { children: true });
   }
 }

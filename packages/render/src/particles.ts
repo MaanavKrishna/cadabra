@@ -137,7 +137,7 @@ export class ParticleSystem {
     const s0 = rand(P.scale[0], P.scale[1]);
     p.x = x;
     p.y = y;
-    p.rotation = Math.random() * Math.PI * 2;
+    p.rotation = P.align ? a : Math.random() * Math.PI * 2;
     p.scaleX = s0;
     p.scaleY = tex === 'confetti' ? s0 * rand(0.5, 1) : s0;
     p.tint = this.color(P.colors[(Math.random() * P.colors.length) | 0]!);

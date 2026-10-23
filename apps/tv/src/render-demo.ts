@@ -1,16 +1,49 @@
 /**
  * Dev-only visual check for @cadabra/render: a real GameRuntime with bots, drawn by GameView.
- * `npm -w @cadabra/tv run dev`, then open /render-demo.html?game=ladoo-heist|lava-penguins|bear-tug|heist|dodge|sweep|race|tug|quiz|draw
- * (&res=1080 renders at 1920x1080 like the TV)
+ * `npm -w @cadabra/tv run dev`, then open /render-demo.html?game=...
+ *   scripted neon scenes (no engine): gallery (every art key + effect), ringout, overload, paint, corerush, dash
+ *   engine games: fallback-0..N (or a fallback spec id), heist, dodge, sweep, race, tug, quiz, draw
+ * (&res=1080 renders at 1920x1080 like the TV; &style=cartoon for the old art pack)
  * (&bots=1..8 sets the bot count, default 4; &dur=N shortens the round to N s)
  */
 import { BlockRegistry, GameRuntime, Rng, driveBots, makeBots, registerBuiltins, stubJudgement, DT } from '@cadabra/engine';
 import type { GameSpec } from '@cadabra/spec';
 import { EventFeed, GameView, advanceAccumulator } from '@cadabra/render';
-import { GAMES } from './demo-games';
+import { GAMES, NEON_DEMO_THEME, SCENES, fakeSelfie } from './demo-games';
 
 const qs = new URLSearchParams(location.search);
-const game = qs.get('game') ?? 'heist';
+const game = qs.get('game') ?? 'gallery';
+const style = qs.get('style') === 'cartoon' ? 'cartoon' : 'neon';
+const res0 = Number(qs.get('res')) === 1080 ? [1920, 1080] : [1280, 720];
+const fpsEl0 = document.getElementById('fps')!;
+if (qs.get('clean')) document.getElementById('bar')!.style.display = 'none';
+
+if (SCENES[game]) {
+  // scripted neon scene: synthetic snapshots, no engine
+  const scene = SCENES[game]!(fakeSelfie());
+  const sv = new GameView(document.getElementById('stage')!, {
+    internalW: res0[0]!, internalH: res0[1]!, arena: { width: scene.arena.width, height: scene.arena.height }, arenaKind: scene.arena.kind, style,
+  });
+  (window as unknown as { view: GameView }).view = sv;
+  await sv.loadTheme(NEON_DEMO_THEME, {});
+  let t = 0, prev = performance.now(), n = 0, ft = prev;
+  const tick = (now: number) => {
+    const dt = Math.min(0.05, (now - prev) / 1000) * sv.timeScale;
+    prev = now;
+    if (sv.hitStopMs <= 0) t += dt;
+    const f = scene.step(t, sv.hitStopMs > 0 ? 0 : dt);
+    sv.render(f.snap as never, f.fx, 1, f.events);
+    n++;
+    if (now - ft > 1000) {
+      fpsEl0.textContent = `${Math.round((n * 1000) / (now - ft))} fps · ${sv.particleCount} particles`;
+      n = 0;
+      ft = now;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  await new Promise(() => {});
+}
 const botCount = Math.max(1, Math.min(8, Number(qs.get('bots') ?? 4) || 4));
 const base = (GAMES[game] ?? GAMES.heist!)();
 // &dur=N shortens the round (quick look at the final-10-s finale)
@@ -21,7 +54,7 @@ registerBuiltins(registry);
 
 const res = Number(qs.get('res')) === 1080 ? [1920, 1080] : [1280, 720];
 const view = new GameView(document.getElementById('stage')!, {
-  internalW: res[0]!, internalH: res[1]!, arena: { width: spec.arena.width, height: spec.arena.height }, arenaKind: spec.arena.kind,
+  internalW: res[0]!, internalH: res[1]!, arena: { width: spec.arena.width, height: spec.arena.height }, arenaKind: spec.arena.kind, style,
 });
 const feed = new EventFeed();
 (window as unknown as { view: GameView }).view = view; // dev inspection

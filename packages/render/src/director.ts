@@ -5,7 +5,7 @@
  * combos may start in a short window. Pure: no Pixi, no clock of its own (pass `now`, s).
  */
 
-export type ComboKind = 'pickup' | 'bank' | 'steal' | 'hit' | 'wake' | 'dash' | 'golden' | 'splash' | 'win' | 'chase';
+export type ComboKind = 'pickup' | 'bank' | 'steal' | 'hit' | 'wake' | 'dash' | 'golden' | 'splash' | 'win' | 'chase' | 'blast';
 
 /** Engine particle preset -> combo during play. Confetti is end-of-round only. */
 export function comboForPreset(preset: string): ComboKind | null {
@@ -29,8 +29,17 @@ export function comboForEvent(type: string, moment?: string): ComboKind | null {
     case 'bank': return 'bank';
     case 'steal': return 'steal';
     case 'golden': return 'golden';
-    case 'caught':
-    case 'knockout': return 'hit';
+    case 'caught': return 'hit';
+    // knockouts and detonations: shockwave ring + edge flash (neon arcade)
+    case 'knockout':
+    case 'ringout':
+    case 'ring-out':
+    case 'ringOut':
+    case 'detonate':
+    case 'detonation':
+    case 'overload':
+    case 'explode':
+    case 'boom': return 'blast';
     case 'chase.start': return 'chase';
     case 'splash': return 'splash';
     case 'surge': return 'steal';
@@ -40,12 +49,12 @@ export function comboForEvent(type: string, moment?: string): ComboKind | null {
 
 /** Minimum seconds between two combos of a kind (anywhere on screen). */
 export const COMBO_GAP: Record<ComboKind, number> = {
-  pickup: 0.06, bank: 0.2, steal: 0.25, hit: 0.15, wake: 0.8, dash: 0.3, golden: 0.5, splash: 0.4, win: 0, chase: 1,
+  pickup: 0.06, bank: 0.2, steal: 0.25, hit: 0.15, wake: 0.8, dash: 0.3, golden: 0.5, splash: 0.4, win: 0, chase: 1, blast: 0.3,
 };
 
 /** Higher wins when the window is full. */
 const PRIORITY: Record<ComboKind, number> = {
-  win: 9, golden: 8, bank: 7, wake: 6, chase: 6, steal: 5, hit: 5, splash: 5, pickup: 3, dash: 1,
+  win: 9, blast: 8, golden: 8, bank: 7, wake: 6, chase: 6, steal: 5, hit: 5, splash: 5, pickup: 3, dash: 1,
 };
 
 export interface DirectorOpts {

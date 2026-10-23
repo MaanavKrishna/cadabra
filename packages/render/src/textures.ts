@@ -9,7 +9,7 @@ const SHAPE_SIZE = 128;
 const CELL = 64;
 
 export const ATLAS_CELLS: (ParticleTex | 'arrow' | 'crown' | 'soft')[] = [
-  'dot', 'glow', 'spark', 'confetti', 'smoke', 'drop', 'star', 'ring', 'arrow', 'crown', 'soft',
+  'dot', 'glow', 'spark', 'confetti', 'smoke', 'drop', 'star', 'ring', 'arrow', 'crown', 'soft', 'line',
 ];
 
 function canvas(w: number, h: number): HTMLCanvasElement {
@@ -254,6 +254,18 @@ function drawCell(g: CanvasRenderingContext2D, kind: (typeof ATLAS_CELLS)[number
       g.strokeStyle = '#fff';
       g.stroke();
       break;
+    case 'line': {
+      // a thin streak along +x with soft ends (neon line bursts)
+      const gr = g.createLinearGradient(ox + 2, 0, ox + CELL - 2, 0);
+      gr.addColorStop(0, 'rgba(255,255,255,0)');
+      gr.addColorStop(0.35, 'rgba(255,255,255,1)');
+      gr.addColorStop(0.65, 'rgba(255,255,255,1)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      roundRect(g, ox + 2, cy - 3, CELL - 4, 6, 3);
+      g.fill();
+      break;
+    }
     case 'arrow':
       // chevron pointing +x
       g.beginPath();
