@@ -141,6 +141,10 @@ export function ringUpdate(ctx: Ctx, r: RingState): void {
       if (t < (r.respawnAt.get(p.id) ?? 0)) { e.vx = e.vy = 0; continue; }
       respawn(ctx, r, e);
       ctx.emit({ type: 'arena.respawn', player: p.id });
+      // comeback: the player in last place bounces back with a point
+      if (P.ringComebackPoints > 0 && ctx.players.every((q) => q.score >= p.score) && ctx.players.some((q) => q.score > p.score)) {
+        ctx.score(p.id, P.ringComebackPoints, 'BOUNCE BACK');
+      }
       continue;
     }
     if (invuln(ctx, e) || onFloor(U(ctx), e.x, e.y)) continue;

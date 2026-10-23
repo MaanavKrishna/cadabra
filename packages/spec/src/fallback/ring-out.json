@@ -55,7 +55,8 @@
         "respawnSec": 1.5,
         "respawnInvulnSec": 1,
         "ringCrumbleEventKind": "quake",
-        "ringSurvivePoints": 1
+        "ringSurvivePoints": 1,
+        "ringComebackPoints": 1
       }
     }
   ],
@@ -106,7 +107,7 @@
       "restitution": 0.8,
       "friction": 0.4,
       "linearDamping": 1.0,
-      "knockback": 1.15,
+      "knockback": 1.0,
       "bumperKick": 480,
       "spin": true
     },

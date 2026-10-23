@@ -40,7 +40,7 @@ renderer shows them as "+3 RING OUT!".
 | **`ring.ringout`** | pusher | `{ victim, moment:'ringout' }` | A rival fell off within `ringCreditSec` (2 s) of your last push: +3 "RING OUT!". |
 | **`ring.crumble`** | – | `{ ring, phase:'warn'\|'fall', warnSec?, moment:'crumble' }` | The outer ring of tiles shakes for 1.5 s (`warn`), then drops (`fall`). Ring 0 is the edge. Rings drop evenly from 30% of the round to 6 s before the end. Everyone still standing gets +1 "SURVIVED" (`ringSurvivePoints`). |
 | `arena.fall` | faller | `{ by: playerId \| null }` | Fell off: −1 "FELL!" (never below 0). `props.out` = true until respawn. |
-| `arena.respawn` | player | – | Back in the centre after 1.5 s, invulnerable (no fall, no bumps) for 1 s: blink on `invulnUntil`. |
+| `arena.respawn` | player | – | Back in the centre after 1.5 s, invulnerable (no fall, no bumps) for 1 s: blink on `invulnUntil`. A player in last place also gets +1 "BOUNCE BACK" (`ringComebackPoints`). |
 | `arena.shove` | shover | `{ victim }` | A dash bump. |
 
 ## OVERLOAD: block `arena-move` (`overload`), ns `overload`
