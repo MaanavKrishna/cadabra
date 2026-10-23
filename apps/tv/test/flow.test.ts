@@ -59,7 +59,7 @@ describe('intro card', () => {
     }
     const heist = introFor(FALLBACK_SPECS[0]!);
     expect(heist.controls.map((c) => c.kind)).toEqual(['stick', 'hold']);
-    expect(heist.controls[1]!.hint).toBe('quiet');
+    expect(heist.controls[1]!.label + (heist.controls[1]!.hint ?? '')).toMatch(/quiet/i);
   });
 
   test('generated games get steps from their blocks', () => {

@@ -89,7 +89,7 @@ export function introFor(spec: GameSpec): Intro {
     const label = 'label' in w && typeof w.label === 'string' && w.label ? w.label : w.kind === 'joystick' ? 'Move' : cap(w.kind);
     const kind: IntroControl['kind'] = w.kind === 'joystick' ? 'stick' : w.kind === 'button' ? 'button' : w.kind === 'hold' ? 'hold' : w.kind === 'tilt' ? 'tilt' : w.kind === 'swipe' ? 'swipe' : 'other';
     const hint = HINTS[(('id' in w && typeof w.id === 'string' ? w.id : '') || label).toLowerCase()];
-    return hint ? { kind, label, hint } : { kind, label };
+    return hint && !label.toLowerCase().includes(hint) ? { kind, label, hint } : { kind, label };
   });
   return { steps: steps.length ? steps : [{ text: spec.host.tutorial }], controls };
 }

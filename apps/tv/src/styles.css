@@ -225,13 +225,13 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .play-host { position: absolute; inset: 0; }
 .play-host canvas { display: block; }
 .intro { position: absolute; inset: 0; z-index: 4; animation: fade-in 0.35s both; }
-.hero-intro { top: 150px; width: 1180px; }
-.hero-intro .title { font-size: 150px; margin-bottom: 34px; }
+.hero-intro { top: 128px; width: 1180px; }
+.hero-intro .title { font-size: 132px; margin-bottom: 26px; }
 .goal { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 10px; }
 .goal-step { display: flex; align-items: center; gap: 16px; font-size: 44px; font-weight: 800; letter-spacing: -0.01em; animation: rise 0.55s var(--ease) both; }
 .goal-step img { width: 96px; height: 96px; object-fit: contain; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.5)); }
 .goal-arrow { font-size: 56px; color: var(--c-glow); margin: 0 10px 0 4px; font-weight: 900; }
-.controls { display: flex; align-items: center; gap: 30px; margin-top: 46px; animation: rise 0.6s 0.5s var(--ease) both; }
+.controls { display: flex; align-items: center; gap: 30px; margin-top: 34px; animation: rise 0.6s 0.5s var(--ease) both; }
 .controls-lbl { font-size: 28px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin-right: 6px; }
 .ctl { display: flex; align-items: center; gap: 16px; padding: 12px 30px 12px 14px; border-radius: 999px; background: rgba(8, 10, 22, 0.78); border: 2px solid var(--line); }
 .ctl-glyph svg { display: block; width: 76px; height: 76px; }
@@ -242,7 +242,7 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .ctl-face { fill: var(--c-accent); stroke: #fff; stroke-width: 3; }
 .ctl-text b { display: block; font-size: 34px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.02em; }
 .ctl-text small { display: block; font-size: 28px; font-weight: 700; color: var(--c-glow); }
-.lineup { position: absolute; left: var(--mx); right: var(--mx); bottom: 90px; display: flex; gap: 40px; justify-content: flex-start; }
+.lineup { position: absolute; left: var(--mx); right: var(--mx); bottom: 60px; display: flex; gap: 40px; justify-content: flex-start; }
 .lineup-p { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 180px; animation: slide-in 0.6s var(--ease) both; }
 .lineup-p span { font-size: 30px; font-weight: 800; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @keyframes slide-in { from { opacity: 0; transform: translateX(-160px) rotate(-8deg); } 70% { opacity: 1; transform: translateX(10px) rotate(2deg); } to { opacity: 1; transform: none; } }
@@ -265,15 +265,15 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 /* callout banners: lead changes, FINAL 10, TIME!, the winner (rare, one at a time) */
 .callout {
   --cc: var(--c-glow);
-  position: absolute; left: 50%; top: 250px; z-index: 5; pointer-events: none; text-align: center;
+  position: absolute; left: 50%; top: 196px; z-index: 5; pointer-events: none; text-align: center;
   padding: 18px 70px 22px; border-radius: 28px; transform: translateX(-50%);
   background: linear-gradient(180deg, rgba(10, 12, 26, 0.92), rgba(10, 12, 26, 0.82));
   border: 4px solid var(--cc); box-shadow: 0 0 0 8px color-mix(in srgb, var(--cc) 25%, transparent), 0 24px 60px rgba(0, 0, 0, 0.55);
   animation: callout-in 1.9s var(--ease) both;
 }
-.callout-title { font-family: var(--display); font-weight: 900; font-size: 84px; line-height: 1; letter-spacing: -0.02em; color: var(--cc); white-space: nowrap; }
-.callout-sub { font-size: 40px; font-weight: 800; color: #fff; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
-.callout-moment { padding: 12px 50px 16px; top: 250px; }
+.callout-title { font-family: var(--display); font-weight: 900; font-size: 68px; line-height: 1; letter-spacing: -0.02em; color: var(--cc); white-space: nowrap; }
+.callout-sub { font-size: 32px; font-weight: 800; color: #fff; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+.callout-moment { padding: 12px 50px 16px; }
 .callout-moment .callout-title { font-size: 64px; }
 .callout-moment .callout-sub { font-size: 30px; text-transform: none; letter-spacing: 0; }
 .callout-final { --cc: #ff5a3c; top: 330px; }
@@ -281,7 +281,7 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .callout-final .callout-sub { font-size: 56px; color: var(--c-glow); }
 .callout-time { --cc: #ffffff; top: 360px; padding: 26px 110px; }
 .callout-time .callout-title { font-size: 200px; color: #fff; }
-.callout-winner { top: auto; bottom: 150px; animation-duration: 2.8s; }
+.callout-winner { top: 150px; animation-duration: 2.8s; }
 .callout-winner .callout-title { font-size: 110px; }
 @keyframes callout-in {
   0% { opacity: 0; transform: translateX(-50%) scale(1.6); }
@@ -294,10 +294,10 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .pause-inner { text-align: center; }
 
 /* ---------- results ---------- */
-.results-head { position: absolute; left: 0; right: 0; top: 136px; text-align: center; z-index: 3; animation: rise 0.6s var(--ease) both; }
+.results-head { position: absolute; left: var(--mx); right: var(--mx); top: 136px; text-align: left; z-index: 3; animation: rise 0.6s var(--ease) both; }
 .results-head .title { margin: 10px 0 0; font-size: 104px; }
 .podium {
-  position: absolute; left: 50%; bottom: 214px; transform: translateX(-50%); z-index: 3;
+  position: absolute; left: var(--mx); bottom: 214px; z-index: 3;
   display: flex; align-items: flex-end; gap: 30px;
 }
 .podium-col { display: flex; flex-direction: column; align-items: center; width: 330px; animation: podium-up 0.9s var(--ease) both; }
@@ -346,7 +346,8 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .caption.is-on { opacity: 1; transform: translate(-50%, 0); }
 .caption-dot { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--c-glow); box-shadow: 0 0 20px var(--c-glow); }
 .lobby ~ .caption, .settings ~ .caption { bottom: 420px; }
-.results ~ .caption { bottom: auto; top: 300px; }
+.results ~ .caption { left: auto; right: var(--mx); bottom: auto; top: 380px; max-width: 640px; border-radius: 34px; transform: translateY(30px); align-items: flex-start; }
+.results ~ .caption.is-on { transform: none; }
 .play ~ .caption { bottom: 150px; }
 .play.phase-intro ~ .caption { left: auto; right: var(--mx); bottom: 120px; max-width: 760px; transform: translateY(30px); }
 .play.phase-intro ~ .caption.is-on { transform: none; }
