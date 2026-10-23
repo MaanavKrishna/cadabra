@@ -15,7 +15,7 @@
  */
 import { BlockRegistry, GameRuntime, Rng, driveBots, makeBots, registerBuiltins, stubJudgement, DT } from '@cadabra/engine';
 import type { GameSpec } from '@cadabra/spec';
-import { DEFAULT_ART_URLS, FxBudget, GameView, advanceAccumulator } from '@cadabra/render';
+import { DEFAULT_ART_URLS, EventFeed, FxBudget, GameView, LOOKS, LOOK_IDS, advanceAccumulator, type LookId } from '@cadabra/render';
 import {
   Application, BitmapText, PerspectiveMesh, BlurFilter, ColorMatrixFilter, Container, Matrix, RenderTexture, Sprite, Text, Texture, UPDATE_PRIORITY,
 } from 'pixi.js';
@@ -36,6 +36,8 @@ interface Cell {
   /** text: dynamic (re-set every frame) / bitmap font; fill: additive; filter: which; tex: art px (0 = none); game: finale */
   mode?: string;
   durMs?: number;
+  /** r3: draw the game in this look (neon | toybox | cosmos | retro) */
+  look?: LookId;
 }
 
 const GAME_LIST = ['heist', 'dodge', 'sweep', 'race', 'tug', 'quiz'] as const;
@@ -116,6 +118,18 @@ function buildPlan(): Cell[] {
   for (const game of ['heist', 'dodge']) add({ id: `8c-finale-${game}-4p-1280`, grp: '8c', kind: 'game', w: 1280, h: 720, game, bots: 4, fx: 'full', mode: 'finale' });
   // ---- shot: long-running cells for adb screencap (visual parity) ----
   for (const game of ['heist', 'dodge']) add({ id: `shot-${game}`, grp: 'shot', kind: 'game', w: 1280, h: 720, game, bots: 4, fx: 'full', durMs: 25000 });
+  // ---- r3: the 7 built-in games in all 4 looks at the shipped 1920x1080, 4 bots, real adaptive fx ----
+  const R3 = ['fallback-crate-crash', 'fallback-rocket-ball', 'fallback-overload', 'fallback-paint-wars', 'fallback-ring-out', 'fallback-core-rush', 'fallback-neon-dash'];
+  const r3res = Number(qs.get('res')) === 720 ? [1280, 720] as const : [1920, 1080] as const;
+  // the first page after app launch runs slow (JIT / shader warm-up): a throwaway cell first
+  for (const g of ['r3', 'r3own']) add({ id: `${g}-warmup`, grp: g, kind: 'game', w: r3res[0], h: r3res[1], game: R3[0], bots: 4, fx: 'auto', durMs: 3000 });
+  for (const game of R3) {
+    for (const look of LOOK_IDS) add({ id: `r3-${game.slice(9)}-${look}-${r3res[0]}`, grp: 'r3', kind: 'game', w: r3res[0], h: r3res[1], game, bots: 4, fx: 'auto', look });
+  }
+  // r3own: each game in its own look only (quick check)
+  for (const game of R3) add({ id: `r3own-${game.slice(9)}-${r3res[0]}`, grp: 'r3own', kind: 'game', w: r3res[0], h: r3res[1], game, bots: 4, fx: 'auto' });
+  // prof: long cells to attach a CPU profiler to (?grp=prof&i=N&look=...)
+  for (const game of R3) add({ id: `prof-${game.slice(9)}`, grp: 'prof', kind: 'game', w: r3res[0], h: r3res[1], game, bots: 4, fx: 'auto', durMs: 60000, look: (qs.get('look') as LookId | null) ?? undefined });
   add({ id: 'input-heist-8p', grp: 'input', kind: 'game', w: 1280, h: 720, game: 'heist', bots: 8, fx: 'auto', durMs: 70000 });
   add({ id: 'thermal-heist-8p-1280', grp: 'thermal', kind: 'game', w: 1280, h: 720, game: 'heist', bots: 8, fx: 'auto', durMs: 180000 });
   return plan;
@@ -185,12 +199,14 @@ async function loadArt(names: string[], px: number): Promise<Texture[]> {
 
 // ---- game scenarios --------------------------------------------------------------------
 async function setupGame(c: Cell, over: { synthetic?: number } = {}): Promise<Setup & { view: GameView; app: Application }> {
-  const base = (GAMES[c.game ?? 'heist'] ?? GAMES.heist!)();
+  const base0 = (GAMES[c.game ?? 'heist'] ?? GAMES.heist!)();
+  const base: GameSpec = c.look ? { ...base0, theme: { ...base0.theme, look: c.look, palette: LOOKS[c.look].palette } as GameSpec['theme'] } : base0;
   const finale = c.mode === 'finale';
   const spec: GameSpec = finale ? { ...base, durationSec: 14, timeline: [] } : base;
+  const feed = new EventFeed();
   const registry = new BlockRegistry();
   registerBuiltins(registry);
-  const view = new GameView(stage, { internalW: c.w, internalH: c.h, arena: { width: spec.arena.width, height: spec.arena.height } });
+  const view = new GameView(stage, { internalW: c.w, internalH: c.h, arena: { width: spec.arena.width, height: spec.arena.height }, arenaKind: spec.arena.kind, banner: false });
   await view.ready;
   const t0 = performance.now();
   await view.loadTheme(spec.theme, {});
@@ -264,7 +280,7 @@ async function setupGame(c: Cell, over: { synthetic?: number } = {}): Promise<Se
       }
       if (steps === 5) acc = 0;
       const snap = rt.snapshot();
-      view.render(snap, rt.drainFx(), acc / DT);
+      view.render(snap, rt.drainFx(), acc / DT, feed.next(rt));
       const n = snap.entities.length;
       entMax = Math.max(entMax, n);
       entSum += n;
@@ -276,6 +292,7 @@ async function setupGame(c: Cell, over: { synthetic?: number } = {}): Promise<Se
           overAt = 0;
           bots = makeBots(c.bots ?? 4, new Rng(seed++));
           rt = new GameRuntime(spec, bots, registry, seed);
+          feed.reset();
         }
       }
     },
@@ -726,7 +743,7 @@ async function main(): Promise<void> {
     requestAnimationFrame(loop);
   });
   const row = {
-    id: c.id, grp: c.grp, kind: c.kind, w: c.w, h: c.h, game: c.game, bots: c.bots, fx: c.fx, n: c.n, mode: c.mode,
+    id: c.id, grp: c.grp, kind: c.kind, w: c.w, h: c.h, game: c.game, bots: c.bots, fx: c.fx, n: c.n, mode: c.mode, look: c.look,
     ...stats(ft, js, secs, runMs), loadMs: s.loadMs !== undefined ? Math.round(s.loadMs) : undefined, setupMs: Math.round(ttff),
     ...heap(), ...(s.info?.() ?? {}), ...glInfo(app, s.gl), dpr: window.devicePixelRatio, vw: innerWidth, vh: innerHeight,
   };

@@ -135,6 +135,17 @@ const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) 
 /** zIndex bands below the y-sorted bodies. */
 const Z_PAD = -1e11;
 const Z_ZONE = -1e12;
+/**
+ * Depth sort without a per-frame rebuild: setting `zIndex` marks the whole render group's
+ * structure dirty (Pixi rebuilds every draw instruction), so views only record their depth key
+ * here and `EntityLayer.resort` writes zIndex only on frames where the order actually changed.
+ */
+type Depth = Container & { dk?: number };
+/** 6 px of y in `depthKey` units (y * 16 * 8192). */
+const DEPTH_SLACK = 6 * 16 * 8192;
+const zset = (c: Container, z: number): void => {
+  (c as Depth).dk = z;
+};
 
 export function label(text: string, size: number, color: number, opts: { display?: boolean; weight?: string; stroke?: number } = {}): Text {
   const t = new Text({
@@ -450,6 +461,25 @@ export class EntityLayer {
     this.syncLanes(entities, c);
     this.syncPanel(quiz, c);
     this.syncTiles(tiles, c);
+    this.resort();
+  }
+
+  /**
+   * Re-apply depth keys as zIndex only when the bodies are out of order (see `zset`) by more
+   * than a few px of depth: two views sliding past each other swap once, not every frame.
+   */
+  private resort(): void {
+    const ch = this.bodies.children as Depth[];
+    let prev = -Infinity;
+    for (const k of ch) {
+      if (!k.visible) continue; // pooled views do not draw
+      const d = k.dk ?? 0;
+      if (prev > d + DEPTH_SLACK) {
+        for (const c of ch) c.zIndex = c.dk ?? 0;
+        return;
+      }
+      prev = d;
+    }
   }
 
   /**
@@ -766,7 +796,7 @@ export class EntityLayer {
   private place(v: View, x: number, y: number, size: number, tex: Texture, anchorY = 0.5): number {
     const k = size / Math.max(1, tex.width, tex.height);
     v.root.position.set(x, y);
-    v.root.zIndex = depthKey(y, v.id);
+    zset(v.root, depthKey(y, v.id));
     v.body.anchor.set(0.5, anchorY);
     v.body.scale.set(k * v.face, k);
     return k;
@@ -869,7 +899,7 @@ export class EntityLayer {
       v.root.scale.set(1 - outK * 0.85);
       v.root.alpha = 1 - outK;
     }
-    v.root.zIndex = depthKey(y, v.id);
+    zset(v.root, depthKey(y, v.id));
     v.body.scale.set(k * v.face * anim.sx, k * anim.sy * (tiptoe ? 0.9 : 1));
     v.body.rotation = fx.wobble + (e.props.pulling === true ? (e.team === 0 ? -0.22 : 0.22) + Math.sin(c.vt * 9 + e.id) * 0.04 : anim.rot);
     v.body.alpha = fx.alpha * (tiptoe ? 0.82 : 1) * (e.kind === 'runner' && e.props.leg !== undefined ? 0.75 : 1);
@@ -1331,7 +1361,7 @@ export class EntityLayer {
     const pop = this.popScale(v, c);
     const dx = Math.cos(ang) * len / 2, dy = Math.sin(ang) * len / 2;
     v.root.position.set(0, 0);
-    v.root.zIndex = depthKey(y, v.id);
+    zset(v.root, depthKey(y, v.id));
     const ns = (Math.max(16, e.r) * 1.6) / 60 * pop;
     v.body.position.set(x - dx, y - dy);
     v.body.anchor.set(0.5);
@@ -1371,7 +1401,7 @@ export class EntityLayer {
     const size = Math.max(60, e.r * 3.2);
     const pop = this.popScale(v, c);
     this.place(v, x, y, size * pop, pad);
-    v.root.zIndex = Z_PAD + depthKey(y, v.id);
+    zset(v.root, Z_PAD + depthKey(y, v.id));
     v.shadow.visible = false;
     if (!v.marks) {
       v.marks = [0, 1, 2].map(() => {
@@ -1472,7 +1502,7 @@ export class EntityLayer {
     v.body.visible = false;
     v.shadow.visible = false;
     v.root.position.set(x, y);
-    v.root.zIndex = Z_ZONE;
+    zset(v.root, Z_ZONE);
     glow.visible = true;
     ring.visible = !zone;
     glow.position.set(x, y);
@@ -1534,7 +1564,7 @@ export class EntityLayer {
     v.body.tint = crumb ? (Math.sin(c.vt * 18) > 0 ? C.red : 0xffffff) : 0xffffff;
     if (this.L.shadows && key !== 'hole' && key !== 'finish' && key !== 'base') this.shadowAt(v, x, y + size * 0.3, size * 0.8 * pop, size * 0.24 * pop, 0.28);
     else v.shadow.visible = false;
-    if (key === 'hole' || key === 'finish') v.root.zIndex = Z_ZONE;
+    if (key === 'hole' || key === 'finish') zset(v.root, Z_ZONE);
     if (key === 'spike') {
       v.flags.spin = (num(v.flags.spin) + c.dt * 2.5) % TAU;
       v.body.rotation = this.L.pixel ? Math.round(num(v.flags.spin) / (Math.PI / 2)) * (Math.PI / 2) : num(v.flags.spin);
@@ -1625,7 +1655,7 @@ export class EntityLayer {
     }
     v.flags.ang = ang;
     v.body.rotation = L.pixel ? Math.round(ang / (Math.PI / 4)) * (Math.PI / 4) : ang;
-    v.root.zIndex = key === 'bumper' ? depthKey(y - 1000, v.id) : depthKey(y, v.id);
+    zset(v.root, key === 'bumper' ? depthKey(y - 1000, v.id) : depthKey(y, v.id));
 
     // impacts: an engine hit stamp, else a sudden change of velocity
     const pvx = num(v.flags.pvx, e.vx), pvy = num(v.flags.pvy, e.vy);
@@ -1824,7 +1854,7 @@ export class EntityLayer {
     const since = c.vt - num(v.flags.bankAt, -9);
     const rip = since < 0.8 ? Math.exp(-since * 5) * Math.sin(since * 38) : 0;
     v.root.position.set(x, y);
-    v.root.zIndex = Z_ZONE;
+    zset(v.root, Z_ZONE);
     v.body.anchor.set(0.5);
     v.body.rotation = side > 0 ? Math.PI : 0;
     const pop = this.popScale(v, c);
@@ -1966,7 +1996,7 @@ export class EntityLayer {
     ring!.tint = lighten(col, 0.3);
     ring!.alpha = 0.8;
     v.root.position.set(x, y);
-    v.root.zIndex = Z_ZONE;
+    zset(v.root, Z_ZONE);
   }
 
   // ---------- sneak ----------
@@ -1994,7 +2024,7 @@ export class EntityLayer {
     const jump = sinceWake < 0.45 ? arch(sinceWake / 0.45) * 42 : 0;
     const size = Math.max(110, e.r * 3.2) * GUARD_SCALE;
     const k = this.place(v, x + shake, y - jump, size, tex, 0.62);
-    v.root.zIndex = depthKey(y, v.id);
+    zset(v.root, depthKey(y, v.id));
     const m = punch * this.popScale(v, c);
     v.body.scale.set(k * m / Math.sqrt(breathe), k * breathe * m);
     v.body.rotation = gv.waking ? Math.sin(c.vt * 30) * 0.05 : 0;
@@ -2230,7 +2260,7 @@ export class EntityLayer {
     knotS.position.set(0, amp + vib);
     knotS.rotation = Math.sin(c.vt * 3) * 0.1 * slack;
     v.root.position.set(knot, y);
-    v.root.zIndex = depthKey(y, v.id) - 1;
+    zset(v.root, depthKey(y, v.id) - 1);
 
     // banners
     const banners = v.fxs!;
@@ -2294,7 +2324,7 @@ export class EntityLayer {
       v.body.scale.set(k * spin, k);
       v.body.rotation = Math.sin(c.vt * 2 + e.id) * 0.12;
     }
-    v.root.zIndex = carried ? depthKey(y + 60, v.id) : depthKey(y, v.id);
+    zset(v.root, carried ? depthKey(y + 60, v.id) : depthKey(y, v.id));
     if (this.nx && this.L.shadows && !carried) this.shadowAt(v, x, y + size * 0.32, size * 0.6 * pop, size * 0.18 * pop, 0.25);
     else if (this.nx) v.shadow.visible = false;
     else this.shadowAt(v, x, y + e.r * 0.6, e.r * 1.8 * (1 - bob / 30) * pop, e.r * 0.55 * pop, carried ? 0 : 0.3);
@@ -2411,7 +2441,7 @@ export class EntityLayer {
     v.body.tint = crumb ? (Math.sin(c.vt * 18) > 0 ? 0xff8a6a : 0xffffff) : 0xffffff;
     v.top = y - size * 0.6;
     if (pad) {
-      v.root.zIndex = Z_PAD + depthKey(y, v.id);
+      zset(v.root, Z_PAD + depthKey(y, v.id));
       v.shadow.visible = false;
       const gl = this.glowOf(v);
       gl.tint = hexToNum(c.palette.primary);

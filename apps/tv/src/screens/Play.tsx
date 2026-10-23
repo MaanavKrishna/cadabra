@@ -19,8 +19,12 @@ import { TrophyWatch, type Trophy } from '../play/trophies';
 import { keyArtFor } from '../fallback';
 import type { PartyState, RankEntry } from '../state/machine';
 
-/** Internal render size. Native 1080p holds ~60 fps on the stick since the render perf pass (8c). */
-export const INTERNAL = { w: 1920, h: 1080 };
+/**
+ * Internal render size, stretched to the 1080p screen. The R2 looks (toybox shadows, cosmos
+ * stars, physics props) are fill-bound at native 1080p on the Fire TV Stick (crate crash 42 fps);
+ * 1280x720 holds 56-60 fps in every game and look (R3 bench, docs/DEVICE_LIMITS.md).
+ */
+export const INTERNAL = { w: 1280, h: 720 };
 const CALLOUT_MS = 1900;
 /** Headline moments (chase, golden, knockout, splash) get a banner at most this often. */
 const MOMENT_GAP_MS = 3500;

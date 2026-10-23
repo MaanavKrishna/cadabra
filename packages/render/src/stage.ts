@@ -288,6 +288,10 @@ export class GameView {
     this.bake.stack.addChild(this.bgGrad, this.ambience.light, this.vignette);
     const en = this.entities;
     this.world.addChild(en.floor, en.glows, en.trails, en.bodies, this.particles.view, en.overlay);
+    // Each layer that changes shape during play (views pooled in and out, trails, popups) is its
+    // own render group, so a visibility toggle rebuilds that layer's draw list only, not the
+    // whole stage (instruction rebuilds were ~25% of the frame on the Fire TV Stick).
+    for (const c of [en.floor, en.glows, en.trails, en.bodies, en.overlay, this.popLayer]) c.isRenderGroup = true;
     // on stage: ONE opaque background quad, then the world (no ambient motes: particles mean something)
     this.shaker.addChild(this.bake.sprite);
     if (this.neon) {

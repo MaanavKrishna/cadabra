@@ -17,7 +17,7 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 
 const ADB = process.env.ADB ?? '/opt/homebrew/bin/adb';
 const PKG = 'com.maanavkrishna.cadabra';
-const BASE = 'https://appassets.androidplatform.net/assets/www/index.html';
+const BASE = `https://appassets.androidplatform.net/assets/www/index.html${process.env.BENCH_QS ?? ""}`;
 const [, , mode = 'run', ip = '192.168.68.107', arg3, arg4, arg5] = process.argv;
 const DEV = `${ip}:5555`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -152,7 +152,7 @@ async function runInput(out) {
     if (tag === 'BENCH_FIRSTFRAME') first = true;
   });
   await launch();
-  await navigate(`${BASE}?grp=input&i=0`);
+  await navigate(`${BASE}${process.env.BENCH_QS ? "&" : "?"}grp=input&i=0`);
   for (let i = 0; i < 60 && !first; i++) await sleep(500);
   await sleep(6000);
   const inj = [];
@@ -210,14 +210,14 @@ async function runGroup(group, out, start) {
     else if (tag === 'BENCH_DONE') done = true;
   });
   await launch();
-  await navigate(`${BASE}?grp=${group}&i=${start}`);
+  await navigate(`${BASE}${process.env.BENCH_QS ? "&" : "?"}grp=${group}&i=${start}`);
   while (!done) {
     await sleep(2000);
     if (Date.now() - lastProgress > (group === 'thermal' ? 120000 : 90000)) {
       console.log(`stalled at ${lastIdx}; restarting at ${lastIdx + 1}`);
       write({ type: 'stall', at: lastIdx });
       await launch();
-      await navigate(`${BASE}?grp=${group}&i=${lastIdx + 1}`);
+      await navigate(`${BASE}${process.env.BENCH_QS ? "&" : "?"}grp=${group}&i=${lastIdx + 1}`);
       lastProgress = Date.now();
     }
   }
