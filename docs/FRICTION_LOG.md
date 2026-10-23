@@ -31,6 +31,11 @@ Kept as we built (Oct 20 to 24, 2026). Every entry: task, steps, expected vs act
 | 23 | Tooling | low | Vitest workspace deprecation, npm install-script warning |
 | 24 | CDK / IAM | low | Cross-region model calls need extra IAM ARNs |
 | 25 | Tooling | low | Image-tool download returned wrong images (not AWS) |
+| 26 | Polly | medium | Generative voices are not offered in ap-south-1 |
+| 27 | Anthropic API | medium | Sonnet 5.5 rejects `thinking: disabled`; needs `between_tools` |
+| 28 | AWS CLI | medium | `aws login` sessions expire after about 12 h, mid-deploy |
+| 29 | Tooling | medium | JDK 25 breaks the Android Gradle build; JDK 17 needed |
+| 30 | Fire TV WebView | high | Pixi stage rebuilds plus 1080p fill cost about 40% of the frame |
 
 ## Bedrock and AWS account
 
@@ -41,6 +46,7 @@ Kept as we built (Oct 20 to 24, 2026). Every entry: task, steps, expected vs act
 - Later check with Service Quotas: **all Claude TPM/RPM applied quotas were 0** on this account (default values are 5M TPM / 10k RPM), so even after the use-case form was submitted and propagated, invocation could not work.
 - Severity: **blocker** (live Forge, host lines, roast and vision judging).
 - Workaround: ordered fallback chains per role (retry on ValidationException / AccessDenied / ResourceNotFound), plus an automatic Anthropic API fallback provider (key in Secrets Manager, translated Converse request, remembered for a few minutes, Bedrock retried afterwards). A bot-playtested fallback game covers the case where no model is reachable.
+- **Update, Oct 23 (submission day):** still 0. The game runs on the Anthropic API fallback (Claude Sonnet 5.5 and Haiku 5.5); Bedrock is still tried first on every new window.
 - Suggestion: (a) make `list-*` APIs and the console show per-account invocability; (b) return one error that names the exact missing step (form, quota, regional availability) with a link; (c) give new accounts non-zero default quotas for the model family a hackathon is built around, or show "your quota is 0" in the model-access page.
 
 ### 2. Anthropic use-case form: invisible dependency
@@ -52,6 +58,7 @@ Kept as we built (Oct 20 to 24, 2026). Every entry: task, steps, expected vs act
 - Task: 17 (art pipeline). Steps: Service Quotas for Bedrock Stability models in us-west-2; `InvokeModel` for `stability.stable-image-core-v1:1`.
 - Expected: small default quota or an increase request. Actual: requests per minute = 0 and the quota shows as **not adjustable**; the only route is an AWS Support case.
 - Severity: high (no generated art or toon selfies from AWS). Workaround: art pipeline with a fast circuit breaker (skip image generation for 10 minutes after a throttle), a default sprite art pack plus palette tinting, and an on-device toon filter (posterize, outline, circle mask) for selfie avatars. Suggestion: allow adjustment, or document that image models need Support on a new account.
+- **Update, Oct 23:** still 0 at submission. We stopped depending on generated art: all four game looks are now drawn procedurally in code, and the hero stills are baked from the real renderer.
 
 ### 4. Amazon Nova Canvas not available
 - Task: planning Tasks 14/17/21 (the design called for Nova Canvas).
@@ -81,6 +88,7 @@ Kept as we built (Oct 20 to 24, 2026). Every entry: task, steps, expected vs act
 - Steps: `cdk deploy` with `reservedConcurrentExecutions: 20`.
 - Expected: deploy. Actual: `UPDATE_FAILED ... decreases account's UnreservedConcurrentExecution below its minimum value of [10]`. A new account's concurrency limit is low enough that nothing can be reserved.
 - Severity: medium. Workaround: `deploy.sh` retries with `-c reservedConcurrency=0`. Suggestion: show the account concurrency limit in the deploy error, or have CDK/CloudFormation validate against the limit.
+- **Update, Oct 23:** it kept breaking deploys all week, because every fresh `cdk deploy` without the context flag tries 20 again and rolls back the whole stack update (several minutes each time).
 
 ### 10. The failure repeats on every redeploy
 - Task: 14. Same deploy, second time. The first deploy with 0 stuck, then the next default-valued deploy tried to set 20 again and rolled back. Severity: low. Workaround: default to 0 in this account. Suggestion: remember the account-specific override in `cdk.context.json` automatically.
@@ -95,12 +103,13 @@ Kept as we built (Oct 20 to 24, 2026). Every entry: task, steps, expected vs act
 ### 12. adb over Wi-Fi: authorization prompt and moving IP
 - Task: 2, 13, bench. Steps: `adb connect <ip>:5555`.
 - Expected: stable session. Actual: the IP changed several times (DHCP: .109, .106, .107, ...), `connection refused` after the stick slept, re-authorization prompts on TV after each change.
-- Severity: medium. Workaround: scripts take the IP as an argument (`tv-install.sh <ip>`, `TV_IP` for `tv-record.sh`); DHCP reservation recommended. Suggestion: show the ADB IP and port on the Developer Options page; keep ADB-over-network enabled across sleep; mDNS discovery.
+- Severity: medium. Workaround: scripts take the IP as an argument (`tv-install.sh <ip>`, `TV_IP` for `tv-record.sh`); DHCP reservation recommended. - **Update, Oct 23:** the address changed again after a reboot, and once the Mac itself moved to another network (172.18.x) in the middle of an on-device benchmark, which left a bench build on the stick.
+- Suggestion: show the ADB IP and port on the Developer Options page; keep ADB-over-network enabled across sleep; mDNS discovery.
 
 ### 13. WebView `devicePixelRatio = 2` with a 960x540 CSS viewport
 - Task: 2/12. Steps: size a canvas from `window.innerWidth`.
 - Expected: 1920x1080 CSS pixels (the display). Actual: Chromium reports a 960x540 CSS viewport at DPR 2. Naive sizing renders a quarter of the pixels or blurs.
-- Severity: medium. Workaround: set the renderer resolution explicitly and size the canvas to the CSS viewport; the app renders at an internal 1920x1080. Suggestion: document the viewport and DPR for Fire TV WebView, and the recommended approach for 1080p.
+- Severity: medium. Workaround: set the renderer resolution explicitly and size the canvas to the CSS viewport; the app first rendered at an internal 1920x1080, and now renders at 1280x720 for fill rate (entry 30). Suggestion: document the viewport and DPR for Fire TV WebView, and the recommended approach for 1080p.
 
 ### 14. The GPU is fill-rate bound: full-screen layers are the bottleneck
 - Task: 8c bench. Steps: PixiJS scene on a PowerVR GE8300 (Stick HD).
@@ -144,3 +153,39 @@ Kept as we built (Oct 20 to 24, 2026). Every entry: task, steps, expected vs act
 
 ### 25. Image generation for the default art pack
 - Task: art pipeline. A chat-based image tool produced the sprite sheets (sliced with scripts), but full-size downloads from the tool sometimes returned the wrong images, so clipboard capture was used. Not AWS-related; recorded for completeness.
+
+## Late-build entries (Oct 23)
+
+### 26. Polly generative voices are not offered in ap-south-1
+- Task: host voice upgrade.
+- Steps: `aws polly describe-voices --engine generative --region ap-south-1`, then `SynthesizeSpeech` with `Engine=generative`.
+- Expected: the newest engine in the region where the rest of the stack runs. Actual: no generative voices in Mumbai. We called Polly in us-east-1 and kept the mp3 cache in ap-south-1, with a fallback chain (generative, long-form, neural, standard).
+- Severity: medium. Later the voice was turned off for product reasons (captions only), so Polly is built but unused.
+- Suggestion: generative voices, including en-IN, in Asia Pacific (Mumbai), and a per-region engine table on the voices page.
+
+### 27. Claude Sonnet 5.5 rejects `thinking: {type: 'disabled'}`
+- Task: the Anthropic API fallback provider.
+- Steps: the designer request with thinking disabled to save latency, the same shape that worked on Haiku 5.5.
+- Expected: thinking off. Actual: a 400 on Sonnet 5.5. It takes `{type: 'between_tools'}` instead (valid at effort high or below, its default). Haiku 5.5 still accepts `disabled`.
+- Severity: medium (every live design failed until the fix). Workaround: choose the thinking type per model id.
+- Suggestion: list the valid thinking modes per model in the error message.
+
+### 28. `aws login` sessions expire after about 12 h, mid-deploy
+- Task: backend redeploys during the build.
+- Steps: `bash apps/backend/deploy.sh` late in a long session.
+- Expected: either a warning before expiry or a refresh. Actual: the deploy failed partway with an expired-credentials error, and someone had to run `aws login` again in a browser before we could continue. `deploy.sh` now checks `aws sts get-caller-identity` first and stops with a clear message.
+- Severity: medium. Suggestion: show the session expiry time in `aws login` output, and let `cdk deploy` warn when the remaining session is shorter than a typical deploy.
+
+### 29. JDK 25 breaks the Android Gradle build
+- Task: building the Fire TV APK.
+- Steps: `./gradlew assembleDebug` with the machine's default JDK (Temurin 25).
+- Expected: build. Actual: Gradle 8.10 and AGP 8.7 fail on JDK 25. Pinning `JAVA_HOME=/opt/homebrew/opt/openjdk@17` fixed it, and `scripts/tv-install.sh` now sets it.
+- Severity: medium. Suggestion: the Fire TV getting-started page should name the supported JDK, and Gradle should fail with "unsupported Java version" up front.
+
+### 30. Fire TV WebView: Pixi stage rebuilds and 1080p fill rate cost about 40% of the frame
+- Task: R3, performance on the stick for the physics games.
+- Steps: CPU profiles over CDP and `dumpsys gfxinfo` on the real app, with 4 bots, in every game and look.
+- Expected: about 60 fps (the older games already held 59 at 1080p). Actual: Crate Crash ran at 45 fps (gfxinfo p50 25 ms, 93% janky frames). About 25% of the frame was Pixi rebuilding its instruction list, because the y-sort wrote `zIndex` on every moving body and a sweep flipped `visible` twice a frame; most of the rest of the gap was fill at native 1080p (42 fps at 1920 vs 58.7 at 1280 with the same code). First-time text rasterisation and shader compiles added one-off hitches of 50 to 390 ms.
+- Severity: high. Workaround: re-sort only when bodies are out of order by more than 6 px, a render group per dynamic layer, render internally at 1280x720 stretched to 1080p, and prewarm shaders and banners behind the intro. Crate Crash now runs at 59.3 fps (p50 9 ms), and every game is at 58.6 to 60.0.
+- Suggestion: a Fire TV web performance guide that names fill rate and per-frame scene-graph rebuilds as the two budgets, with recommended internal resolutions per device.
+

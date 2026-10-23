@@ -1,118 +1,101 @@
-# Submission draft (Devpost)
+# Devpost submission
 
-Deadline: 2026-10-24 00:30 IST. Everything below is a draft for the owner to review before pasting into Devpost. Items marked TODO need a human decision or a fact that will only be known at submission time.
+Ready-to-paste copy for each Devpost field. Deadline: 2026-10-24 00:30 IST.
 
-## Project name and tagline
+## Name and tagline
 
 **Cadabra: Say it. Play it.**
 
-Short description (under 200 characters): *A Fire TV party game where the room shouts ideas, an AI designs the game, and everyone's phone becomes the controller. Say it. Play it.*
+Short description: *AI party games for Fire TV. The room throws in ideas from their phones, the AI designs and bot-tests a physics game in seconds, and every phone is the controller.*
 
 ## Track and challenges
 
 - **Track:** Fire TV.
-- **Mini challenge: AWS Builder.** Services: Amazon Bedrock (Converse API, tool use, Guardrails), Amazon Polly (generative voices), AWS Lambda (x3), Amazon API Gateway (WebSocket), Amazon DynamoDB, Amazon S3, Amazon CloudFront (x2), AWS Secrets Manager, AWS CDK. Details in the README and in `docs/FEEDBACK.md`.
-- **Mini challenge: Open Source.**
-  - Contribution URL: https://github.com/MaanavKrishna/couchpad
-  - Repo URL: https://github.com/MaanavKrishna/cadabra
-  - GitHub username: MaanavKrishna
-  - Short description: *couchpad turns phones into game controllers for TV and web games. Players scan a QR code and get joystick, button, tilt, swipe, draw, vote and text widgets; inputs travel over a direct WebRTC DataChannel with an automatic WebSocket relay fallback (chunking, reliable queue, keepalive, rejoin). It was extracted from Cadabra and ships with a reference signaling server and a minimal host and phone example. MIT licensed.*
-- **Friction log bonus:** `docs/FRICTION_LOG.md` (25 dated, structured entries: task, steps, expected vs actual, severity, workaround, suggestion).
-- **Product feedback:** `docs/FEEDBACK.md`.
+- **AWS Builder.** Services and what each one does:
+  - **Amazon Bedrock (Converse API, tool use):** the AI game designer and tweak agent call tools against our game kit; also pitches, host captions and the roast. Preferred provider, with ordered model chains.
+  - **Amazon Bedrock Guardrails:** one `cadabra-family-safe` guardrail screens every idea, typed tweak, pitch, caption and roast.
+  - **AWS Lambda (x3):** `WsFn` for rooms, WebRTC signaling and relay; `ForgeFn` (arm64, 3008 MB) for the designer, tweaks and the bot playtests, which run our game engine inside Lambda; `HostFn` for captions and the roast.
+  - **Amazon API Gateway (WebSocket):** real-time rooms, signaling, the relay fallback, and server push of forge progress.
+  - **Amazon DynamoDB:** one on-demand table with TTL for rooms, connections, forge locks, rate counters and the household Arcade. Conditional writes make joins and votes atomic.
+  - **Amazon S3 + Amazon CloudFront:** the phone controller site and the assets CDN (private buckets, OAC, a CloudFront Function prefix guard).
+  - **AWS Secrets Manager:** the key for the Anthropic API fallback.
+  - **AWS CDK (TypeScript):** the whole backend is one stack.
+  - **Amazon Polly:** built for a host voice, then turned off; the shipped game uses captions.
+- **Open Source:** [github.com/MaanavKrishna/couchpad](https://github.com/MaanavKrishna/couchpad). couchpad turns phones into game controllers for TV and web games: QR join, joystick, button, tilt, swipe, draw and vote widgets, and a direct WebRTC DataChannel with an automatic WebSocket relay fallback (chunking, reliable queue, keepalive, rejoin). It ships a reference signaling server and an example. MIT. Main repo: [github.com/MaanavKrishna/cadabra](https://github.com/MaanavKrishna/cadabra). GitHub username: MaanavKrishna.
+- **Friction log bonus:** [docs/FRICTION_LOG.md](FRICTION_LOG.md), 30 dated entries with task, steps, expected vs actual, severity, workaround and suggestion. Product feedback: [docs/FEEDBACK.md](FEEDBACK.md).
 
 ## Inspiration
 
-"Cadabra" was Amazon's first name. Abracadabra: I create as I speak. Family game night is stuck choosing between the same five games. What if the game did not exist until you said what you wanted, and was playable 30 seconds later, in your living room, on the TV you already own?
+"Cadabra" was Amazon's first name. Abracadabra means "I create as I speak", and that became the product: a living room that invents its own game by talking.
+
+Family game night usually means choosing between the same five games, and one person always has to read the rules. We wanted a game that doesn't exist until the room says what it wants, and is playable seconds later on the TV you already own. There are no controllers to buy and no app to install: everyone already has a phone.
 
 ## What it does
 
-1. The TV shows a QR code and a four-letter room code. Phones join in a browser with no install, choose a name and a cartoon avatar (a selfie is cartoonised on the phone and never uploaded).
-2. **Idea Storm.** Everyone types ingredients: a hero, a place, a twist.
-3. **Three AI pitches.** An AI game designer proposes three games, each with a title and a hook. The room votes.
-4. **The Forge.** The winning game is built, validated and bot-playtested and appears within seconds. Every phone becomes the right controller for that game (stick and jump, tap spam, tilt, swipe, draw, vote).
-5. **Play.** A real engine on a Fire TV Stick HD at 1080p/60 fps, with a mid-round surprise and a double-points final ten seconds.
-6. **Host and roast.** A voiced host reacts to the round and roasts the players using the actual event log ("you got caught by the bear four times").
-7. **Arcade.** Games the room did not pick are saved per household for next time.
+Cadabra is a party game console for Fire TV where the AI is the game designer.
 
-The TV is the authority; phones send inputs over a direct peer-to-peer link at 13 to 16 ms.
+1. **Join.** The TV shows a QR code and a 4-letter code. Phones join in the browser, with no install, and pick an orb or a selfie avatar. 1 to 4 players, and bots fill the empty seats.
+2. **Idea Storm (30 s).** Everyone types ideas on their phone ("laser sharks", "disco floor", "zero gravity"), and they float onto the TV.
+3. **Three AI pitches.** In about 6 seconds the AI pitches three games, each with a title, a hook, game blocks and a visual look. The room votes on their phones.
+4. **The Forge.** The AI designer builds the winner by calling tools: it reads block schemas, writes a game spec, and runs a **bot playtest**. A game only reaches the TV after bots finish a full round with it. It is ready about 4 to 7 seconds after the vote.
+5. **Play.** A real game on a Fire TV Stick HD at about 59 fps, with real physics (bumpers, bouncing balls, crates, exploding barrels), one of four looks (neon, toybox, cosmos, retro), procedural music, and PS5-style trophies. Each phone becomes the controller that game needs.
+6. **Tweak it.** After the round, phones tap "Low gravity", "Bouncier" or "More chaos", or type their own idea. In about 5 seconds the AI patches the game, a "What changed" card shows the changes, and the new version replays.
+7. **Keep it.** Every forged and remixed game is saved to the family **Arcade**, where you can replay or remix it.
+
+Cadabra also ships **seven built-in games** (Ring Out, Overload, Paint Wars, Core Rush, Neon Dash, Rocket Ball, Crate Crash) and a **Party mode** of four 45-second rounds with standings. Everything is family-safe by default: every idea and every AI output goes through Amazon Bedrock Guardrails.
 
 ## How we built it
 
-- **Fire TV app:** Kotlin shell (leanback, key mapping, volume pass-through) around a WebView that runs a TypeScript web app: a deterministic game engine of composable blocks, PixiJS rendering, and a party state machine.
-- **Phones:** a React controller served from S3/CloudFront over HTTPS (needed for tilt and haptics); `couchpad` handles join, WebRTC and relay.
-- **Backend (AWS CDK):** API Gateway WebSocket + three Lambdas + DynamoDB + S3/CloudFront. Bedrock Converse with tool use drives a designer agent; Guardrails screen every input and output; Polly voices the host.
-- **Safety net:** specs go through a validator and headless bot playtests; if the AI is slow or unavailable, a hand-tuned fallback game is reskinned with the room's ingredients, so the game never waits.
-- **Honest note on Bedrock:** this hackathon account's Bedrock Claude quotas were 0 and not obtainable in time, so the code calls Claude through an automatic Anthropic API fallback (key in Secrets Manager) and switches back to Bedrock as soon as Bedrock works. Guardrails, Polly and all hosting stay on AWS.
+- **Fire TV app.** A Kotlin leanback shell hosts a full-screen WebView running a TypeScript app: a PS5-style React UI, a deterministic game engine, planck physics, and a PixiJS renderer. Phones talk to it over couchpad.
+- **The engine.** Games are not code. They are a `GameSpec` that composes **9 tested blocks** (sneak, collect, dodge, race, tug, arena-move, trivia, draw-judge, ball-sport) with physics props and a world config: gravity, bounce, knockback and so on. The engine is seeded and deterministic, so a full 4-bot round simulates in milliseconds, which makes it a cheap gate for AI output.
+- **The AI designer.** A tool-calling agent (`list_blocks`, `get_block_schema`, `patch_spec`, `playtest_spec`) runs in Lambda. The playtest returns reasons such as "only 1 of 4 bots scored; the hazard penalised them", and the model fixes the spec in its next call. A passing playtest is the submission, so a typical design is one model reply.
+- **Tweak.** The same agent and tools, with a patch brief. If the AI misses its deadline, deterministic chip presets run instead, still playtest-checked, so the room never waits.
+- **Looks.** All the art is procedural: four looks drawn in code, each with its own arena, sprites, particles, music and sfx. The AI picks a look for each pitch.
+- **Backend.** API Gateway WebSocket, three Lambdas, DynamoDB and S3/CloudFront, all in one CDK stack in ap-south-1.
+- **Models.** Claude Sonnet 5.5 designs and tweaks, and Claude Haiku 5.5 writes pitches and captions. Calls go through Amazon Bedrock first. This brand-new account's Bedrock Claude quotas are 0 and our increase requests stayed pending, so the same Converse-shaped request falls back to the Anthropic API automatically and switches back to Bedrock once Bedrock answers. Guardrails always run on AWS.
+- **Tests.** 633 tests across the engine, spec, render, backend (mocked AWS), TV, controller and couchpad.
 
 ## Challenges we ran into
 
-- Bedrock access on a brand-new account: use-case form, zero quotas, image models not adjustable. We built an ordered model chain with provider fallback and fallback art.
-- Performance on a Fire TV Stick HD: the first game view ran at 40 to 53 fps because each full-screen alpha layer costs about 2.5 ms on the PowerVR GPU. A baked background brought it to a steady ~60 fps, even at 1080p.
-- Real-time networking: WebRTC in the Fire OS WebView, relay fallback under API Gateway's 32 KB frames, and flaky phone behaviour (blur, reconnect, sticky buttons).
-- Making AI games fun, not just valid: we added a playtest gate and tuned game feel (momentum, shoves, heist chase, comeback mechanics) until bot matches produced 6 to 8 lead changes per round.
+- **Zero AI quotas.** On a new AWS account every Bedrock Claude quota was 0, and Stability image models were at 0 and not adjustable. We built an ordered model chain with a provider fallback, and replaced generated art with four procedural looks.
+- **60 fps on a Fire TV Stick HD.** The first physics game, Crate Crash, ran at 45 fps on the stick. Profiling over CDP showed Pixi rebuilding its render instructions every frame (about 25% of the frame) and 1080p fill rate. We fixed the depth sort, split the render groups, rendered at 1280x720 and prewarmed shaders. Every game now runs at 58.6 to 60 fps.
+- **Making AI games fun, not just valid.** The first games were valid but not fun. We added fun rules to the prompt (a clear goal, risk and reward, a comeback, physical comedy), real physics, and a balance harness: the built-in games average 2.6 to 6.8 lead changes per round.
+- **Latency budgets.** Every AI step has a deadline and a deterministic fallback: pitches 8 s, the winner 25 s after the vote, tweaks 15 s. We cut model turns until designs took one reply, and turned off SDK retries on throttled Bedrock probes, which saved about 1.3 s.
+- **Real-time networking.** WebRTC in the Fire OS WebView, a relay under API Gateway's 32 KB frames, and phones that sleep, blur and rejoin.
 
-## Accomplishments we are proud of
+## Accomplishments that we're proud of
 
-- A full loop on real hardware: join, storm, pitch, vote, forge, play, roast.
-- Measured, documented Fire TV limits (`docs/DEVICE_LIMITS.md`) and a runtime that holds ~59 fps at 1080p.
-- A clean extraction: `couchpad`, a standalone MIT library other TV and web party games can use.
-- A thorough friction log and product feedback.
+- The whole loop runs on real hardware: ideas, pitches, vote, AI build, bot playtest, play, tweak, replay.
+- The AI can't ship a broken game, because bots play every spec before a human does.
+- Seven physics games in four looks, all at about 59 fps on the cheapest Fire TV Stick.
+- A tweak loop that changes a game's rules in about 5 seconds.
+- couchpad, extracted as a standalone MIT library for any TV or web party game.
+- A detailed friction log and device performance report (`docs/DEVICE_LIMITS.md`).
 
 ## What we learned
 
-Fill rate, not CPU, is the budget on the Stick HD. Never make a game wait for an AI call. And the best demo of AI is a game that stands up without it.
+- **Let the AI compose, don't let it code.** A small kit of tested blocks plus a fast deterministic simulator gives the model something it can check its own work against.
+- **Never make the room wait for a model.** Every AI call has a deadline and a fallback that is already good.
+- **On a Fire TV Stick, fill rate and scene-graph churn are the budget**, not JavaScript or physics.
+- **Fun is measurable enough to tune:** lead changes, comeback points and score gaps from bot rounds.
 
 ## What's next
 
-Remix-by-voice tweak panel, an Arcade shelf on the TV, more blocks, and a public block SDK.
+- Tweak by voice using the Fire TV remote's microphone.
+- Share codes, so families can trade Arcade games.
+- More blocks and a public block SDK.
+- Moving fully onto Bedrock as soon as the account's quotas arrive. The code already prefers it.
 
-## Product feedback summary
+## Built with
 
-Full text in `docs/FEEDBACK.md`. Highlights:
-
-- **Bedrock / Service Quotas (critical):** a new account had every Claude quota at 0, with no clear signal, hidden prerequisites (use-case form) and quota requests that closed or stayed pending. Show effective quota and invocability per model.
-- **Bedrock Guardrails, Polly, DynamoDB, CDK (positive):** easy onboarding, reliable, and they fit a family game.
-- **Fire TV (important):** a performance budget doc for web content on the Stick HD, ADB address stability, and a note on WebView `devicePixelRatio = 2`.
-
-## Feature requests (with urgency)
-
-- Critical: per-account Bedrock quota and invocability shown in `list-foundation-models`, the console and the error; non-zero default quotas on new accounts.
-- Important: adjustable Stability image quota; Nova Canvas in ap-south-1; quota name in throttling errors; Fire TV web performance doc; stable ADB address.
-- Nice-to-have: inference profile lookup, Lambda concurrency visibility in CDK errors, WebSocket limits documented in the quickstart, faster `input` injection, Polly generative voices in Mumbai.
-
-## Demo video outline (target 2:45, hard limit under 3:00)
-
-Rules: best material first, real device footage, no copyrighted music (use royalty-free or silence plus the game's own procedural music), English voiceover by the owner, AI video tools only for the intro, b-roll and transitions.
-
-| Time | Beat |
-|---|---|
-| 0:00 to 0:10 | **Hook.** Voiceover: "Cadabra was Amazon's first name. Abracadabra: I create as I speak." Quick b-roll of the word, cut to the TV lobby. Title card: "Say it. Play it." |
-| 0:10 to 0:30 | Join: real hands holding phones in front of the real TV scanning the QR; avatars pop onto the TV; the host greets them by name. |
-| 0:30 to 0:55 | **Money shot 1 and 2:** ingredients flying onto the TV from phones; three AI pitches appear; phones vote. |
-| 0:55 to 1:15 | **Money shot 3:** the Forge assembling the game with host commentary, then the tutorial and each phone showing its controller. |
-| 1:15 to 1:55 | **Money shot 4:** live gameplay on the real stick (real capture), including the surprise event and the double-points final ten seconds; show the "direct" 13 ms indicator. |
-| 1:55 to 2:15 | **Money shot 5:** results podium and the host roast built from the actual events. |
-| 2:15 to 2:30 | Arcade shelf with the unplayed pitches (if the TV shelf screen is finished; otherwise skip) and a bot-filled solo round. |
-| 2:30 to 2:50 | Architecture in one slide (AWS services, couchpad open source, the hardware), the stats (59 fps at 1080p, 13 ms), links. End card: repo URLs and "Say it. Play it." |
-
-Capture notes:
-- Real stick capture: `scripts/tv-record.sh <ip>` (adb `screenrecord`, clips can end early, so record several short clips) and HDMI capture as backup; also phone-shot footage of the real TV.
-- The demo can run solo: one phone, laptop browser tabs as extra controllers, and bots.
-- Remix and wild-mode shots are in the original plan; only include them if they shipped (they are not in this build).
+TypeScript, React, PixiJS, planck.js, Zod, Vite, Vitest, Kotlin, Android WebView (Fire OS), WebRTC, WebAudio, Amazon Bedrock (Converse, tool use), Amazon Bedrock Guardrails, AWS Lambda, Amazon API Gateway WebSocket, Amazon DynamoDB, Amazon S3, Amazon CloudFront, AWS Secrets Manager, AWS CDK, Claude Sonnet 5.5, Claude Haiku 5.5, couchpad.
 
 ## Pre-submission checklist
 
-- [ ] Backend deployed and healthy: `bash apps/backend/deploy.sh`; smoke: `npx tsx apps/backend/scripts/smoke-forge.ts`
-- [ ] Controller published: `bash apps/controller/deploy.sh`; open https://d3g2ct6wjlkyzv.cloudfront.net on a phone
-- [ ] Anthropic fallback secret `cadabra/anthropic-api-key` exists (or Bedrock quotas arrived), live Forge produces AI games, not just fallbacks
-- [ ] Latest TV build installed on the stick: `scripts/tv-install.sh <ip>`; full party loop rehearsed with a real phone
-- [ ] `npm test` and `npm run typecheck` pass
-- [ ] Repos created and pushed (owner approval was given): `MaanavKrishna/cadabra` and `MaanavKrishna/couchpad`, both public with MIT LICENSE
-- [ ] couchpad: replace the main repo's workspace copy or keep both and note it in the README
-- [ ] README placeholders: add `docs/media/demo.gif`, confirm screenshots render on GitHub
-- [ ] Remove personal LAN IPs from docs and scripts if any remain; no secrets in git history
-- [ ] Demo video under 3:00, uploaded (YouTube or Vimeo, public or unlisted), link added to Devpost and README
-- [ ] Devpost: track Fire TV; mini challenges AWS Builder and Open Source with the URLs above
-- [ ] Devpost: friction log and FEEDBACK linked (and pasted if the form asks)
-- [ ] Final check of "built during the hackathon window" statement and licenses
+- [ ] Final APK installed on the stick; full loop rehearsed with a real phone (Create, Tweak, Party, Arcade)
+- [ ] Backend and controller deployed; `npx tsx apps/backend/scripts/smoke-forge.ts` and `smoke-tweak.ts` pass
+- [ ] `npm test` (633) and `npm run typecheck` pass
+- [ ] Both repos public with MIT LICENSE; `feat/cadabra` pushed to `main`
+- [ ] Demo video under 3:00 uploaded; link added here, to Devpost and to the README
+- [ ] Devpost: Fire TV track; AWS Builder and Open Source challenges with the URLs above; friction log and feedback linked
 - [ ] Submit before 2026-10-24 00:30 IST
