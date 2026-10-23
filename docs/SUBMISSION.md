@@ -8,6 +8,14 @@ Ready-to-paste copy for each Devpost field. Deadline: 2026-10-24 00:30 IST.
 
 Short description: *AI party games for Fire TV. The room throws in ideas from their phones, the AI designs and bot-tests a physics game in seconds, and every phone is the controller.*
 
+## Links (paste into Devpost "Try it out")
+
+- Website and docs: https://maanavkrishna.github.io/cadabra/
+- Code: https://github.com/MaanavKrishna/cadabra
+- Fire TV APK: https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0
+- Open-source library: https://github.com/MaanavKrishna/couchpad (docs: https://maanavkrishna.github.io/couchpad/)
+- Phone controller (opens from the TV's QR code): https://d3g2ct6wjlkyzv.cloudfront.net
+
 ## Track and challenges
 
 - **Track:** Fire TV.
