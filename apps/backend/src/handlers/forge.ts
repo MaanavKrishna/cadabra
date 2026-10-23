@@ -8,6 +8,7 @@ import type { BackendToClient } from '@cadabra/spec';
 import { claimForgeRun, type ForgeEvent } from '../forge-room';
 import { saveUnplayed } from '../arcade';
 import { FORGE_BUDGETS, runForge, type ForgeJob } from '../forge';
+import { TWEAK_HARD_MS, isTweakEvent, runTweakMsg, type TweakEvent } from '../tweak-room';
 
 /**
  * Forge Lambda (invoked asynchronously by the ws handler on forge.pitch). Streams pitches,
@@ -19,7 +20,24 @@ const TABLE = () => process.env.TABLE_NAME!;
 const SAFETY_MS = 4000;
 const log = (...a: unknown[]) => console.log('[forge]', ...a);
 
-export async function handler(ev: ForgeEvent, context?: Pick<Context, 'getRemainingTimeInMillis' | 'awsRequestId'>) {
+/** Tweak / Remix (R2): patch the spec, stream progress, reply forge.tweaked to the TV. */
+async function handleTweak(ev: TweakEvent) {
+  // A late or retried async delivery: the TV has already moved on (it replays after its own timeout).
+  if (Date.now() - ev.receivedAt > TWEAK_HARD_MS) return { tweaked: false, stale: true };
+  const api = new ApiGatewayManagementApiClient({ endpoint: ev.endpoint });
+  const post = async (msg: BackendToClient) => {
+    try { await api.send(new PostToConnectionCommand({ ConnectionId: ev.conn, Data: JSON.stringify(msg) })); } catch (e) {
+      if ((e as { name?: string })?.name !== 'GoneException') log('tweak post failed', (e as Error)?.name);
+    }
+  };
+  const reply = await runTweakMsg(ev.msg, { receivedAt: ev.receivedAt, post });
+  if (reply) await post(reply);
+  log(JSON.stringify({ tweak: ev.msg.id, code: ev.msg.code, totalMs: Date.now() - ev.receivedAt, source: reply?.t === 'forge.tweaked' ? reply.source : 'none' }));
+  return { tweaked: !!reply };
+}
+
+export async function handler(ev: ForgeEvent | TweakEvent, context?: Pick<Context, 'getRemainingTimeInMillis' | 'awsRequestId'>) {
+  if (isTweakEvent(ev)) return handleTweak(ev);
   const t0 = Date.now();
   const claim = await claimForgeRun({ ddb, table: TABLE() }, ev, context?.awsRequestId ?? `local-${t0}`, t0, FORGE_BUDGETS.pitchMs);
   if (claim !== 'ok') {

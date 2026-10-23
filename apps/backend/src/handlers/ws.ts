@@ -10,6 +10,7 @@ import { createRoom, disconnect, forward, joinRoom, resumeRoom, type Ctx } from 
 import { recordVote, startForge, type ForgeEvent } from '../forge-room';
 import { handleArcade, type ArcadeMsg } from '../arcade';
 import { requestHost, type HostEvent } from '../host-room';
+import { requestTweak, type TweakEvent } from '../tweak-room';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -17,7 +18,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 const lambda = new LambdaClient({});
 /** Start the Forge Lambda asynchronously (it streams results back to the TV itself). */
-const invokeForge = async (ev: ForgeEvent) => {
+const invokeForge = async (ev: ForgeEvent | TweakEvent) => {
   const fn = process.env.FORGE_FN;
   if (!fn) throw new Error('FORGE_FN not set');
   await lambda.send(new InvokeCommand({ FunctionName: fn, InvocationType: 'Event', Payload: Buffer.from(JSON.stringify(ev)) }));
@@ -79,6 +80,9 @@ export async function handler(event: APIGatewayProxyWebsocketEventV2): Promise<A
       await startForge(ctx, connectionId, m, { invoke: invokeForge, endpoint: `https://${domainName}/${stage}` });
       break;
     case 'forge.vote': await recordVote(ctx, connectionId, m); break;
+    case 'forge.tweak':
+      await requestTweak(ctx, connectionId, m, { invoke: invokeForge, endpoint: `https://${domainName}/${stage}` });
+      break;
     case 'arcade.list':
     case 'arcade.save':
     case 'arcade.play':

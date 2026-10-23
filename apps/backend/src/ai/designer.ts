@@ -21,7 +21,7 @@ export const MAX_TURNS = 8;
 const DESIGN_MAX_TOKENS = 4096;
 /** Prompt caching on Bedrock (cachePoint blocks). Set CADABRA_PROMPT_CACHE=0 to disable. */
 let cacheEnabled = process.env.CADABRA_PROMPT_CACHE !== '0';
-const CACHE_POINT = { cachePoint: { type: 'default' } } as unknown as ContentBlock;
+export const CACHE_POINT = { cachePoint: { type: 'default' } } as unknown as ContentBlock;
 const log = (...a: unknown[]) => console.warn('[designer]', ...a);
 /** Test hook: re-enable prompt caching after a test disabled it. */
 export function _resetPromptCache(): void { cacheEnabled = process.env.CADABRA_PROMPT_CACHE !== '0'; }
@@ -33,7 +33,7 @@ export function _resetPromptCache(): void { cacheEnabled = process.env.CADABRA_P
 const toDeadline = (deadlineMs: number) => (deadlineMs > 1e12 ? deadlineMs : Date.now() + deadlineMs);
 
 /** converse() raced against the deadline, so a hung call can't overrun it. */
-async function call(req: Omit<ConverseRequest, 'timeoutMs'>, deadline: number, what: string): Promise<ConverseOutput> {
+export async function call(req: Omit<ConverseRequest, 'timeoutMs'>, deadline: number, what: string): Promise<ConverseOutput> {
   const remaining = deadline - Date.now();
   if (remaining <= 0) throw new DesignTimeout(`${what}: deadline passed`);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -71,7 +71,7 @@ function stripCache<T extends Omit<ConverseRequest, 'timeoutMs'>>(req: T): T {
   };
 }
 
-const withCache = <T>(blocks: T[], cache: T): T[] => (cacheEnabled ? [...blocks, cache] : blocks);
+export const withCache = <T>(blocks: T[], cache: T): T[] => (cacheEnabled ? [...blocks, cache] : blocks);
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'game';
 const rand = () => Math.random().toString(36).slice(2, 7);
@@ -79,7 +79,7 @@ export const newSpecId = (title: string) => `${slug(title)}-${rand()}`;
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 
-function stamp(spec: unknown, fields: { id: string; origin: GameSpec['origin'] }): unknown {
+export function stamp(spec: unknown, fields: { id: string; origin: GameSpec['origin'] }): unknown {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return spec;
   const s = { ...(spec as Record<string, unknown>) };
   s.version = 1;
@@ -273,7 +273,7 @@ const FALLBACK_PALETTES: Pitch['palette'][] = [
 ];
 
 /** `p`, or `fallback` if it hasn't settled within `ms`. */
-async function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+export async function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([p, new Promise<T>((r) => { timer = setTimeout(() => r(fallback), Math.max(0, ms)); })]);

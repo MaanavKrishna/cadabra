@@ -101,7 +101,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   {
     toolSpec: {
       name: 'patch_spec',
-      description: 'Apply RFC 6902 JSON Patch ops to a spec (default: your latest). Returns {spec, validation}. The result becomes your latest spec.',
+      description: 'Apply RFC 6902 JSON Patch ops to a spec (default: your latest). Returns {spec, validation}. The result becomes your latest spec. In a tweak job, also pass summary and changes.',
       inputSchema: {
         json: {
           type: 'object',
@@ -120,6 +120,8 @@ export const TOOL_SPECS: ToolSpec[] = [
                 required: ['op', 'path'],
               },
             },
+            summary: { type: 'string', description: 'Tweak jobs only: one line for the TV, ≤ 60 chars, e.g. "Gravity ×0.4, bounce up".' },
+            changes: { type: 'array', items: { type: 'string' }, description: 'Tweak jobs only: 1–4 short tags ≤ 24 chars, e.g. ["Gravity ×0.4", "Bounce ↑"].' },
           },
           required: ['patch'],
         },
@@ -146,6 +148,11 @@ export interface ToolState {
   normalize(spec: unknown): unknown;
   /** Bots in each playtest: the room's head count (2..4), default 4. */
   players?: number;
+  /** Tweak jobs: the latest "what changed" the agent gave with patch_spec. */
+  summary?: string;
+  changes?: string[];
+  /** patch_spec answers with the validation only (no spec echo). */
+  compactPatchResult?: boolean;
 }
 
 export interface ToolOutcome {
@@ -234,10 +241,13 @@ export function runTool(name: string, input: unknown, state: ToolState): ToolOut
           return err(`patch failed: ${(e as Error).message}`);
         }
         state.current = state.normalize(next);
+        if (typeof args.summary === 'string' && args.summary.trim()) state.summary = args.summary.trim();
+        if (Array.isArray(args.changes)) state.changes = args.changes.filter((c): c is string => typeof c === 'string' && !!c.trim());
         const v = parseSpec(state.current);
         return {
           status: 'success',
-          result: { spec: state.current, validation: v.ok ? 'ok' : v.errors },
+          // Tweak jobs keep the reply small: the agent already knows the spec it patched.
+          result: state.compactPatchResult ? { validation: v.ok ? 'ok' : v.errors } : { spec: state.current, validation: v.ok ? 'ok' : v.errors },
         };
       }
       case 'submit_spec': {

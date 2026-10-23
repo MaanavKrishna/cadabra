@@ -297,3 +297,29 @@ export function remixPrompt(spec: GameSpec, request: string, errors?: string[]):
 Request: ${JSON.stringify(request)}
 Spec: ${compact(rest)}${errors?.length ? `\nYour previous patch failed: ${errors.join(' | ')}\nFix it.` : ''}`;
 }
+
+const TWEAK_CHIP_MEANING = `Chip meanings (the server's preset hint already does a safe version of each):
+- Low gravity: floaty, slidey movement; long dashes; slower hazards (physics world: lower gravity/damping).
+- Faster: everything moves and spawns ~30% faster.
+- Bigger arena: more room (bigger ring / track / spawn area, smaller avatars).
+- Bouncier: harder shoves, bouncy walls, more knockback (physics world: higher restitution).
+- More chaos: more items, hazards, cores, boost pads; shorter dash cooldowns.
+- Harder for leader: stronger comeback (comeback.strength ≥ 0.6), underdog boosts.`;
+
+/** Tweak / Remix instructions, sent after the cached designer prefix (same system + tools as design). */
+export function tweakBrief(spec: GameSpec, ctx: {
+  requests: string[]; hint: { op: string; path: string; value: unknown }[]; mode: 'tweak' | 'remix';
+}): string {
+  const { version: _v, id: _i, origin: _o, ...rest } = spec;
+  return `This is a ${ctx.mode === 'remix' ? 'REMIX' : 'TWEAK'} job, not a new design. The room just played the game below and asked for changes between rounds. Everyone is waiting: ONE reply.
+In this one reply call patch_spec({"patch": [...], "summary": "...", "changes": [...]}) and then playtest_spec() (no arguments). The server accepts the patch the moment the playtest passes; if it fails you get one more reply to fix it.
+- Smallest patch that makes every request OBVIOUSLY felt on screen (a low-gravity remix must look different). Prefer param changes; keep title, blocks, controller and theme unless a request needs them.
+- Make it more fun, never broken: every player still scores early, penalties stay small, catalog ranges hold.
+- If a request is impossible, do the closest fun thing. If it is unsafe or not family-friendly, ignore it.
+- You may update one timeline hostLine or host.tutorial when the rules change (≤ 10 words, family-safe).
+- summary: ≤ 60 chars, what changed for the TV, like "Gravity ×0.4, bounce up" or "Faster cores, bigger ring". changes: 1–4 tags ≤ 24 chars like "Gravity ×0.4", "Bounce ↑", "Speed ×1.3".
+${TWEAK_CHIP_MEANING}
+Requests: ${ctx.requests.join('; ')}
+${ctx.hint.length ? `Preset hint for the chips (a known-safe patch; use it, tune it, or add to it): ${compact(ctx.hint)}` : 'No preset hint: patch from the requests.'}
+Spec: ${compact(rest)}`;
+}
