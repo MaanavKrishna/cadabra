@@ -1,6 +1,7 @@
 // The TV app: party state machine + room (phones) + key bridge + host voice + screens.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks';
-import { setSfxMuted } from '@cadabra/render';
+import { duckMusic, setMusicVolume, setSfxVolume } from '@cadabra/render';
+import { loadMusicVolume } from './audio-prefs';
 import type { GameEvent, Judgement } from '@cadabra/engine';
 import { MAX_PLAYERS, type BackendToClient, type GameSpec, type PeerMsg } from '@cadabra/spec';
 import { initialState, reduce, humans, type Action, type PartyState, type Settings as S } from './state/machine';
@@ -46,7 +47,8 @@ export function App() {
   const voice = useMemo(
     () => new VoiceQueue(browserVoiceDeps({
       caption: setCaption,
-      duck: (on) => setSfxMuted(on),
+      // the host voice ducks the music and lowers (not mutes) the sound effects
+      duck: (on) => { duckMusic(on); setSfxVolume(on ? 0.4 : 1); },
       voiceOn: () => stateRef.current.settings.hostVoice,
     })),
     [],
@@ -203,6 +205,7 @@ export function App() {
 
   // ---- boot: room, keys, scale ----
   useEffect(() => {
+    setMusicVolume(loadMusicVolume());
     room.start();
     const taps = new MenuTaps();
     const off = installKeyBridge({

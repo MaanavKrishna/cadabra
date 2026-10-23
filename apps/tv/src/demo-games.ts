@@ -1,5 +1,5 @@
 /** Shared demo game specs (render-demo and the device benchmark). */
-import type { BlockUse, GameSpec } from '@cadabra/spec';
+import { FALLBACK_SPECS, type BlockUse, type GameSpec } from '@cadabra/spec';
 import heistJson from '../../../packages/spec/test/fixtures/heist.json';
 
 export const heist = heistJson as unknown as GameSpec;
@@ -34,6 +34,10 @@ export const GAMES: Record<string, () => GameSpec> = {
   }),
   tug: () => variant([{ block: 'tug', params: {} }], 'tug', { teams: 2 }),
   quiz: () => variant([{ block: 'trivia', params: {} }], 'quiz', { theme: { ...heist.theme, palette: { ...neon } } }),
+  // the three built-in fallback games (what players see without AI)
+  'ladoo-heist': () => FALLBACK_SPECS[0]!,
+  'lava-penguins': () => FALLBACK_SPECS[1]!,
+  'bear-tug': () => FALLBACK_SPECS[2]!,
   draw: () => variant([{ block: 'draw-judge', params: {} }], 'canvas', { theme: { ...heist.theme, palette: { ...neon } } }),
 };
 

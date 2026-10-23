@@ -52,12 +52,19 @@ export function Results({ state, status, winnerTeam, onAgain, onNext, onLobby }:
           if (!e) return <div key={`empty-${col}`} class="podium-col is-empty" />;
           const place = state.ranking.findIndex((r) => r.id === e.r.id);
           return (
-            <div key={e.r.id} class={`podium-col place-${place + 1}`} style={{ animationDelay: `${[0.35, 0.75, 0.15][col]}s` }}>
-              <Avatar p={e.p} size={place === 0 ? 176 : 136} index={indexOf.get(e.p.id) ?? 0} />
+            <div key={e.r.id} class={`podium-col place-${place + 1}`} style={{ animationDelay: `${[0.45, 0.9, 0.15][col]}s` }}>
+              {place === 0 && (
+                <svg class="crown" viewBox="0 0 64 44" aria-hidden="true">
+                  <path d="M4 14 L18 26 L32 4 L46 26 L60 14 L54 40 H10 Z" fill="#ffd23f" stroke="#7a4b00" stroke-width="3" stroke-linejoin="round" />
+                  <circle cx="32" cy="28" r="4" fill="#f72585" /><circle cx="18" cy="32" r="3" fill="#4cc9f0" /><circle cx="46" cy="32" r="3" fill="#4cc9f0" />
+                </svg>
+              )}
+              <Avatar p={e.p} size={place === 0 ? 210 : 160} index={indexOf.get(e.p.id) ?? 0} />
               <div class="podium-name">{e.p.name}</div>
               <div class="podium-block">
                 <span class="podium-place">{PLACE[place]}</span>
                 <span class="podium-score">{e.r.score}</span>
+                <span class="podium-pts">points</span>
               </div>
             </div>
           );
