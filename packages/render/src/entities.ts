@@ -8,7 +8,8 @@ import type { TextureStore } from './textures';
 import type { ParticleTex } from './juice';
 import { DISPLAY_FONT, TEAM_COLORS, UI_FONT, darken, hexToNum, lighten, playerColor, type Palette } from './theme';
 import { avatarFx, guardVisual, ropeKnotX, secondsLeft, telegraphState } from './visual';
-import { NEON, NEON_PLAYERS, NEON_TEAMS, blinkOpen, eyeLook, fuseLeft, fusePulseHz, neonKey, scrollPhase, type NeonArt, type NeonKey } from './neon';
+import { NEON, PROP_KEYS, blinkOpen, eyeLook, fuseLeft, fusePulseHz, neonKey, scrollPhase, type NeonArt, type NeonKey } from './neon';
+import { LOOKS, type Look, type LookColors } from './looks';
 import { isUrl } from './sprites';
 
 export interface FrameCtx {
@@ -210,9 +211,46 @@ export class EntityLayer {
     if (nx) this.trails.blendMode = 'add';
   }
 
+  /** The current look (neon when the art pack draws). */
+  private get L(): Look {
+    return this.nx ? this.nx.L : LOOKS.neon;
+  }
+
+  /** Look colours (danger red, gold, ink, ...). */
+  private get C(): LookColors {
+    return this.nx ? this.nx.L.c : NEON;
+  }
+
+  /** Blend mode for glows, ribbons and light effects in the current look. */
+  private get addMode(): 'add' | 'normal' {
+    return this.L.additive ? 'add' : 'normal';
+  }
+
+  /** The stage switched looks: re-blend the shared layers, rebuild pooled views next frame. */
+  applyLook(): void {
+    const L = this.L;
+    this.trails.blendMode = this.addMode;
+    // light / pixel looks have no glow halos: soft shadows (toybox) or nothing (retro)
+    this.glows.visible = L.additive;
+    this.clear();
+    for (const list of this.pool.values()) for (const v of list) {
+      v.root.destroy({ children: true });
+      v.floor.destroy({ children: true });
+      v.over.destroy({ children: true });
+      v.glow?.destroy();
+      if (v.rib) for (const sp of v.rib.segs) sp.destroy();
+    }
+    this.pool.clear();
+    for (const sp of this.finishS) sp.destroy();
+    this.finishS.length = 0;
+    for (const sp of this.tileFree) sp.destroy();
+    this.tileFree.length = 0;
+    this.propFx.length = 0;
+  }
+
   /** Player colour: neon players / teams in the neon look, else the palette set. */
   private colorOf(team: 0 | 1 | undefined, idx: number, c: FrameCtx): number {
-    if (this.nx) return team !== undefined ? NEON_TEAMS[team] : NEON_PLAYERS[idx % NEON_PLAYERS.length]!;
+    if (this.nx) return team !== undefined ? this.L.teams[team] : this.L.players[idx % this.L.players.length]!;
     return team !== undefined ? TEAM_COLORS[team] : playerColor(idx, c.palette);
   }
 
@@ -372,6 +410,7 @@ export class EntityLayer {
 
   sync(entities: Entity[], pos: (e: Entity) => { x: number; y: number }, c: FrameCtx): void {
     const frame = ++this.frameNo;
+    this.frameEnts = entities;
     this.plated.length = 0;
     this.glowN = 0;
     this.glowCap = c.degraded ? GLOW_MAX / 2 : GLOW_MAX;
@@ -461,7 +500,7 @@ export class EntityLayer {
   private paintOf(t: Entity, c: FrameCtx): number | undefined {
     const p = t.props;
     const team = typeof p.paintTeam === 'number' ? p.paintTeam : typeof p.team === 'number' ? p.team : t.team;
-    if (team === 0 || team === 1) return NEON_TEAMS[team];
+    if (team === 0 || team === 1) return this.L.teams[team];
     const owner = typeof p.paintedBy === 'string' && p.paintedBy ? p.paintedBy : typeof p.owner === 'string' && p.owner ? p.owner : t.owner;
     if (owner) {
       const pl = c.players.get(owner);
@@ -478,7 +517,9 @@ export class EntityLayer {
     const tex = this.nx!.get('tile', 0xffffff);
     const seen = this.tileSeen;
     seen.clear();
-    const dim = darken(hexToNum(c.palette.primary), 0.35);
+    const L = this.L;
+    const dim = L.id === 'toybox' ? lighten(L.c.cyan, 0.72) : L.id === 'retro' ? 0x1d2b53 : L.id === 'cosmos' ? darken(L.c.cyan, 0.45) : darken(hexToNum(c.palette.primary), 0.35);
+    const solid = L.id === 'toybox' || L.id === 'retro';
     for (const t of tiles) {
       seen.add(t.id);
       let s = this.tileS.get(t.id);
@@ -498,16 +539,16 @@ export class EntityLayer {
       const crumb = t.props.crumbling === true || num(t.props.crumbling) > 0;
       if (crumb) {
         const on = Math.sin(c.vt * 16) > 0;
-        s.tint = on ? NEON.red : (paint ?? dim);
+        s.tint = on ? this.C.red : (paint ?? dim);
         s.alpha = 0.95;
         s.position.set(t.x + Math.sin(c.vt * 41 + t.id) * 2, t.y + Math.cos(c.vt * 37 + t.id) * 1.5);
       } else if (paint !== undefined) {
         // painted floor stays a step below the players so same-colour bodies still pop
-        s.tint = paint;
-        s.alpha = 0.6;
+        s.tint = solid ? lighten(paint, 0.12) : paint;
+        s.alpha = solid ? 1 : 0.6;
       } else {
         s.tint = dim;
-        s.alpha = 0.45;
+        s.alpha = solid ? 1 : 0.45;
       }
     }
     for (const [id, s] of this.tileS) {
@@ -524,7 +565,7 @@ export class EntityLayer {
         this.tileDying.splice(i, 1);
         continue;
       }
-      d.s.tint = NEON.red;
+      d.s.tint = this.C.red;
       d.s.alpha = 1 - k;
       d.s.scale.set(d.s.scale.x * (1 - 0.04), d.s.scale.y * (1 - 0.04));
       d.s.rotation += c.dt * 2;
@@ -543,7 +584,9 @@ export class EntityLayer {
 
   private onDeath(v: View, c: FrameCtx): void {
     if (v.kind === 'player' || v.kind === 'runner') {
-      this.particles.emit(this.nx ? 'nspark' : 'hit', v.px, v.py, this.nx ? 0.4 : 0.6);
+      this.particles.emit(this.nx ? this.sparkPreset : 'hit', v.px, v.py, this.nx ? 0.4 : 0.6);
+    } else if (this.nx && PROP_KEYS.has(String(v.flags.propKey ?? ''))) {
+      this.propDeath(v, c);
     } else if (v.kind === 'item') {
       // collected: fly to the nearest avatar, then burst there
       let best: View | undefined, bd = 160 * 160;
@@ -800,7 +843,7 @@ export class EntityLayer {
     const inv = num(e.props.invulnUntil, -1), stun = num(e.props.stunUntil, -1);
     if (v.flags.inv !== undefined && ((inv > num(v.flags.inv, -1) && inv > c.time) || (stun > num(v.flags.stun, -1) && stun > c.time))) {
       anim.hit(-anim.vx, -anim.vy);
-      if (!c.degraded) this.particles.emit(this.nx ? 'nspark' : 'burst', x, y - (this.nx ? 0 : e.r), this.nx ? 0.3 : 0.35);
+      if (!c.degraded) this.particles.emit(this.nx ? this.sparkPreset : 'burst', x, y - (this.nx ? 0 : e.r), this.nx ? 0.3 : 0.35);
     }
     v.flags.inv = inv;
     v.flags.stun = stun;
@@ -850,7 +893,8 @@ export class EntityLayer {
     // contact shadow shrinks and fades as the body leaves the floor
     const lift = Math.min(0.5, hop / (70 * AVATAR_SCALE));
     const R = e.r * AVATAR_SCALE;
-    if (N) v.shadow.visible = false;
+    if (N && this.L.shadows) this.shadowAt(v, bx, y + size * 0.3, size * 0.78 * pop * (1 - outK), size * 0.26 * pop * (1 - outK), 0.32);
+    else if (N) v.shadow.visible = false;
     else this.shadowAt(v, bx, y + e.r * 0.55, R * 2.2 * (1 - lift) * pop, R * 0.8 * (1 - lift) * pop, 0.45 * (1 - lift * 0.8));
 
     // team / player ring under the feet (neon: a thin glowing floor ring round the body)
@@ -864,13 +908,16 @@ export class EntityLayer {
       const rr = e.r * AVATAR_SCALE;
       if (N) {
         const q = Math.max(e.r * 1.75, size * 0.36);
-        v.g.clear().circle(0, 0, q).fill({ color, alpha: 0.1 }).circle(0, 0, q).stroke({ width: 7, color, alpha: 0.18 }).circle(0, 0, q).stroke({ width: 2.5, color, alpha: 0.85 });
+        const [fa, sa] = this.L.ring;
+        if (this.L.pixel) v.g.clear().rect(-q, q * 0.55, q * 2, 3).fill({ color, alpha: sa });
+        else v.g.clear().circle(0, 0, q).fill({ color, alpha: fa }).circle(0, 0, q).stroke({ width: 7, color, alpha: this.L.additive ? 0.18 : 0 }).circle(0, 0, q).stroke({ width: 2.5, color, alpha: sa });
       } else v.g.clear().ellipse(0, 0, rr * 1.25, rr * 0.5).fill({ color, alpha: 0.28 }).ellipse(0, 0, rr * 1.25, rr * 0.5).stroke({ width: 6, color, alpha: 0.95 });
     }
     v.g.position.set(bx, N ? y : y + e.r * 0.55);
     if (N) {
-      this.neonEyes(v, e, nface!.portrait, size, k, anim.vx, anim.vy, fx.stunned, c);
-      this.neonRibbon(v, x, y, size / 5, color, c);
+      this.neonEyes(v, e, nface!.portrait || !this.L.eyes, size, k, anim.vx, anim.vy, fx.stunned, c);
+      if (this.L.ribbon) this.neonRibbon(v, x, y, size / 5, color, c);
+      if (this.L.pixel) v.body.rotation = Math.round(v.body.rotation / (Math.PI / 4)) * (Math.PI / 4);
       this.neonHeld(v, e, bx, by - hop + size * 0.12, c);
     }
     const hunted = c.hunted !== undefined && c.hunted === owner;
@@ -902,7 +949,8 @@ export class EntityLayer {
         // neon take-off: a few sparks kicked out behind
         for (let i = 0; i < 4; i++) {
           const a = Math.atan2(-anim.vy, -anim.vx) + (Math.random() - 0.5) * 1.2, sp = 160 + Math.random() * 160;
-          this.puff('spark', bx, by, 0.3, 0.32, i % 2 ? 0xffffff : color, true, 1, Math.cos(a) * sp, Math.sin(a) * sp, -0.5, 1, 6);
+          if (this.L.additive) this.puff('spark', bx, by, 0.3, 0.32, i % 2 ? 0xffffff : color, true, 1, Math.cos(a) * sp, Math.sin(a) * sp, -0.5, 1, 6);
+          else this.puff(this.L.pixel ? 'px' : 'smoke', bx, by + size * 0.2, 0.35, this.L.pixel ? 0.12 : 0.3, this.L.pixel ? 0xfff1e8 : 0xffffff, false, 0.8, Math.cos(a) * sp * 0.4, Math.sin(a) * sp * 0.4, this.L.pixel ? 0 : 1.2);
         }
       } else if (anim.motion === 'dash' && prevMotion !== 'dash') {
         for (let i = 0; i < 2; i++) {
@@ -1069,7 +1117,7 @@ export class EntityLayer {
     const s = t.s;
     s.texture = v.body.texture;
     s.anchor.set(0.5, this.nx ? 0.5 : 0.72);
-    if (this.nx) s.blendMode = 'add';
+    if (this.nx) s.blendMode = this.addMode;
     s.position.set(v.root.x, v.root.y);
     s.scale.set(v.body.scale.x, v.body.scale.y);
     s.rotation = v.body.rotation;
@@ -1158,7 +1206,7 @@ export class EntityLayer {
         s.anchor.set(0.5);
         v.root.addChild(s);
       }
-      v.eyes[2]!.tint = v.eyes[3]!.tint = NEON.bg;
+      v.eyes[2]!.tint = v.eyes[3]!.tint = this.L.pupil;
     }
     void k;
     const open = stunned ? 0.55 : blinkOpen(c.vt, e.id);
@@ -1180,7 +1228,7 @@ export class EntityLayer {
       w.scale.set(ws * pop, ws * pop * open);
       p.position.set(ex + lk.x, ey + lk.y * open);
       p.scale.set(ps * pop, ps * pop * Math.max(0.15, open));
-      p.visible = open > 0.3;
+      p.visible = open > 0.3 && this.L.id !== 'cosmos';
     }
     void sx;
   }
@@ -1239,7 +1287,7 @@ export class EntityLayer {
       return;
     }
     if (!v.held) {
-      v.held = new Sprite(this.nx!.get('core-unstable', NEON.red));
+      v.held = new Sprite(this.nx!.get('core-unstable', this.C.red));
       v.held.anchor.set(0.5);
       v.over.addChild(v.held);
     }
@@ -1259,7 +1307,7 @@ export class EntityLayer {
 
   /** A sweeping laser: a glowing beam between two emitter nodes (lanes: across the lane). */
   private neonLaser(v: View, e: Entity, x: number, y: number, c: FrameCtx, len: number, ang: number, on: boolean): void {
-    const col = NEON.red;
+    const col = this.C.red;
     const node = this.nx!.get('laser', col);
     if (!v.marks) {
       const beam = new Sprite(this.nx!.get('beam', col));
@@ -1267,8 +1315,9 @@ export class EntityLayer {
       const spark = new Sprite(this.store.cell('glow'));
       v.marks = [beam, n2, spark];
       beam.anchor.set(0, 0.5);
-      beam.blendMode = 'add';
+      beam.blendMode = this.addMode;
       spark.blendMode = 'add';
+      spark.visible = this.L.additive;
       n2.anchor.set(0.5);
       spark.anchor.set(0.5);
       v.floor.addChild(beam, spark);
@@ -1297,7 +1346,7 @@ export class EntityLayer {
     beam.alpha = on ? 1 : 0.25 + 0.15 * Math.sin(c.vt * 10);
     // a bright spark sweeping along the beam
     const ph = (c.vt * 1.4 + e.id * 0.3) % 1;
-    spark.visible = on;
+    spark.visible = on && this.L.additive;
     spark.position.set(x - dx + dx * 2 * ph, y - dy + dy * 2 * ph);
     spark.scale.set(0.8);
     spark.tint = 0xffffff;
@@ -1312,7 +1361,7 @@ export class EntityLayer {
 
   /** Boost pad: a glowing pad with chevrons scrolling in the boost direction. */
   private neonBoost(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
-    const col = NEON.lime;
+    const col = this.C.lime;
     const pad = this.nx!.get('boost', col);
     if (v.tex !== pad) {
       v.tex = pad;
@@ -1327,7 +1376,7 @@ export class EntityLayer {
       v.marks = [0, 1, 2].map(() => {
         const s = new Sprite(this.store.cell('arrow'));
         s.anchor.set(0.5);
-        s.blendMode = 'add';
+        s.blendMode = this.addMode;
         v.root.addChild(s);
         return s;
       });
@@ -1355,14 +1404,16 @@ export class EntityLayer {
   private neonGoal(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
     const owner = e.owner ?? (typeof e.props.owner === 'string' ? e.props.owner : '');
     const idx = owner ? c.playerIndex.get(owner) : undefined;
-    const col = e.team !== undefined ? NEON_TEAMS[e.team] : idx !== undefined ? this.colorOf(undefined, idx, c) : hexToNum(c.palette.glow);
+    if (this.isNet(e)) return this.netGoal(v, e, x, y, c);
+    const col = e.team !== undefined ? this.L.teams[e.team] : idx !== undefined ? this.colorOf(undefined, idx, c) : hexToNum(c.palette.glow);
     if (!v.marks) {
       const glow = new Sprite(this.store.cell('glow'));
       const ring = new Sprite(this.store.cell('ring'));
       const face = new Sprite();
       v.marks = [glow, ring, face];
       for (const m of v.marks) m.anchor.set(0.5);
-      glow.blendMode = ring.blendMode = 'add';
+      glow.blendMode = 'add';
+      ring.blendMode = this.addMode;
       v.g = new Graphics();
       v.floor.addChild(v.g, glow, ring);
       v.over.addChild(face);
@@ -1432,8 +1483,11 @@ export class EntityLayer {
       const on = e.props.on !== false && e.props.active !== false && e.props.open !== true && e.props.armed !== false;
       return this.neonLaser(v, e, x, y, c, len, ang, on);
     }
-    const col = key === 'hole' ? NEON.magenta : key === 'spike' ? NEON.red : key === 'core-unstable' ? NEON.red : key === 'core' ? NEON.amber
-      : key === 'finish' ? NEON.cyan : key === 'base' ? hexToNum(c.palette.primary) : hexToNum(c.palette.glow);
+    if (PROP_KEYS.has(key)) return this.prop(v, e, x, y, c, key);
+    if (key === 'goal') return this.netGoal(v, e, x, y, c);
+    const C = this.C;
+    const col = key === 'hole' ? C.magenta : key === 'spike' ? C.red : key === 'core-unstable' ? C.red : key === 'core' ? C.amber
+      : key === 'finish' ? C.cyan : key === 'base' ? hexToNum(c.palette.primary) : hexToNum(c.palette.glow);
     const tex = this.nx!.get(key, col);
     if (v.tex !== tex) {
       v.tex = tex;
@@ -1451,11 +1505,262 @@ export class EntityLayer {
     const crumb = e.props.crumbling === true || num(e.props.crumbling) > 0;
     const jx = crumb ? Math.sin(c.vt * 47 + e.id) * 3 : 0;
     this.place(v, x + jx, y, size * pop, tex);
-    v.body.tint = crumb ? (Math.sin(c.vt * 18) > 0 ? NEON.red : 0xffffff) : 0xffffff;
-    v.shadow.visible = false;
+    v.body.tint = crumb ? (Math.sin(c.vt * 18) > 0 ? C.red : 0xffffff) : 0xffffff;
+    if (this.L.shadows && key !== 'hole' && key !== 'finish' && key !== 'base') this.shadowAt(v, x, y + size * 0.3, size * 0.8 * pop, size * 0.24 * pop, 0.28);
+    else v.shadow.visible = false;
     if (key === 'hole' || key === 'finish') v.root.zIndex = Z_ZONE;
     if (key === 'spike') v.body.rotation = (v.body.rotation + c.dt * 2.5) % TAU;
     v.top = y - size * 0.5;
+  }
+
+  // ---------- physics props (round R2) ----------
+
+  /** Spark burst preset for the look (additive streaks in the dark looks, puffs / pixels else). */
+  get sparkPreset(): string {
+    const id = this.L.id;
+    return id === 'toybox' ? 'tstar' : id === 'retro' ? 'rpix' : 'nspark';
+  }
+
+  /** Dust / debris preset for the look. */
+  private get dustPreset(): string {
+    const id = this.L.id;
+    return id === 'toybox' ? 'tpuff' : id === 'retro' ? 'rdust' : id === 'cosmos' ? 'cdust' : 'nlines';
+  }
+
+  /** Big moments the stage turns into camera kicks, flashes and sound (barrel blasts, hard hits). */
+  onBoom?: (x: number, y: number, power: number) => void;
+  onImpact?: (x: number, y: number, power: number, key: string) => void;
+  /** Live bodies this frame (bumper contact checks). */
+  private frameEnts: Entity[] = [];
+  /** Bumpers / nets with a running pulse (debug / tests). */
+  private propFx: View[] = [];
+
+  /** A ball-sport net goal (not the collect block's base zone, which is also kind 'goal'). */
+  private isNet(e: Entity): boolean {
+    const s = (e.sprite ?? '').toLowerCase();
+    return s === 'net' || s === 'goal-net' || e.tags.has('net') || e.props.net === true;
+  }
+
+  /** Texture share the prop's body fills (diameter / texture size) per look. */
+  private propFrac(key: string): number {
+    if (this.L.pixel) return 1;
+    switch (key) {
+      case 'ball': return 80 / 128;
+      case 'crate': return this.L.id === 'cosmos' ? 96 / 128 : this.L.id === 'toybox' ? 100 / 128 : 88 / 128;
+      case 'bumper': return 104 / 128;
+      default: return this.L.id === 'cosmos' ? 84 / 128 : 88 / 128;
+    }
+  }
+
+  private propColor(key: string, e: Entity): number {
+    const C = this.C, L = this.L;
+    switch (key) {
+      case 'ball': return L.id === 'toybox' ? C.magenta : L.id === 'retro' ? C.white : L.id === 'cosmos' ? C.cyan : C.amber;
+      case 'crate':
+        if (L.id === 'retro') return 0xab5236;
+        if (L.id === 'neon') return C.amber;
+        return L.players[e.id % 4]!;
+      case 'bumper': return L.id === 'neon' ? C.cyan : C.magenta;
+      default: return C.red;
+    }
+  }
+
+  /**
+   * A rigid-body prop: rotated by the engine's body angle, squashed and sparked on impacts in
+   * proportion to the hit, the ball leaves a motion trail, bumpers flash and pulse when hit.
+   */
+  private prop(v: View, e: Entity, x: number, y: number, c: FrameCtx, key: NeonKey): void {
+    const L = this.L;
+    const col = this.propColor(key, e);
+    const tex = this.nx!.get(key, col);
+    if (v.tex !== tex) {
+      v.tex = tex;
+      v.body.texture = tex;
+    }
+    v.flags.propKey = key;
+    v.flags.propColor = col;
+    const hw = num(e.props.hw, e.r), hh = num(e.props.hh, e.r);
+    const size = (Math.max(hw, hh) * 2) / this.propFrac(key);
+    const pop = this.popScale(v, c);
+    const k = this.place(v, x, y, size * pop, tex);
+    // body angle: the engine's, else integrate a roll from the ball's speed
+    const sp = Math.hypot(e.vx, e.vy);
+    let ang = num(e.props.angle, num((e as unknown as { angle?: number }).angle, NaN));
+    if (!Number.isFinite(ang)) {
+      const prev = num(v.flags.ang, 0);
+      ang = key === 'ball' ? prev + (c.dt * sp) / Math.max(8, e.r) * Math.sign(e.vx || 1) * 0.6 : key === 'bumper' ? prev + c.dt * 0.4 : prev;
+    }
+    v.flags.ang = ang;
+    v.body.rotation = L.pixel ? Math.round(ang / (Math.PI / 4)) * (Math.PI / 4) : ang;
+    v.root.zIndex = key === 'bumper' ? depthKey(y - 1000, v.id) : depthKey(y, v.id);
+
+    // impacts: an engine hit stamp, else a sudden change of velocity
+    const pvx = num(v.flags.pvx, e.vx), pvy = num(v.flags.pvy, e.vy);
+    v.flags.pvx = e.vx;
+    v.flags.pvy = e.vy;
+    let power = 0;
+    const hitAt = num(e.props.hitAt, -1);
+    if (hitAt > num(v.flags.hitAt, -1)) {
+      if (v.flags.hitAt !== undefined) power = Math.max(0.35, Math.min(1.5, num(e.props.impulse, 0.6)));
+      v.flags.hitAt = hitAt;
+    }
+    const dv = Math.hypot(e.vx - pvx, e.vy - pvy);
+    if (key !== 'bumper' && dv > 160) power = Math.max(power, Math.min(1.5, dv / 700));
+    if (key === 'bumper') power = Math.max(power, this.bumperContact(v, e));
+    if (power > 0.12 && c.vt - num(v.flags.impAt, -9) > 0.09) {
+      v.flags.impAt = c.vt;
+      v.flags.impK = Math.min(1, power);
+      if (!c.degraded) {
+        this.particles.emit(this.sparkPreset, x, y, 0.25 + 0.45 * Math.min(1, power));
+        if (power > 0.5 && key !== 'bumper') this.particles.emit(this.dustPreset, x, y, 0.3 + 0.3 * Math.min(1, power));
+      }
+      if (key === 'bumper') {
+        this.puff('ring', x, y, 0.32, size / 120, L.pixel ? L.c.white : lighten(col, 0.4), L.additive, 0.9, 0, 0, 1.4);
+      }
+      this.onImpact?.(x, y, power, key);
+    }
+    // squash (decaying wobble) proportional to the last impact
+    const t = c.vt - num(v.flags.impAt, -9);
+    const kk = num(v.flags.impK, 0);
+    const wob = t < 0.45 ? kk * Math.exp(-t * 9) * Math.cos(t * 34) : 0;
+    const sq = key === 'bumper' ? 0 : wob * 0.28;
+    const pulse = key === 'bumper' && t < 0.35 ? 1 + 0.28 * kk * Math.sin((t / 0.35) * Math.PI) : 1;
+    v.body.scale.set(k * (1 + sq) * pulse, k * (1 - sq) * pulse);
+    // a bumper lights up when hit (white flash: additive copy of its texture)
+    if (key === 'bumper') {
+      if (!v.flashS) {
+        v.flashS = new Sprite(tex);
+        v.flashS.blendMode = 'add';
+        v.flashS.anchor.set(0.5);
+        v.root.addChild(v.flashS);
+      }
+      v.flashS.texture = tex;
+      v.flashS.visible = t < 0.25;
+      v.flashS.alpha = Math.max(0, 1 - t / 0.25) * 0.9;
+      v.flashS.scale.copyFrom(v.body.scale);
+      v.flashS.rotation = v.body.rotation;
+    }
+    if (L.shadows) this.shadowAt(v, x, y + size * 0.3 * this.propFrac(key), size * 0.8 * this.propFrac(key) * pop, size * 0.24 * this.propFrac(key) * pop, 0.3);
+    else v.shadow.visible = false;
+    // the ball: a motion trail (light ribbon, or pixel afterimages in retro)
+    if (key === 'ball') {
+      if (L.pixel) {
+        if (sp > 160 && c.dt > 0 && c.vt - v.trailAt >= 0.035 && v.trailN < TRAIL_PER) {
+          v.trailAt = c.vt;
+          this.spawnTrail(v, 0xffffff);
+        }
+      } else this.neonRibbon(v, x, y, (size * this.propFrac(key)) / 3.2, L.id === 'toybox' ? 0xffffff : lighten(col, 0.3), c);
+      if (L.additive) {
+        const gl = this.glowOf(v);
+        gl.tint = col;
+        gl.position.set(x, y);
+        gl.scale.set((size * 0.9) / 64);
+        gl.alpha = 0.25 + Math.min(0.3, sp / 2000);
+      }
+    } else if (L.additive && key === 'bumper') {
+      const gl = this.glowOf(v);
+      gl.tint = col;
+      gl.position.set(x, y);
+      gl.scale.set(((size * 1.1) / 64) * pulse);
+      gl.alpha = 0.18 + (t < 0.3 ? 0.5 * (1 - t / 0.3) : 0);
+    } else if (L.additive && key === 'barrel') {
+      // a slow warning pulse
+      const gl = this.glowOf(v);
+      gl.tint = this.C.red;
+      gl.position.set(x, y);
+      gl.scale.set((size * 0.85) / 64);
+      gl.alpha = 0.16 + 0.08 * Math.sin(c.vt * 5 + e.id);
+    }
+    v.top = y - size * 0.5;
+  }
+
+  /** Bumper: strength of a fresh contact with any moving body this frame (0 = none). */
+  private bumperContact(v: View, e: Entity): number {
+    let best = 0;
+    for (const o of this.frameEnts) {
+      if (o === e || o.kind === 'tile' || o.kind === 'goal' || o.kind === 'base' || o.kind === 'hole') continue;
+      const rr = (e.r + o.r) * 1.12;
+      const dx = o.x - e.x, dy = o.y - e.y;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      best = Math.max(best, Math.min(1.2, 0.35 + Math.hypot(o.vx, o.vy) / 700));
+    }
+    const was = v.flags.touch === true;
+    v.flags.touch = best > 0;
+    return was ? 0 : best;
+  }
+
+  /** A prop left the world: crates break into debris, barrels explode, balls pop. */
+  private propDeath(v: View, c: FrameCtx): void {
+    const key = String(v.flags.propKey);
+    const col = num(v.flags.propColor, 0xffffff);
+    const L = this.L;
+    const chunk = (n: number, speed: number, tint: number) => {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * TAU, sp = speed * (0.5 + Math.random() * 0.7);
+        const o = this.po;
+        o.life = 0.55 + Math.random() * 0.35;
+        o.s0 = L.pixel ? 0.18 : 0.38 + Math.random() * 0.25;
+        o.tint = i % 3 === 0 ? lighten(tint, 0.35) : tint;
+        o.add = false;
+        o.a0 = 1;
+        o.vx = Math.cos(a) * sp;
+        o.vy = Math.sin(a) * sp;
+        o.grow = -0.4;
+        o.aspect = L.pixel ? 1 : 0.7;
+        o.spin = L.pixel ? 0 : (Math.random() - 0.5) * 18;
+        o.rot = Math.random() * TAU;
+        o.gravity = 0;
+        o.drag = 2.6;
+        this.particles.one(L.pixel ? 'px' : 'confetti', v.px, v.py, o);
+      }
+    };
+    if (key === 'crate') {
+      chunk(c.degraded ? 5 : 10, 420, col);
+      this.particles.emit(this.dustPreset, v.px, v.py, 0.7);
+      this.onImpact?.(v.px, v.py, 0.8, 'crate');
+    } else if (key === 'barrel') {
+      chunk(c.degraded ? 6 : 12, 620, L.id === 'cosmos' ? 0x8a93b8 : col);
+      this.particles.emit(this.sparkPreset, v.px, v.py, 1.2);
+      this.particles.emit(L.id === 'toybox' ? 'tpuff' : L.id === 'retro' ? 'rdust' : 'nboom', v.px, v.py, 1);
+      const wave = L.pixel ? L.c.white : L.id === 'toybox' ? 0xffffff : this.C.amber;
+      this.puff('ring', v.px, v.py, 0.5, 0.6, wave, L.additive, 1, 0, 0, 7);
+      this.puff('ring', v.px, v.py, 0.7, 0.5, this.C.red, L.additive, 0.9, 0, 0, 5);
+      this.onBoom?.(v.px, v.py, 1);
+    } else {
+      this.particles.emit(this.sparkPreset, v.px, v.py, 0.6);
+    }
+  }
+
+  /** Ball-sport goal: a stretched net, mouth toward the arena centre; ripples when scored in. */
+  private netGoal(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
+    const L = this.L;
+    const col = e.team !== undefined ? L.teams[e.team] : L.c.white;
+    const tex = this.nx!.get('goal', col);
+    if (v.tex !== tex) {
+      v.tex = tex;
+      v.body.texture = tex;
+    }
+    const w = num(e.props.w, e.r * 1.4), h = num(e.props.h, e.r * 3);
+    const side = num(e.props.side, x < this.arenaW / 2 ? -1 : 1);
+    const since = c.vt - num(v.flags.bankAt, -9);
+    const rip = since < 0.8 ? Math.exp(-since * 5) * Math.sin(since * 38) : 0;
+    v.root.position.set(x, y);
+    v.root.zIndex = Z_ZONE;
+    v.body.anchor.set(0.5);
+    v.body.rotation = side > 0 ? Math.PI : 0;
+    const pop = this.popScale(v, c);
+    // the frame spans 108 x 104 of the 128 px art (the whole texture in pixel art)
+    const fw = L.pixel ? tex.width : 108 * (tex.width / 128), fh = L.pixel ? tex.height : 104 * (tex.height / 128);
+    v.body.scale.set((w / fw) * (1 + rip * 0.14) * pop, (h / fh) * (1 - rip * 0.05) * pop);
+    v.shadow.visible = false;
+    if (L.additive) {
+      const gl = this.glowOf(v);
+      gl.tint = col;
+      gl.position.set(x, y);
+      gl.scale.set(w / 64, h / 64);
+      gl.alpha = 0.12 + (since < 0.8 ? 0.5 * (1 - since / 0.8) : 0);
+    }
+    v.top = y - h / 2;
   }
 
   // ---------- dodge ----------
@@ -1465,7 +1770,7 @@ export class EntityLayer {
     let tex: Texture;
     if (src) tex = this.texFor(v, src, c, 'hazard');
     else {
-      tex = this.neonTex(e, 'hazard', NEON.red);
+      tex = this.neonTex(e, 'hazard', this.C.red);
       if (v.tex !== tex) {
         v.tex = tex;
         v.body.texture = tex;
@@ -1474,7 +1779,7 @@ export class EntityLayer {
     const tg = telegraphState(e.props, c.time);
     const heading = src?.type === 'url' ? ART_HEADING[src.key] : undefined;
     const fiery = src?.type === 'url' && /fire|lava|bomb/.test(src.key);
-    const accent = this.nx ? NEON.red : hexToNum(c.palette.accent);
+    const accent = this.nx ? this.C.red : hexToNum(c.palette.accent);
     if (!v.marks) {
       const ring = new Sprite(this.store.cell('ring'));
       const fill = new Sprite(this.store.cell('dot'));
@@ -1880,7 +2185,7 @@ export class EntityLayer {
     let nk: NeonKey | undefined;
     if (this.nx) {
       nk = neonKey(e.sprite, 'item');
-      const col = golden ? NEON.amber : nk === 'core' ? NEON.amber : nk === 'core-unstable' ? NEON.red : nk === 'gem' ? hexToNum(c.palette.glow) : hexToNum(c.palette.primary);
+      const col = golden ? this.C.amber : nk === 'core' ? this.C.amber : nk === 'core-unstable' ? this.C.red : nk === 'gem' ? hexToNum(c.palette.glow) : hexToNum(c.palette.primary);
       tex = this.nx.get(nk, col);
       if (v.tex !== tex) {
         v.tex = tex;
@@ -1907,12 +2212,13 @@ export class EntityLayer {
       v.body.rotation = Math.sin(c.vt * 2 + e.id) * 0.12;
     }
     v.root.zIndex = carried ? depthKey(y + 60, v.id) : depthKey(y, v.id);
-    if (this.nx) v.shadow.visible = false;
+    if (this.nx && this.L.shadows && !carried) this.shadowAt(v, x, y + size * 0.32, size * 0.6 * pop, size * 0.18 * pop, 0.25);
+    else if (this.nx) v.shadow.visible = false;
     else this.shadowAt(v, x, y + e.r * 0.6, e.r * 1.8 * (1 - bob / 30) * pop, e.r * 0.55 * pop, carried ? 0 : 0.3);
     v.top = y - size;
     const gl = this.glowOf(v);
     gl.visible = !carried || held;
-    gl.tint = golden || nk === 'core' ? NEON.amber : nk === 'core-unstable' ? NEON.red : hexToNum(c.palette.glow);
+    gl.tint = golden || nk === 'core' ? this.C.amber : nk === 'core-unstable' ? this.C.red : hexToNum(c.palette.glow);
     if (hz) {
       gl.position.set(x, y - 8 + bob);
       gl.scale.set(((e.r * 4.4) / 64) * beat * pop);
@@ -2074,7 +2380,7 @@ export class EntityLayer {
     // the finish strip glows (sprites, so it can shimmer); the rest is one static Graphics
     for (let i = 0; i < this.finishS.length; i++) this.finishS[i]!.visible = lanes > 0;
     if (lanes > 0) {
-      const tex = this.nx!.get('finish', NEON.cyan);
+      const tex = this.nx!.get('finish', this.C.cyan);
       const n = Math.ceil(H / 128);
       while (this.finishS.length < n) {
         const s = new Sprite(tex);
@@ -2111,7 +2417,7 @@ export class EntityLayer {
     }
     // start line (race START_PAD 80) and the finish glow band
     g.rect(74, 0, 12, H).fill({ color: acc, alpha: 0.15 }).rect(78, 0, 4, H).fill({ color: lighten(acc, 0.5), alpha: 0.9 });
-    g.rect(fx - 34, 0, 54, H).fill({ color: NEON.cyan, alpha: 0.08 });
+    g.rect(fx - 34, 0, 54, H).fill({ color: this.C.cyan, alpha: 0.08 });
   }
 
   /** Waving finish flag over the finish line. */

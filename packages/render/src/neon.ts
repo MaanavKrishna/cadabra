@@ -7,6 +7,8 @@
 import { Texture } from 'pixi.js';
 import type { Theme } from '@cadabra/spec';
 import { PLAYER_HUES, TEAM_COLORS, lighten, type Palette } from './theme';
+import { drawLook, drawNeonProp, type ArtKey } from './lookArt';
+import { LOOKS, type LookId } from './looks';
 
 export type RenderStyle = 'neon' | 'cartoon';
 
@@ -37,13 +39,25 @@ export const NEON_THEME: Theme = {
 };
 
 /** Art keys the neon renderer draws (contract with the engine specs, Task N2). */
-export const NEON_KEYS = ['player', 'gem', 'core', 'core-unstable', 'spike', 'laser', 'boost', 'base', 'tile', 'hole', 'finish'] as const;
+export const NEON_KEYS = [
+  'player', 'gem', 'core', 'core-unstable', 'spike', 'laser', 'boost', 'base', 'tile', 'hole', 'finish',
+  'ball', 'crate', 'bumper', 'barrel', 'goal',
+] as const;
 export type NeonKey = (typeof NEON_KEYS)[number];
 
-const KEYSET = new Set<string>(NEON_KEYS);
+/** Physics props (round R2): drawn rotated by the body angle, with impact squash. */
+export const PROP_KEYS = new Set<string>(['ball', 'crate', 'bumper', 'barrel']);
+
+// 'goal' as a sprite stays the collect block's base zone; the net goal is 'net' / 'goal-net'
+const KEYSET = new Set<string>(NEON_KEYS.filter((k) => k !== 'goal'));
 
 /** Words in a free-form sprite key that pick a neon key (AI specs may say 'pizza-core'). */
 const WORDS: [RegExp, NeonKey][] = [
+  [/\bnet\b|goal-?net|soccer-?goal/, 'goal'],
+  [/barrel|tnt|explosive|keg|drum/, 'barrel'],
+  [/bumper|pinball|kicker/, 'bumper'],
+  [/crate|box|brick|block/, 'crate'],
+  [/ball|puck/, 'ball'],
   [/unstable|overload|bomb|volatile|fuse/, 'core-unstable'],
   [/core|orb|energy|battery|reactor/, 'core'],
   [/spike|mine|hazard|lava|fire|saw|blade|danger/, 'spike'],
@@ -61,6 +75,7 @@ const WORDS: [RegExp, NeonKey][] = [
 const BY_KIND: Record<string, NeonKey> = {
   player: 'player', runner: 'player', item: 'gem', pickup: 'gem', hazard: 'spike', guard: 'spike', goal: 'base', base: 'base',
   'safe-zone': 'base', tile: 'tile', 'boost-pad': 'boost', obstacle: 'laser', baton: 'gem', hole: 'hole', finish: 'finish',
+  ball: 'ball', crate: 'crate', bumper: 'bumper', barrel: 'barrel', net: 'goal',
 };
 
 /**
@@ -71,6 +86,7 @@ export function neonKey(sprite: string | undefined, kind: string | undefined): N
   const s = (sprite ?? '').toLowerCase();
   if (KEYSET.has(s)) return s as NeonKey;
   if (s.startsWith('avatar:')) return 'player';
+  if (s === 'net' || s === 'goal-net') return 'goal';
   const k = BY_KIND[kind ?? ''];
   // kinds with a fixed look are not overridden by a loose word match ('hazard' named 'lava-gem')
   if (k && (kind === 'player' || kind === 'runner' || kind === 'tile')) return k;
@@ -426,7 +442,8 @@ export function drawNeon(key: NeonKey | 'beam' | 'eye' | 'ring', c: number): HTM
  * A selfie / avatar picture clipped to a circle inside a glowing ring in the player's colour
  * (never cropped to a square: the face sits whole inside the ring).
  */
-export function drawPortrait(src: CanvasImageSource & { width: number; height: number }, c: number): HTMLCanvasElement {
+export function drawPortrait(src: CanvasImageSource & { width: number; height: number }, c: number, look: LookId = 'neon'): HTMLCanvasElement {
+  if (look === 'retro') return pixelPortrait(src, c);
   const cv = canvas(S, S), g = cv.getContext('2d')!;
   const cx = S / 2, cy = S / 2, r = 44;
   g.save();
@@ -442,7 +459,53 @@ export function drawPortrait(src: CanvasImageSource & { width: number; height: n
   g.restore();
   g.beginPath();
   g.arc(cx, cy, r + 2, 0, Math.PI * 2);
-  neonStroke(g, c, 5, 16);
+  if (look === 'toybox') {
+    // a chunky plastic frame: white rim inside a coloured bezel
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 6;
+    g.stroke();
+    g.beginPath();
+    g.arc(cx, cy, r + 7, 0, Math.PI * 2);
+    g.strokeStyle = css(c);
+    g.lineWidth = 7;
+    g.stroke();
+  } else if (look === 'cosmos') {
+    // a helmet glass: soft colour rim and a reflection streak
+    g.strokeStyle = '#d9def0';
+    g.lineWidth = 6;
+    g.stroke();
+    g.beginPath();
+    g.arc(cx, cy, r + 2, 0, Math.PI * 2);
+    neonStroke(g, c, 2.5, 12);
+    g.beginPath();
+    g.ellipse(cx - 18, cy - 24, 14, 5, -0.6, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(255,255,255,0.45)';
+    g.fill();
+  } else neonStroke(g, c, 5, 16);
+  return cv;
+}
+
+/** Retro selfie: the face crushed to 14 px and a 1 px outline, kept pixel-sharp. */
+function pixelPortrait(src: CanvasImageSource & { width: number; height: number }, c: number): HTMLCanvasElement {
+  const N = 16, r = 7;
+  const cv = canvas(N, N), g = cv.getContext('2d')!;
+  g.save();
+  g.beginPath();
+  g.arc(N / 2, N / 2, r, 0, Math.PI * 2);
+  g.clip();
+  const k = Math.max((r * 2) / src.width, (r * 2) / src.height);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(src, N / 2 - (src.width * k) / 2, N / 2 - (src.height * k) / 2, src.width * k, src.height * k);
+  g.restore();
+  // hard alpha (no half-transparent edge pixels) and a ring in the player's colour
+  const d = g.getImageData(0, 0, N, N);
+  for (let i = 3; i < d.data.length; i += 4) d.data[i] = d.data[i]! > 110 ? 255 : 0;
+  g.putImageData(d, 0, 0);
+  g.fillStyle = css(c);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const dd = Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2);
+    if (dd > r - 0.2 && dd <= r + 1) g.fillRect(x, y, 1, 1);
+  }
   return cv;
 }
 
@@ -450,12 +513,32 @@ export function drawPortrait(src: CanvasImageSource & { width: number; height: n
 export class NeonArt {
   private cache = new Map<string, Texture>();
   private portraits = new Map<string, Texture>();
+  /** Which art direction draws (round R2: neon, toybox, cosmos, retro). */
+  look: LookId = 'neon';
 
-  get(key: NeonKey | 'beam' | 'eye' | 'ring', color: number): Texture {
+  /** Switch the art direction (a new game): drops every cached sprite of the old look. */
+  setLook(look: LookId): void {
+    if (look === this.look) return;
+    this.look = look;
+    for (const t of this.cache.values()) t.destroy(true);
+    this.cache.clear();
+    this.clearPortraits();
+  }
+
+  /** Colours, player hues and switches of the current look. */
+  get L() {
+    return LOOKS[this.look];
+  }
+
+  get(key: ArtKey, color: number): Texture {
     const k = `${key}|${color}`;
     let t = this.cache.get(k);
     if (!t) {
-      t = Texture.from(drawNeon(key, color));
+      const cv = this.look === 'neon'
+        ? drawNeonProp(key, color) ?? drawNeon(key === 'debris' ? 'gem' : (key as NeonKey | 'beam' | 'eye' | 'ring'), color)
+        : drawLook(this.look, key, color);
+      t = Texture.from(cv);
+      if (this.L.pixel) t.source.scaleMode = 'nearest';
       this.cache.set(k, t);
     }
     return t;
@@ -468,7 +551,8 @@ export class NeonArt {
     if (t) return t;
     const res = (tex.source as unknown as { resource?: unknown }).resource as (CanvasImageSource & { width: number; height: number }) | undefined;
     if (!res || !res.width) return undefined;
-    t = Texture.from(drawPortrait(res, color));
+    t = Texture.from(drawPortrait(res, color, this.look));
+    if (this.L.pixel) t.source.scaleMode = 'nearest';
     this.portraits.set(k, t);
     return t;
   }

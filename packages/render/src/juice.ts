@@ -143,7 +143,7 @@ export class JuiceState {
 
 export const SLOWMO_SCALE = 0.3;
 
-export type ParticleTex = 'dot' | 'glow' | 'spark' | 'confetti' | 'smoke' | 'drop' | 'star' | 'ring' | 'soft' | 'line';
+export type ParticleTex = 'dot' | 'glow' | 'spark' | 'confetti' | 'smoke' | 'drop' | 'star' | 'ring' | 'soft' | 'line' | 'px';
 
 export interface ParticlePreset {
   count: number;
@@ -235,6 +235,31 @@ export const PARTICLE_PRESETS: Record<string, ParticlePreset> = {
   ngold: {
     count: 16, tex: ['spark', 'line'], speed: [200, 520], spread: Math.PI * 2, dir: 0, life: [0.35, 0.7],
     scale: [0.4, 0.8], grow: -0.3, gravity: 0, drag: 2.8, spin: 0, colors: [0xffb020, 0xffe08a, 0xffffff], additive: true, align: true,
+  },
+  // ---- round R2 looks: toybox (normal blend, chunky), cosmos (soft additive), retro (square pixels) ----
+  tstar: {
+    count: 9, tex: ['star', 'confetti'], speed: [160, 420], spread: Math.PI * 2, dir: 0, life: [0.3, 0.55],
+    scale: [0.3, 0.55], grow: -0.4, gravity: 320, drag: 3, spin: 8, colors: ['primary', 'accent', 0xffd23a, 0xffffff],
+  },
+  tpuff: {
+    count: 7, tex: ['smoke'], speed: [60, 190], spread: Math.PI * 2, dir: 0, life: [0.4, 0.7],
+    scale: [0.4, 0.7], grow: 1.2, gravity: -20, drag: 2.5, spin: 1, colors: [0xffffff, 0xf1eefa], alpha: 0.9,
+  },
+  cdust: {
+    count: 10, tex: ['dot', 'spark'], speed: [80, 260], spread: Math.PI * 2, dir: 0, life: [0.35, 0.7],
+    scale: [0.15, 0.35], grow: -0.3, gravity: 0, drag: 2.2, spin: 4, colors: ['primary', 0xffffff, 0xc77dff], additive: true, alpha: 0.7,
+  },
+  rpix: {
+    count: 10, tex: ['px'], speed: [120, 360], spread: Math.PI * 2, dir: 0, life: [0.25, 0.5],
+    scale: [0.12, 0.2], grow: 0, gravity: 0, drag: 2, spin: 0, colors: [0xfff1e8, 0xffec27, 0xff004d, 0x29adff],
+  },
+  rdust: {
+    count: 8, tex: ['px'], speed: [40, 150], spread: Math.PI * 2, dir: 0, life: [0.3, 0.6],
+    scale: [0.14, 0.22], grow: 0, gravity: 0, drag: 2, spin: 0, colors: [0x5f574f, 0xc2c3c7, 0xfff1e8],
+  },
+  rgold: {
+    count: 14, tex: ['px'], speed: [140, 420], spread: Math.PI * 2, dir: 0, life: [0.4, 0.8],
+    scale: [0.14, 0.24], grow: 0, gravity: 260, drag: 1.4, spin: 0, colors: [0xffec27, 0xffa300, 0xfff1e8],
   },
   confetti: {
     count: 36, tex: ['confetti'], speed: [220, 620], spread: Math.PI * 0.7, dir: -Math.PI / 2, life: [1.1, 2],

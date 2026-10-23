@@ -3,6 +3,7 @@ import type { Player } from '@cadabra/engine';
 import { easeOutBack } from './ease';
 import { label } from './entities';
 import { TEAM_COLORS, darken, hexToNum, lighten, playerColor, type Palette } from './theme';
+import { LOOKS, type Look } from './looks';
 
 interface Chip {
   id: string;
@@ -49,6 +50,18 @@ export class Hud {
   private multText: Text;
   private mult = 1;
   private multAt = -9;
+  /** Art direction (round R2): chip and timer styling, player / team colours. */
+  private look: Look = LOOKS.neon;
+
+  /** Restyle for a look (new game). */
+  setLook(look: Look): void {
+    if (look === this.look) return;
+    this.look = look;
+    this.lastSec = -1;
+    this.teams[0].style.fill = look.teams[0];
+    this.teams[1].style.fill = look.teams[1];
+    for (const c of this.chips.values()) c.lead = undefined;
+  }
 
   constructor(private W: number, private H: number) {
     this.timer = label('0:00', 38, 0xffffff, { display: true });
@@ -96,7 +109,23 @@ export class Hud {
       const col = finale ? hexToNum(this.palette.accent) : 0xffffff;
       this.timer.style.fill = col;
       const w = 160;
-      this.timerBg.clear()
+      const L = this.look;
+      if (L.id === 'toybox') {
+        // a chunky plastic pill: plum body, white rim, hard drop shadow
+        const body = finale ? L.c.red : 0x2b2160;
+        this.timer.style.fill = 0xffffff;
+        this.timerBg.clear()
+          .roundRect(-w / 2, -28, w, 64, 32).fill({ color: 0x1b1433, alpha: 0.35 })
+          .roundRect(-w / 2, -32, w, 64, 32).fill({ color: body })
+          .roundRect(-w / 2, -32, w, 64, 32).stroke({ width: 4, color: 0xffffff })
+          .roundRect(-w / 2 + 14, -26, w - 28, 12, 6).fill({ color: 0xffffff, alpha: 0.18 });
+      } else if (L.id === 'retro') {
+        // a hard-edged arcade box
+        this.timerBg.clear()
+          .rect(-w / 2, -32, w, 64).fill({ color: 0x000000 })
+          .rect(-w / 2, -32, w, 64).stroke({ width: 4, color: finale ? col : 0xfff1e8, alignment: 1 })
+          .rect(-w / 2 - 4, -36, w + 8, 72).stroke({ width: 3, color: finale ? L.c.red : 0x7e2553, alignment: 1 });
+      } else this.timerBg.clear()
         .roundRect(-w / 2, -32, w, 64, 32).fill({ color: finale ? darken(col, 0.6) : 0x070a1c, alpha: 0.85 })
         .roundRect(-w / 2 - 3, -35, w + 6, 70, 35).stroke({ width: 8, color: finale ? col : hexToNum(this.palette.primary), alpha: 0.18 })
         .roundRect(-w / 2, -32, w, 64, 32).stroke({ width: finale ? 4 : 2.5, color: finale ? col : hexToNum(this.palette.primary), alpha: 1 });
@@ -158,13 +187,25 @@ export class Hud {
         c = { id: p.id, root, bg, avatar, name, score, x: this.W / 2, shown: p.score, bumpAt: -9, born: vt, hitAt: -9 };
         this.chips.set(p.id, c);
       }
-      const color = p.team !== undefined ? TEAM_COLORS[p.team] : playerColor(idx, this.palette);
+      const L = this.look;
+      const color = L.id === 'neon' ? (p.team !== undefined ? TEAM_COLORS[p.team] : playerColor(idx, this.palette))
+        : p.team !== undefined ? L.teams[p.team] : L.players[idx % L.players.length]!;
       const lead = p.id === top;
       if (c.lead !== lead || c.w !== w) {
         c.lead = lead;
         c.w = w;
-        // neon chip: dark glass, a glow line in the player's colour (the leader's is brighter)
-        c.bg.clear()
+        if (L.id === 'toybox') {
+          // toy chip: solid plastic in the player's colour, white rim, a drop shadow and a gloss band
+          c.bg.clear()
+            .roundRect(0, 5, w, CHIP_H, 20).fill({ color: 0x1b1433, alpha: 0.3 })
+            .roundRect(0, 0, w, CHIP_H, 20).fill({ color: lead ? lighten(color, 0.08) : darken(color, 0.08) })
+            .roundRect(0, 0, w, CHIP_H, 20).stroke({ width: lead ? 5 : 3, color: 0xffffff })
+            .roundRect(12, 6, w - 24, 12, 6).fill({ color: 0xffffff, alpha: 0.22 });
+        } else if (L.id === 'retro') {
+          c.bg.clear()
+            .rect(0, 0, w, CHIP_H).fill({ color: lead ? darken(color, 0.55) : 0x000000 })
+            .rect(0, 0, w, CHIP_H).stroke({ width: lead ? 4 : 3, color, alignment: 1 });
+        } else c.bg.clear()
           .roundRect(0, 0, w, CHIP_H, 18).fill({ color: lead ? darken(color, 0.7) : 0x070a1c, alpha: 0.82 })
           .roundRect(-2, -2, w + 4, CHIP_H + 4, 20).stroke({ width: 8, color, alpha: lead ? 0.3 : 0.12 })
           .roundRect(0, 0, w, CHIP_H, 18).stroke({ width: lead ? 3 : 2, color: lead ? lighten(color, 0.3) : color, alpha: lead ? 1 : 0.7 });
@@ -204,7 +245,7 @@ export class Hud {
       const hot = b < 0.5;
       if (c.hot !== hot) {
         c.hot = hot;
-        c.score.style.fill = hot ? lighten(color, 0.4) : 0xffffff;
+        c.score.style.fill = hot && this.look.id !== 'toybox' ? lighten(color, 0.4) : hot ? 0xfff27a : 0xffffff;
       }
       c.root.alpha = p.connected ? 1 : 0.5;
     });

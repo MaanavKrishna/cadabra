@@ -68,6 +68,10 @@ const SETS: Record<string, { pitch: number; square: Wave }> = {
   spooky: { pitch: 0.78, square: 'saw' },
   scifi: { pitch: 1.05, square: 'saw' },
   nature: { pitch: 0.95, square: 'sine' },
+  // round R2 looks: toy plinks, soft space tones, raw 8-bit squares
+  toybox: { pitch: 1.15, square: 'tri' },
+  cosmos: { pitch: 0.92, square: 'sine' },
+  retro: { pitch: 1, square: 'square' },
 };
 
 let set = SETS.neon!;

@@ -22,6 +22,10 @@ export interface MusicStyle {
   swing: number;
   /** Synthwave groove (neon arcade): four-on-the-floor, 16th bass arpeggio, sustained pad. */
   synth?: boolean;
+  /** Ambient space groove (cosmos): soft pulse, long pads, echoing sine plucks. */
+  ambient?: boolean;
+  /** Chiptune (retro): fast chord arpeggios, triangle bass, noise drums. */
+  chip?: boolean;
 }
 
 export const MUSIC_STYLES: Record<string, MusicStyle> = {
@@ -31,6 +35,10 @@ export const MUSIC_STYLES: Record<string, MusicStyle> = {
   spooky: { bpm: 108, root: 40, minor: true, prog: [0, 5, 3, 4], bass: 'saw', stab: 'tri', lead: 'tri', swing: 0.12 },
   scifi: { bpm: 124, root: 41, minor: true, prog: [0, 6, 5, 4], bass: 'saw', stab: 'saw', lead: 'square', swing: 0 },
   nature: { bpm: 112, root: 48, minor: false, prog: [0, 5, 3, 4], bass: 'sine', stab: 'tri', lead: 'tri', swing: 0.1 },
+  // round R2 looks
+  toybox: { bpm: 126, root: 43, minor: false, prog: [0, 5, 3, 4], bass: 'tri', stab: 'sine', lead: 'tri', swing: 0.16 },
+  cosmos: { bpm: 96, root: 38, minor: true, prog: [0, 5, 3, 6], bass: 'sine', stab: 'tri', lead: 'sine', swing: 0, ambient: true },
+  retro: { bpm: 140, root: 45, minor: false, prog: [0, 4, 5, 3], bass: 'tri', stab: 'square', lead: 'square', swing: 0, chip: true },
 };
 
 const MAJOR = [0, 2, 4, 5, 7, 9, 11];
@@ -131,6 +139,71 @@ function synthwave(style: MusicStyle, rate: number, base: Float32Array, fin: Flo
   }
 }
 
+/** Cosmos: a heartbeat kick, a wide pad, sine plucks with an echo, a shimmer layer for the finale. */
+function ambient(style: MusicStyle, rate: number, base: Float32Array, fin: Float32Array, beat: number): void {
+  const s16 = beat / 4;
+  for (let bar = 0; bar < 4; bar++) {
+    const deg = style.prog[bar]!;
+    const b0 = bar * 4 * beat;
+    const root = stepNote(style, deg);
+    const chord = [stepNote(style, deg, 1), stepNote(style, deg + 2, 1), stepNote(style, deg + 4, 1), stepNote(style, deg + 6, 1)];
+    // soft kick on 1 and 3, a brushed noise on 3
+    tone(base, rate, b0, 0.3, 90, 'sine', 0.7, 0.4);
+    tone(base, rate, b0 + 2 * beat, 0.3, 90, 'sine', 0.5, 0.4);
+    noise(base, rate, b0 + 2 * beat, 0.4, 0.12, 0.2);
+    // sub bass held, pad (detuned triangles) across the bar
+    tone(base, rate, b0, beat * 4, midiHz(root), 'sine', 0.32);
+    for (const m of chord) {
+      tone(base, rate, b0, beat * 4.2, midiHz(m), 'tri', 0.03);
+      tone(base, rate, b0, beat * 4.2, midiHz(m) * 1.004, 'tri', 0.025);
+    }
+    // plucks on a dotted-8th grid with an echo a dotted 8th later
+    for (let i = 0; i < 5; i++) {
+      const t = b0 + i * 3 * s16;
+      const m = chord[[0, 2, 1, 3, 2][i]!]! + 12;
+      tone(base, rate, t, 0.5, midiHz(m), 'sine', 0.07);
+      tone(base, rate, t + 3 * s16, 0.5, midiHz(m), 'sine', 0.03);
+    }
+    // finale: ticking 16th hats and a high shimmer arp
+    for (let i = 0; i < 16; i++) {
+      const t = b0 + i * s16;
+      noise(fin, rate, t, 0.03, i % 4 === 0 ? 0.12 : 0.06, 0.9);
+      tone(fin, rate, t, s16 * 1.5, midiHz(chord[i % 4]! + 24), 'sine', 0.035);
+    }
+  }
+}
+
+/** Retro: chiptune drums, a triangle bass, 32nd-note chord arpeggios, a square lead for the finale. */
+function chiptune(style: MusicStyle, rate: number, base: Float32Array, fin: Float32Array, beat: number): void {
+  const s16 = beat / 4;
+  const melody = [0, 2, 4, 2, 5, 4, 2, 0];
+  for (let bar = 0; bar < 4; bar++) {
+    const deg = style.prog[bar]!;
+    const b0 = bar * 4 * beat;
+    const root = stepNote(style, deg);
+    const chord = [stepNote(style, deg, 1), stepNote(style, deg + 2, 1), stepNote(style, deg + 4, 1)];
+    for (let q = 0; q < 4; q++) {
+      const t = b0 + q * beat;
+      // noise kick / snare
+      if (q % 2 === 0) tone(base, rate, t, 0.12, 140, 'square', 0.35, 0.25);
+      else noise(base, rate, t, 0.12, 0.38, 0.5);
+      noise(base, rate, t + beat / 2, 0.02, 0.1, 0.9);
+    }
+    // bouncing triangle bass in 8ths
+    for (let i = 0; i < 8; i++) tone(base, rate, b0 + (i * beat) / 2, beat * 0.45, midiHz(root + (i % 2 ? 12 : 0)), 'tri', 0.34);
+    // the chiptune chord: a fast arpeggio (32nds) on beats 1 and 3, half a beat each
+    for (const q of [0, 2]) {
+      for (let i = 0; i < 8; i++) tone(base, rate, b0 + q * beat + (i * s16) / 2, s16 / 2, midiHz(chord[i % 3]!), 'square', 0.06);
+    }
+    // finale: a square-wave melody an octave up
+    for (let i = 0; i < 8; i++) {
+      const m = stepNote(style, deg + melody[i]!, 2);
+      tone(fin, rate, b0 + (i * beat) / 2, beat * 0.42, midiHz(m), 'square', 0.07);
+      noise(fin, rate, b0 + (i * beat) / 2 + s16, 0.02, 0.08, 0.9);
+    }
+  }
+}
+
 /** Base layer (drums, bass, stabs) and finale layer (16th hats, lead arp). Pure; deterministic. */
 export function renderLoop(style: MusicStyle, rate = MUSIC_RATE): { base: Float32Array; final: Float32Array } {
   seed = 0x9e3779b9;
@@ -139,6 +212,8 @@ export function renderLoop(style: MusicStyle, rate = MUSIC_RATE): { base: Float3
   const beat = 60 / style.bpm;
   const e8 = (i: number) => (i * beat) / 2 + (i % 2 === 1 ? style.swing * beat * 0.5 : 0);
   if (style.synth) synthwave(style, rate, base, fin, beat);
+  else if (style.ambient) ambient(style, rate, base, fin, beat);
+  else if (style.chip) chiptune(style, rate, base, fin, beat);
   else for (let bar = 0; bar < 4; bar++) {
     const deg = style.prog[bar]!;
     const b0 = bar * 4 * beat;

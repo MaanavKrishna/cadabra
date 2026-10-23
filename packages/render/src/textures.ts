@@ -9,7 +9,7 @@ const SHAPE_SIZE = 128;
 const CELL = 64;
 
 export const ATLAS_CELLS: (ParticleTex | 'arrow' | 'crown' | 'soft')[] = [
-  'dot', 'glow', 'spark', 'confetti', 'smoke', 'drop', 'star', 'ring', 'arrow', 'crown', 'soft', 'line',
+  'dot', 'glow', 'spark', 'confetti', 'smoke', 'drop', 'star', 'ring', 'arrow', 'crown', 'soft', 'line', 'px',
 ];
 
 function canvas(w: number, h: number): HTMLCanvasElement {
@@ -253,6 +253,11 @@ function drawCell(g: CanvasRenderingContext2D, kind: (typeof ATLAS_CELLS)[number
       g.lineWidth = 5;
       g.strokeStyle = '#fff';
       g.stroke();
+      break;
+    case 'px':
+      // a hard square (retro pixel bursts)
+      g.fillStyle = '#fff';
+      g.fillRect(ox + 16, 16, CELL - 32, CELL - 32);
       break;
     case 'line': {
       // a thin streak along +x with soft ends (neon line bursts)

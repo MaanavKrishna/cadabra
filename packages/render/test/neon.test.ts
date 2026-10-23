@@ -14,7 +14,11 @@ beforeAll(() => fakeDocument());
 
 describe('neon art keys', () => {
   test('contract keys map to themselves', () => {
-    for (const k of NEON_KEYS) expect(neonKey(k, 'item')).toBe(k);
+    // 'goal' as a sprite stays the collect block's base zone; the net goal is 'net'
+    for (const k of NEON_KEYS) if (k !== 'goal') expect(neonKey(k, 'item')).toBe(k);
+    expect(neonKey('goal', 'goal')).toBe('base');
+    expect(neonKey('net', 'goal')).toBe('goal');
+    expect(neonKey('goal-net', 'goal')).toBe('goal');
   });
   test('unknown keys fall back by entity kind', () => {
     expect(neonKey('mystery', 'item')).toBe('gem');

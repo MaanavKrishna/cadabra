@@ -436,7 +436,153 @@ function dash(): DemoScene {
   };
 }
 
+
+/**
+ * PHYSICS (round R2 stand-in until the engine's planck games land): a tiny circle-physics sim
+ * so every prop view can be judged: a ball with two nets, toppling crates, pinball bumpers on
+ * the rim and explosive barrels. Bodies bounce off walls and each other with restitution and
+ * pick up spin from glancing hits.
+ */
+function physics(): DemoScene {
+  const ps = players(4, true);
+  const W = 1280, H = 720;
+  const av = avatarsFor(ps, (i) => [i % 2 ? 900 : 380, 220 + (i >> 1) * 280], 24);
+  const ball = ent('ball', 640, 360, { sprite: 'ball', r: 26, props: { angle: 0 } });
+  const nets = [ent('goal', 70, 360, { sprite: 'net', r: 60, team: 0, props: { w: 90, h: 200, side: -1 } }), ent('goal', 1210, 360, { sprite: 'net', r: 60, team: 1, props: { w: 90, h: 200, side: 1 } })];
+  const bumpers = [[640, 120], [640, 600], [360, 360], [920, 360]].map(([x, y]) => ent('bumper', x!, y!, { sprite: 'bumper', r: 34, props: {} }));
+  const mkCrate = (x: number, y: number) => ent('crate', x, y, { sprite: 'crate', r: 26, props: { angle: (x * 7) % 1.2, hw: 26, hh: 26 } });
+  const mkBarrel = (x: number, y: number) => ent('barrel', x, y, { sprite: 'barrel', r: 26, props: { angle: 0 } });
+  let crates = [mkCrate(500, 200), mkCrate(560, 520), mkCrate(780, 520), mkCrate(720, 200), mkCrate(260, 180), mkCrate(1020, 540)];
+  let barrels = [mkBarrel(470, 560), mkBarrel(820, 160)];
+  const av0 = new Map<Entity, number>();
+  let respawnAt = -1;
+  const bodies = () => [...av, ball, ...crates, ...barrels];
+  const mass = (e: Entity) => (e.kind === 'player' ? 2 : e.kind === 'ball' ? 0.8 : e.kind === 'barrel' ? 2.5 : 1.6);
+  return {
+    arena: { width: W, height: H, kind: 'topdown' },
+    step(t, dt) {
+      const ev: GameEvent[] = [];
+      if (dt <= 0) return { snap: { entities: [...nets, ...bumpers, ...bodies()], players: ps, time: t, remaining: DUR - (t % DUR) }, fx: [], events: ev };
+      // players chase the ball (team mates spread), dash when close
+      av.forEach((e, i) => {
+        const side = e.team === 0 ? 1 : -1;
+        const off = (i >> 1) === 0 ? -60 : 60;
+        const tx = ball.x - side * 50, ty = ball.y + off * 0.5;
+        const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy) || 1;
+        const want = 300;
+        e.vx += ((dx / d) * want - e.vx) * Math.min(1, dt * 3);
+        e.vy += ((dy / d) * want - e.vy) * Math.min(1, dt * 3);
+        const near = Math.hypot(ball.x - e.x, ball.y - e.y) < 110;
+        if (near && Math.sin(t * 3 + i) > 0.6 && !e.props.dashing) {
+          e.vx += (dx / d) * 420;
+          e.vy += (dy / d) * 420;
+        }
+        e.props.dashing = Math.hypot(e.vx, e.vy) > 520;
+      });
+      const all = bodies();
+      for (const e of all) {
+        if (e.kind !== 'player') {
+          const damp = e.kind === 'ball' ? 0.6 : 2.2;
+          e.vx *= Math.exp(-damp * dt);
+          e.vy *= Math.exp(-damp * dt);
+          const w = av0.get(e) ?? 0;
+          e.props.angle = (e.props.angle as number) + w * dt;
+          av0.set(e, w * Math.exp(-2.5 * dt));
+        }
+        e.x += e.vx * dt;
+        e.y += e.vy * dt;
+        // walls (the ball may enter the net mouths)
+        const inMouth = e.kind === 'ball' && Math.abs(e.y - H / 2) < 90;
+        if (e.x < e.r && !inMouth) { e.x = e.r; e.vx = Math.abs(e.vx) * 0.8; av0.set(e, (av0.get(e) ?? 0) + e.vy * 0.01); }
+        if (e.x > W - e.r && !inMouth) { e.x = W - e.r; e.vx = -Math.abs(e.vx) * 0.8; av0.set(e, (av0.get(e) ?? 0) - e.vy * 0.01); }
+        if (e.y < e.r) { e.y = e.r; e.vy = Math.abs(e.vy) * 0.8; av0.set(e, (av0.get(e) ?? 0) - e.vx * 0.01); }
+        if (e.y > H - e.r) { e.y = H - e.r; e.vy = -Math.abs(e.vy) * 0.8; av0.set(e, (av0.get(e) ?? 0) + e.vx * 0.01); }
+      }
+      // body vs body and body vs bumper (bumpers are static and kick hard)
+      const statics = bumpers;
+      for (let i = 0; i < all.length; i++) {
+        const a = all[i]!;
+        for (let j = i + 1; j < all.length + statics.length; j++) {
+          const b = j < all.length ? all[j]! : statics[j - all.length]!;
+          const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), rr = a.r + b.r;
+          if (d >= rr || d === 0) continue;
+          const nx = dx / d, ny = dy / d;
+          const stat = j >= all.length;
+          const ma = mass(a), mb = stat ? 1e9 : mass(b);
+          const pen = rr - d;
+          a.x -= nx * pen * (mb / (ma + mb));
+          a.y -= ny * pen * (mb / (ma + mb));
+          if (!stat) {
+            b.x += nx * pen * (ma / (ma + mb));
+            b.y += ny * pen * (ma / (ma + mb));
+          }
+          const rv = (stat ? 0 : b.vx * nx + b.vy * ny) - (a.vx * nx + a.vy * ny);
+          if (rv > 0) continue;
+          const e = stat ? 1.6 : a.kind === 'ball' || b.kind === 'ball' ? 0.9 : 0.5;
+          const jn = (-(1 + e) * rv) / (1 / ma + (stat ? 0 : 1 / mb));
+          a.vx -= (jn / ma) * nx;
+          a.vy -= (jn / ma) * ny;
+          if (stat) {
+            b.props.hitAt = t;
+            b.props.impulse = Math.min(1.4, jn / 900);
+          } else {
+            b.vx += (jn / mb) * nx;
+            b.vy += (jn / mb) * ny;
+            // spin from the tangential part of the hit
+            const tv = (b.vx - a.vx) * -ny + (b.vy - a.vy) * nx;
+            av0.set(b, (av0.get(b) ?? 0) + tv * 0.012);
+            av0.set(a, (av0.get(a) ?? 0) - tv * 0.012);
+            for (const x of [a, b]) if (x.kind === 'barrel' && jn > 700) x.props.boom = true;
+          }
+        }
+      }
+      // barrels blow up: radial impulse on everything near
+      for (const b of barrels) {
+        if (!b.props.boom) continue;
+        for (const o of bodies()) {
+          if (o === b) continue;
+          const dx = o.x - b.x, dy = o.y - b.y, d = Math.hypot(dx, dy) || 1;
+          if (d > 260) continue;
+          const k = (1 - d / 260) * 1100;
+          o.vx += (dx / d) * k;
+          o.vy += (dy / d) * k;
+          av0.set(o, (av0.get(o) ?? 0) + (Math.random() - 0.5) * 14);
+        }
+        moment(ev, t, 'physics.explode', 'detonate', b.x, b.y);
+        respawnAt = t + 4;
+      }
+      barrels = barrels.filter((b) => !b.props.boom);
+      // crates knocked hard into a wall break apart
+      crates = crates.filter((c) => {
+        const out = c.x <= c.r + 1 || c.x >= W - c.r - 1 || c.y <= c.r + 1 || c.y >= H - c.r - 1;
+        if (out && Math.hypot(c.vx, c.vy) > 260) {
+          const owner = ps[Math.floor(t * 10) % 4]!;
+          score(ev, t, owner, 1, 'CRATE CRASH');
+          return false;
+        }
+        return true;
+      });
+      if (respawnAt > 0 && t > respawnAt) {
+        respawnAt = -1;
+        if (barrels.length < 2) barrels.push(mkBarrel(400 + Math.random() * 480, 160 + Math.random() * 400));
+        while (crates.length < 6) crates.push(mkCrate(300 + Math.random() * 680, 140 + Math.random() * 440));
+      }
+      // goal: the ball crossed a net mouth
+      if (ball.x < 30 || ball.x > W - 30) {
+        const team = ball.x < 30 ? 1 : 0;
+        const p = ps.find((q) => q.team === team)!;
+        score(ev, t, p, 1, 'GOAL');
+        ball.x = 640;
+        ball.y = 360;
+        ball.vx = ball.vy = 0;
+      }
+      return { snap: { entities: [...nets, ...bumpers, ...bodies()], players: ps, time: t, remaining: DUR - (t % DUR) }, fx: [], events: ev };
+    },
+  };
+}
+
 export const SCENES: Record<string, (selfie: string) => DemoScene> = {
+  physics: () => physics(),
   gallery,
   ringout: () => ringout(),
   overload: () => overload(),

@@ -20,7 +20,9 @@ import { TextureStore } from './textures';
 import { darken, hexToNum, lighten, type Palette } from './theme';
 import { SnapInterp } from './visual';
 import { NEON, NEON_PALETTE, NeonArt, type RenderStyle } from './neon';
-import { bandTexture, buildNeonScenery } from './neonScene';
+import { bandTexture } from './neonScene';
+import { LOOKS, lookOf, soundOf, type LookId } from './looks';
+import { buildLookScenery } from './lookScenes';
 import { DISPLAY_FONT } from './theme';
 
 export type Snapshot = ReturnType<GameRuntime['snapshot']>;
@@ -147,6 +149,13 @@ export class GameView {
   /** Neon: one soft band drifting down the arena (the slow scanline pulse). */
   private sweep?: Sprite;
   private sweepTex?: Texture;
+  /** Art direction of the current game (round R2): neon, toybox, cosmos or retro. */
+  look: LookId = 'neon';
+  /** GOAL! (and other one-off) banners: big centred text, rasterised once per string. */
+  private banners = new Map<string, Text>();
+  private bannerT?: Text;
+  private bannerAt = -9;
+  private impactSfxAt = -9;
   private destroyed = false;
   private started = false;
 
@@ -254,6 +263,13 @@ export class GameView {
     if (this.neon) this.particles.additiveFrameCap = 28;
     if (this.neon) this.nart = new NeonArt();
     this.entities = new EntityLayer(this.store, this.particles, this.arenaW, this.arenaH, this.nart);
+    // physics props: barrel blasts kick the camera, hard hits make a sound
+    this.entities.onBoom = (x, y, p) => this.boom(x, y, p);
+    this.entities.onImpact = (_x, _y, p, key) => {
+      if (p < 0.45 || this.rt - this.impactSfxAt < 0.12) return;
+      this.impactSfxAt = this.rt;
+      sfx(key === 'bumper' ? 'pass' : 'hit');
+    };
     this.hud = new Hud(this.W / this.hudScale, this.H / this.hudScale);
     this.hud.root.scale.set(this.hudScale);
 
@@ -328,7 +344,21 @@ export class GameView {
     this.palette = theme.palette;
     this.theme = theme;
     this.art = { ...art };
-    setSfxSet(theme.sfxSet);
+    if (this.neon) {
+      const look = lookOf(theme);
+      if (look !== this.look || this.nart!.look !== look) {
+        this.look = look;
+        this.nart!.setLook(look);
+        this.entities.applyLook();
+        this.particles.additiveFrameCap = look === 'neon' || look === 'cosmos' ? 28 : Infinity;
+        this.hud.setLook(LOOKS[look]);
+        for (const t of this.popCache.values()) for (const x of t) x.destroy();
+        this.popCache.clear();
+        for (const f of this.floats) f.live = false;
+        this.floats.length = 0;
+      }
+    }
+    setSfxSet(this.neon ? soundOf(theme) : theme.sfxSet);
     prewarmSfx();
     // a new game: no view may keep showing the previous game's art before it is evicted
     this.entities.clear();
@@ -381,11 +411,11 @@ export class GameView {
   private rebuildScene(): void {
     if (!this.started) return;
     if (this.neon) {
-      const key = `neon|${this.palette.bg}|${this.palette.primary}|${this.palette.accent}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
+      const key = `${this.look}|${this.palette.bg}|${this.palette.primary}|${this.palette.accent}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
       if (key === this.sceneKey) return;
       this.sceneKey = key;
       this.scene?.destroy({ children: true, texture: true, textureSource: true });
-      this.scene = buildNeonScenery(this.rect, this.W, this.H, SHAKE_PAD, this.palette, this.arenaKind);
+      this.scene = buildLookScenery(this.look, this.rect, this.W, this.H, SHAKE_PAD, this.palette, this.arenaKind);
       this.bake.stack.addChildAt(this.scene, 1);
       this.bake.invalidate();
       return;
@@ -452,10 +482,19 @@ export class GameView {
       this.eventPopups = true;
       const mult = typeof d.mult === 'number' ? d.mult : 1;
       const reason = typeof d.reason === 'string' ? d.reason : '';
+      // a goal gets the big banner instead of a small popup
+      if (/goal/i.test(reason) && delta > 0) {
+        this.goal(e.player, snap);
+        return;
+      }
       this.popupFor(e.player, popupText(delta, reason, itemNoun(this.itemSprite), mult), popupTone(delta, reason), snap);
       return;
     }
     if (typeof e.data?.phase === 'string' && e.data.phase === 'spawn') return;
+    if (e.type === 'goal' || e.data?.moment === 'goal') {
+      this.goal(e.player, snap, typeof e.data?.x === 'number' ? e.data.x : undefined, typeof e.data?.y === 'number' ? e.data.y : undefined);
+      return;
+    }
     const kind = comboForEvent(e.type, typeof e.data?.moment === 'string' ? e.data.moment : undefined);
     if (!kind || typeof e.data?.moment !== 'string') return;
     const av = e.player ? this.avatarOf(snap, e.player) : undefined;
@@ -504,7 +543,9 @@ export class GameView {
   /** One meaningful moment: its own particles, ring and (for big ones) a little shake. */
   private combo(kind: ComboKind, x: number, y: number): void {
     if (!this.director.allow(kind, x, y, this.rt)) return;
-    if (this.neon) this.neonCombo(kind, x, y);
+    if (this.neon && this.look === 'toybox') this.toyCombo(kind, x, y);
+    else if (this.neon && this.look === 'retro') this.retroCombo(kind, x, y);
+    else if (this.neon) this.neonCombo(kind, x, y);
     else this.cartoonCombo(kind, x, y);
     this.toScreen(x, y, this.tmpC);
     this.fxX = this.tmpC.x;
@@ -515,6 +556,7 @@ export class GameView {
   /** Neon juice: sparks, line bursts, shockwave rings; knockouts / detonations flash the edges. */
   private neonCombo(kind: ComboKind, x: number, y: number): void {
     const P = this.particles;
+    const NEON = LOOKS[this.look].c;
     const prim = hexToNum(this.palette.primary), glow = hexToNum(this.palette.glow), acc = hexToNum(this.palette.accent);
     switch (kind) {
       case 'pickup':
@@ -557,7 +599,7 @@ export class GameView {
       case 'dash':
         break;
       case 'splash':
-        P.emit('nspark', x, y);
+        P.emit(this.look === 'cosmos' ? 'cdust' : 'nspark', x, y);
         this.ring(x, y, 0.4, 2.6, prim);
         break;
       case 'win':
@@ -565,6 +607,183 @@ export class GameView {
         P.emit('ngold', x, y, 0.6);
         break;
     }
+  }
+
+  /** Toybox juice: chunky stars and white puffs (normal blend: additive vanishes on a light floor). */
+  private toyCombo(kind: ComboKind, x: number, y: number): void {
+    const P = this.particles;
+    const C = LOOKS.toybox.c;
+    switch (kind) {
+      case 'pickup':
+        P.emit('tstar', x, y, 0.6);
+        this.ring(x, y, 0.25, 1.4, 0xffffff);
+        break;
+      case 'bank': {
+        P.emit('tstar', x, y);
+        P.emit('tpuff', x, y, 0.6);
+        this.ring(x, y, 0.45, 3, C.amber);
+        this.juice.apply({ kind: 'shake', strength: 0.12 });
+        const g = this.entities.goalNear(x, y);
+        if (g >= 0) this.entities.thumpGoal(g, this.vt);
+        break;
+      }
+      case 'golden':
+        P.emit('golden', x, y);
+        this.ring(x, y, 0.5, 3.4, C.amber);
+        break;
+      case 'steal':
+        P.emit('tstar', x, y, 0.7);
+        this.ring(x, y, 0.3, 1.8, C.magenta);
+        break;
+      case 'hit':
+        P.emit('tstar', x, y, 0.6);
+        P.emit('tpuff', x, y, 0.4);
+        break;
+      case 'blast':
+        P.emit('tpuff', x, y, 1.2);
+        P.emit('tstar', x, y, 1.1);
+        this.ring(x, y, 0.55, 5.5, 0xffffff);
+        this.ring(x, y, 0.7, 4, C.red);
+        this.juice.apply({ kind: 'flash', color: '#FFFFFF' });
+        this.juice.apply({ kind: 'shake', strength: 0.4 });
+        break;
+      case 'wake':
+      case 'chase':
+        this.ring(x, y, 0.55, 4, C.red);
+        break;
+      case 'dash':
+        break;
+      case 'splash':
+        P.emit('tpuff', x, y);
+        this.ring(x, y, 0.4, 2.6, C.cyan);
+        break;
+      case 'win':
+        P.emit('confetti', x, y);
+        P.emit('tstar', x, y, 0.8);
+        break;
+    }
+  }
+
+  /** Retro juice: square pixel bursts and hard rings, no glow. */
+  private retroCombo(kind: ComboKind, x: number, y: number): void {
+    const P = this.particles;
+    const C = LOOKS.retro.c;
+    switch (kind) {
+      case 'pickup':
+        P.emit('rpix', x, y, 0.6);
+        break;
+      case 'bank': {
+        P.emit('rgold', x, y);
+        this.ring(x, y, 0.4, 3, C.amber);
+        this.juice.apply({ kind: 'shake', strength: 0.12 });
+        const g = this.entities.goalNear(x, y);
+        if (g >= 0) this.entities.thumpGoal(g, this.vt);
+        break;
+      }
+      case 'golden':
+        P.emit('rgold', x, y, 1.3);
+        break;
+      case 'steal':
+      case 'hit':
+        P.emit('rpix', x, y, 0.7);
+        break;
+      case 'blast':
+        P.emit('rpix', x, y, 1.6);
+        P.emit('rdust', x, y, 1.2);
+        this.ring(x, y, 0.45, 5, C.white);
+        this.juice.apply({ kind: 'flash', color: '#FF004D' });
+        this.juice.apply({ kind: 'shake', strength: 0.4 });
+        break;
+      case 'wake':
+      case 'chase':
+        this.ring(x, y, 0.5, 4, C.red);
+        break;
+      case 'dash':
+        break;
+      case 'splash':
+        P.emit('rdust', x, y);
+        break;
+      case 'win':
+        P.emit('rgold', x, y, 1.4);
+        P.emit('rpix', x, y, 1);
+        break;
+    }
+  }
+
+  /** A barrel blast (or any physics explosion): shockwave from the props, camera kick here. */
+  boom(x: number, y: number, power = 1): void {
+    if (!this.started) return;
+    this.toScreen(x, y, this.tmpC);
+    this.cam.punch(0.05 + 0.04 * Math.min(1, power), this.tmpC.x, this.tmpC.y, 0.5);
+    this.hitStop.trigger(60);
+    this.juice.apply({ kind: 'shake', strength: 0.5 * Math.min(1.2, power) });
+    this.juice.apply({ kind: 'flash', color: this.look === 'toybox' ? '#FFFFFF' : '#FF5A3C' });
+    sfx('wake');
+  }
+
+  /** GOAL!: the net ripples, the camera punches toward it, a big banner drops in. */
+  goal(pid?: string, snap?: Snapshot, gx?: number, gy?: number): void {
+    if (!this.started) return;
+    let x = gx, y = gy;
+    if ((x === undefined || y === undefined) && snap) {
+      // the ball's position when the goal happened
+      for (const e of snap.entities) if (e.sprite === 'ball' || e.kind === 'ball') {
+        x = e.x;
+        y = e.y;
+      }
+    }
+    x ??= this.arenaW / 2;
+    y ??= this.arenaH / 2;
+    const g = this.entities.goalNear(x, y);
+    if (g >= 0) this.entities.thumpGoal(g, this.vt);
+    this.combo('win', x, y);
+    this.toScreen(x, y, this.tmpC);
+    this.cam.punch(0.07, this.tmpC.x, this.tmpC.y, 0.6);
+    this.juice.apply({ kind: 'shake', strength: 0.3 });
+    this.bigBanner('GOAL!', pid && snap ? this.playerTint(pid, snap) : undefined);
+    sfx('win');
+  }
+
+  private playerTint(pid: string, snap: Snapshot): number | undefined {
+    const i = snap.players.findIndex((p) => p.id === pid);
+    if (i < 0) return undefined;
+    const p = snap.players[i]!;
+    const L = LOOKS[this.look];
+    return p.team !== undefined ? L.teams[p.team] : L.players[i % L.players.length];
+  }
+
+  /** A big centred banner (GOAL!), cached per string, popped in and dropped out by frame(). */
+  bigBanner(text: string, color?: number): void {
+    if (!this.started) return;
+    const col = color ?? LOOKS[this.look].c.amber;
+    const key = `${text}|${col}`;
+    let t = this.banners.get(key);
+    if (!t) {
+      t = this.popupLabel(text, 132, col);
+      t.visible = false;
+      this.popLayer.addChild(t);
+      this.banners.set(key, t);
+    }
+    if (this.bannerT && this.bannerT !== t) this.bannerT.visible = false;
+    this.bannerT = t;
+    this.bannerAt = this.rt;
+  }
+
+  private animateBanner(): void {
+    const t = this.bannerT;
+    if (!t) return;
+    const age = this.rt - this.bannerAt;
+    if (age > 1.5) {
+      t.visible = false;
+      this.bannerT = undefined;
+      return;
+    }
+    t.visible = true;
+    t.position.set(this.W / 2, this.H * 0.38);
+    const k = age < 0.3 ? easeOutBack(age / 0.3) : age > 1.2 ? 1 - easeOutCubic((age - 1.2) / 0.3) : 1;
+    t.scale.set((0.6 + 0.4 * k) * this.hudScale / Math.max(1, this.hudScale));
+    t.alpha = Math.max(0, Math.min(1, k * 1.2));
+    t.rotation = age < 0.3 ? (1 - age / 0.3) * -0.08 : 0;
   }
 
   private cartoonCombo(kind: ComboKind, x: number, y: number): void {
@@ -654,7 +873,8 @@ export class GameView {
     if (!(av && this.entities.headOf(av.id, head))) head.set(av?.x ?? this.arenaW / 2, (av?.y ?? this.arenaH / 2) - (av ? av.r * 6 : 0));
     this.world.toGlobal(head, this.tmpB);
     const big = tone === 'big';
-    const color = this.neon ? (tone === 'loss' ? NEON.red : big ? NEON.amber : hexToNum(this.palette.glow))
+    const LC = LOOKS[this.look].c;
+    const color = this.neon ? (tone === 'loss' ? LC.red : big ? LC.amber : this.look === 'neon' ? hexToNum(this.palette.glow) : this.look === 'toybox' ? 0xffffff : this.look === 'retro' ? LC.white : LC.cyan)
       : tone === 'loss' ? 0xff6b6b : big ? 0xffffff : hexToNum(this.palette.glow);
     if (this.neon) text = text.toUpperCase();
     this.spawnFloat(text, color, this.tmpB.x, this.tmpB.y, big && this.showHud ? pid : '', big);
@@ -675,12 +895,64 @@ export class GameView {
         }
       }
     }
-    const t = this.neon ? this.neonLabel(str, big ? 50 : 40, color) : label(str, big ? 46 : 38, color, { display: true, stroke: big ? 9 : 7 });
+    const t = this.neon ? this.popupLabel(str, big ? 50 : 40, color) : label(str, big ? 46 : 38, color, { display: true, stroke: big ? 9 : 7 });
     if (big && !this.neon) t.style.stroke = { color: darken(hexToNum(this.palette.glow), 0.5), width: 9, join: 'round' };
     t.visible = false;
     this.popLayer.addChild(t);
     list.push(t);
     this.popCache.set(key, list);
+    return t;
+  }
+
+  /** Popup text in the current look's lettering. */
+  private popupLabel(str: string, size: number, color: number): Text {
+    if (this.look === 'toybox') return this.toyLabel(str, size, color);
+    if (this.look === 'retro') return this.pixelLabel(str, size, color);
+    if (this.look === 'cosmos') {
+      const t = this.neonLabel(str, size * 0.92, color);
+      t.style.letterSpacing = 6;
+      t.style.fontWeight = '700';
+      t.style.fill = 0xffffff;
+      t.style.stroke = { color: darken(color, 0.55), width: Math.round(size / 10), join: 'round' };
+      return t;
+    }
+    return this.neonLabel(str, size, color);
+  }
+
+  /** Toybox lettering: chunky rounded white type, a thick coloured outline and a hard drop shadow. */
+  private toyLabel(str: string, size: number, color: number): Text {
+    const fill = color === 0xffffff ? 0xffffff : lighten(color, 0.15);
+    const t = new Text({
+      text: str,
+      style: {
+        fontFamily: DISPLAY_FONT, fontSize: size, fontWeight: '800', letterSpacing: 1,
+        fill: color === 0xffffff ? 0xffffff : fill,
+        stroke: { color: color === 0xffffff ? 0x2b2160 : darken(color, 0.5), width: Math.round(size / 5.5), join: 'round' },
+        dropShadow: { color: 0x1b1433, alpha: 0.45, blur: 0, distance: Math.max(3, size / 12), angle: Math.PI / 2 },
+        align: 'center', padding: 16,
+      },
+      resolution: Math.max(1, Math.min(2, this.hudScale)),
+    });
+    t.anchor.set(0.5);
+    return t;
+  }
+
+  /** Retro lettering: rasterised small with nearest filtering, so every letter is chunky pixels. */
+  private pixelLabel(str: string, size: number, color: number): Text {
+    const t = new Text({
+      text: str,
+      style: {
+        fontFamily: '"Courier New", ui-monospace, monospace', fontSize: size, fontWeight: '900', letterSpacing: 2,
+        fill: color, stroke: { color: 0x000000, width: Math.round(size / 6), join: 'miter' },
+        dropShadow: { color: 0x000000, alpha: 1, blur: 0, distance: Math.round(size / 9), angle: Math.PI / 4 },
+        align: 'center', padding: 8,
+      },
+      // a quarter-resolution raster, scaled up pixel-sharp
+      resolution: 0.3,
+      roundPixels: true,
+      textureStyle: { scaleMode: 'nearest' },
+    });
+    t.anchor.set(0.5);
     return t;
   }
 
@@ -874,7 +1146,9 @@ export class GameView {
     }
     this.particles.update(vdt);
     this.animateFloats();
-    if (this.sweep) {
+    this.animateBanner();
+    if (this.sweep) this.sweep.visible = false;
+    if (this.sweep && this.look === 'neon') {
       // a faint band rolls down the arena every 6 s (the "pulsing scanlines")
       const r = this.rect, ph = (this.rt / 6) % 1;
       this.sweep.position.set(r.x, r.y + ph * (r.h + 90));
