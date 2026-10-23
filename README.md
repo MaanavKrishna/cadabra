@@ -67,11 +67,11 @@ There is no host voice: the host speaks in on-screen captions, and the round's r
 ### Play it on a Fire TV
 
 1. On the stick: Settings > My Fire TV > Developer Options > ADB debugging (and Apps from Unknown Sources).
-2. Sideload the APK and launch it:
+2. Download [`cadabra-v1.0.apk`](https://github.com/MaanavKrishna/cadabra/releases/download/v1.0/cadabra-v1.0.apk) from the [v1.0 release](https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0), then sideload and launch it:
 
    ```bash
    adb connect <fire-tv-ip>:5555
-   adb install -r app-debug.apk        # or build it: scripts/tv-install.sh <fire-tv-ip>
+   adb install -r cadabra-v1.0.apk     # or build it: scripts/tv-install.sh <fire-tv-ip>
    adb shell monkey -p com.maanavkrishna.cadabra -c android.intent.category.LEANBACK_LAUNCHER 1
    ```
 
