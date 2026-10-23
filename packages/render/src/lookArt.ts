@@ -473,12 +473,12 @@ function halo(g: CanvasRenderingContext2D, c: number, cx: number, cy: number, r0
 }
 
 /** Lit sphere: soft key light top-left, terminator shade bottom-right, thin atmosphere rim. */
-function sphere(g: CanvasRenderingContext2D, c: number, cx: number, cy: number, r: number, rim = 0x9fd8ff): void {
+function sphere(g: CanvasRenderingContext2D, c: number, cx: number, cy: number, r: number, rim = 0x9fd8ff, night = 0.62): void {
   circle(g, cx, cy, r);
   const gr = g.createRadialGradient(cx - r * 0.4, cy - r * 0.45, r * 0.05, cx, cy, r);
   gr.addColorStop(0, css(lighten(c, 0.55)));
   gr.addColorStop(0.45, css(c));
-  gr.addColorStop(1, css(darken(c, 0.62)));
+  gr.addColorStop(1, css(darken(c, night)));
   g.fillStyle = gr;
   g.fill();
   g.strokeStyle = css(rim, 0.55);
@@ -507,7 +507,7 @@ function drawCosmos(key: ArtKey, c: number): HTMLCanvasElement {
     case 'player': {
       // astronaut orb: suit sphere in the player colour, helmet seal, dark glass visor
       halo(g, c, cx, cy + 2, 30, 62, 0.4);
-      sphere(g, mix(c, 0xe8ecff, 0.25), cx, cy + 2, 41, lighten(c, 0.5));
+      sphere(g, mix(c, 0xf2f4ff, 0.42), cx, cy + 2, 41, lighten(c, 0.5), 0.42);
       // backpack hint and side lamps
       g.beginPath();
       g.ellipse(cx, cy + 30, 18, 6, 0, 0, TAU);
@@ -515,7 +515,7 @@ function drawCosmos(key: ArtKey, c: number): HTMLCanvasElement {
       g.fill();
       // helmet seal ring
       g.beginPath();
-      g.ellipse(cx, cy - 6, 33, 24, 0, 0, TAU);
+      g.ellipse(cx, cy - 6, 31, 22, 0, 0, TAU);
       g.fillStyle = '#d9def0';
       g.fill();
       g.strokeStyle = 'rgba(40,46,80,0.6)';
@@ -523,7 +523,7 @@ function drawCosmos(key: ArtKey, c: number): HTMLCanvasElement {
       g.stroke();
       // visor
       g.beginPath();
-      g.ellipse(cx, cy - 6, 29, 20, 0, 0, TAU);
+      g.ellipse(cx, cy - 6, 27, 18, 0, 0, TAU);
       const vg = g.createLinearGradient(0, cy - 26, 0, cy + 14);
       vg.addColorStop(0, '#2a3470');
       vg.addColorStop(0.55, '#0b1030');
@@ -533,7 +533,7 @@ function drawCosmos(key: ArtKey, c: number): HTMLCanvasElement {
       // visor reflections: a coloured horizon arc and a hard white streak
       g.save();
       g.beginPath();
-      g.ellipse(cx, cy - 6, 29, 20, 0, 0, TAU);
+      g.ellipse(cx, cy - 6, 27, 18, 0, 0, TAU);
       g.clip();
       g.beginPath();
       g.ellipse(cx + 4, cy + 18, 40, 16, 0, Math.PI, TAU);
@@ -961,16 +961,22 @@ const RETRO: Partial<Record<ArtKey, string[]>> = {
     '................',
   ],
   spike: [
-    '.......o........',
-    '...o..oco..o....',
-    '....ooccco o....',
-    '...occhccccoo...',
-    '.ooccccccccco...',
-    'occcccccccccsoo.',
-    '..ocscccccssso..',
-    '...ocsscsssso...',
-    '...oo.osso.oo...',
-    '..o....oo....o..',
+    '.......oo.......',
+    '......ocro......',
+    '..oo..ocro..oo..',
+    '..ocooocrooocr..',
+    '...ocrrrrrrro...',
+    '...orrhhrrrro...',
+    '.ooorhwwrrrrooo.',
+    'occcrrwrrrrrrrco',
+    'occcrrrrrrrsrrco',
+    '.ooorrrrrrssooo.',
+    '...orrrrrssso...',
+    '...ocrrrssssco..',
+    '..ocooosrooocr..',
+    '..oo..ocso..oo..',
+    '......ocso......',
+    '.......oo.......',
   ],
   laser: [
     '..oooo..',
@@ -1043,7 +1049,26 @@ const RETRO: Partial<Record<ArtKey, string[]>> = {
   debris: ['oooo', 'ochs', 'ocss', 'oooo'],
 };
 
+/**
+ * Retro sprite, upscaled by an integer factor to ~128 px with no smoothing: the pixels stay
+ * square blocks, and the texture has the same size class as the other looks, so the entity
+ * layer's sizing (written for 128 px art) needs no special cases.
+ */
 function drawRetro(key: ArtKey, c: number): HTMLCanvasElement {
+  const lo = drawRetroLow(key, c);
+  if (key === 'beam') return scaleUp(lo, 4, 8);
+  const k = Math.max(1, Math.floor(128 / Math.max(lo.width, lo.height)));
+  return scaleUp(lo, k, k);
+}
+
+export function scaleUp(lo: HTMLCanvasElement, kx: number, ky: number): HTMLCanvasElement {
+  const cv = canvas(lo.width * kx, lo.height * ky), g = cv.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  g.drawImage(lo, 0, 0, cv.width, cv.height);
+  return cv;
+}
+
+function drawRetroLow(key: ArtKey, c: number): HTMLCanvasElement {
   // the hand-typed rows above may contain look-alike characters; anything unknown is clear
   const rows = RETRO[key];
   if (rows) {

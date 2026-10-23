@@ -7,7 +7,7 @@
 import { Texture } from 'pixi.js';
 import type { Theme } from '@cadabra/spec';
 import { PLAYER_HUES, TEAM_COLORS, lighten, type Palette } from './theme';
-import { drawLook, drawNeonProp, type ArtKey } from './lookArt';
+import { drawLook, drawNeonProp, scaleUp, type ArtKey } from './lookArt';
 import { LOOKS, type LookId } from './looks';
 
 export type RenderStyle = 'neon' | 'cartoon';
@@ -443,7 +443,7 @@ export function drawNeon(key: NeonKey | 'beam' | 'eye' | 'ring', c: number): HTM
  * (never cropped to a square: the face sits whole inside the ring).
  */
 export function drawPortrait(src: CanvasImageSource & { width: number; height: number }, c: number, look: LookId = 'neon'): HTMLCanvasElement {
-  if (look === 'retro') return pixelPortrait(src, c);
+  if (look === 'retro') return scaleUp(pixelPortrait(src, c), 8, 8);
   const cv = canvas(S, S), g = cv.getContext('2d')!;
   const cx = S / 2, cy = S / 2, r = 44;
   g.save();
@@ -538,7 +538,6 @@ export class NeonArt {
         ? drawNeonProp(key, color) ?? drawNeon(key === 'debris' ? 'gem' : (key as NeonKey | 'beam' | 'eye' | 'ring'), color)
         : drawLook(this.look, key, color);
       t = Texture.from(cv);
-      if (this.L.pixel) t.source.scaleMode = 'nearest';
       this.cache.set(k, t);
     }
     return t;
@@ -552,7 +551,6 @@ export class NeonArt {
     const res = (tex.source as unknown as { resource?: unknown }).resource as (CanvasImageSource & { width: number; height: number }) | undefined;
     if (!res || !res.width) return undefined;
     t = Texture.from(drawPortrait(res, color, this.look));
-    if (this.L.pixel) t.source.scaleMode = 'nearest';
     this.portraits.set(k, t);
     return t;
   }

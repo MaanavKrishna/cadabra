@@ -49,7 +49,7 @@ function base(W: number, H: number, pad: number): { cv: HTMLCanvasElement; g: Ca
  * soft drop shadow, a glossy kerb rail in alternating candy and white segments, and a clean
  * light floor with moulded panel seams and soft court markings.
  */
-export function drawToyArena(r: Rect, W: number, H: number, pad: number, _p: Palette, arenaKind?: string): HTMLCanvasElement {
+export function drawToyArena(r: Rect, W: number, H: number, pad: number, _p: Palette, arenaKind?: string, pit = false): HTMLCanvasElement {
   const { cv, g, FW, FH } = base(W, H, pad);
   const s = H / 720;
   const L = LOOKS.toybox.c;
@@ -123,14 +123,31 @@ export function drawToyArena(r: Rect, W: number, H: number, pad: number, _p: Pal
   // ---- the floor ----
   rr(g, r.x, r.y, r.w, r.h, rad);
   const fl = g.createLinearGradient(0, r.y, 0, r.y + r.h);
-  fl.addColorStop(0, '#fbfaff');
-  fl.addColorStop(1, '#ebe8f6');
-  g.fillStyle = fl;
+  if (pit) {
+    // ring-out games: the floor is a drop, a deep toy-box well under the platform tiles
+    const pg = g.createRadialGradient(r.x + r.w / 2, r.y + r.h / 2, 10, r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) * 0.6);
+    pg.addColorStop(0, '#3a3f9e');
+    pg.addColorStop(1, '#1c1d5c');
+    g.fillStyle = pg;
+  } else {
+    fl.addColorStop(0, '#fbfaff');
+    fl.addColorStop(1, '#ebe8f6');
+    g.fillStyle = fl;
+  }
   g.fill();
   g.save();
   rr(g, r.x, r.y, r.w, r.h, rad);
   g.clip();
-  if (arenaKind === 'lanes') {
+  if (pit) {
+    // faint concentric depth rings so the well reads as deep, not flat
+    for (let k = 1; k < 9; k++) {
+      g.beginPath();
+      g.ellipse(r.x + r.w / 2, r.y + r.h / 2, (r.w * k) / 14, (r.h * k) / 14, 0, 0, Math.PI * 2);
+      g.strokeStyle = `rgba(150,160,255,${0.05 + k * 0.006})`;
+      g.lineWidth = 3 * s;
+      g.stroke();
+    }
+  } else if (arenaKind === 'lanes') {
     // alternating light lanes are drawn by the lane renderer; give it a soft stripe base
     for (let i = 0; i < 8; i++) {
       if (i % 2) continue;
@@ -284,7 +301,7 @@ function planet(g: CanvasRenderingContext2D, x: number, y: number, R: number, c0
  * giant and a moon in the margins, a dark glass deck with a faint radar grid, and a glowing
  * edge that runs cyan to violet with beacon lights on the corners.
  */
-export function drawCosmosArena(r: Rect, W: number, H: number, pad: number, p: Palette, arenaKind?: string): HTMLCanvasElement {
+export function drawCosmosArena(r: Rect, W: number, H: number, pad: number, p: Palette, arenaKind?: string, pit = false): HTMLCanvasElement {
   const { cv, g, FW, FH } = base(W, H, pad);
   const s = H / 720;
   const L = LOOKS.cosmos.c;
@@ -341,15 +358,16 @@ export function drawCosmosArena(r: Rect, W: number, H: number, pad: number, p: P
   g.restore();
   rr(g, r.x, r.y, r.w, r.h, rad);
   const fl = g.createRadialGradient(r.x + r.w / 2, r.y + r.h * 0.4, 10, r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) * 0.7);
-  fl.addColorStop(0, 'rgba(26,36,86,0.86)');
-  fl.addColorStop(1, 'rgba(8,11,34,0.94)');
+  // ring-out games: the deck is open space under the platform tiles (stars show through)
+  fl.addColorStop(0, pit ? 'rgba(10,14,40,0.35)' : 'rgba(26,36,86,0.86)');
+  fl.addColorStop(1, pit ? 'rgba(4,6,20,0.55)' : 'rgba(8,11,34,0.94)');
   g.fillStyle = fl;
   g.fill();
   g.save();
   rr(g, r.x, r.y, r.w, r.h, rad);
   g.clip();
   const mx = r.x + r.w / 2, my = r.y + r.h / 2;
-  if (arenaKind !== 'lanes') {
+  if (arenaKind !== 'lanes' && !pit) {
     // radar grid: rings and spokes from the centre
     for (let k = 1; k <= 9; k++) {
       g.beginPath();
@@ -476,10 +494,13 @@ export function drawRetroArena(r: Rect, W: number, H: number, pad: number, _p: P
 }
 
 /** The look's arena as a container for the bake stack (one sprite). */
-export function buildLookScenery(look: LookId, r: Rect, W: number, H: number, pad: number, p: Palette, arenaKind?: string): Container {
-  const draw = look === 'toybox' ? drawToyArena : look === 'cosmos' ? drawCosmosArena : look === 'retro' ? drawRetroArena : drawNeonArena;
+export function buildLookScenery(look: LookId, r: Rect, W: number, H: number, pad: number, p: Palette, arenaKind?: string, pit = false): Container {
+  const cv = look === 'toybox' ? drawToyArena(r, W, H, pad, p, arenaKind, pit)
+    : look === 'cosmos' ? drawCosmosArena(r, W, H, pad, p, arenaKind, pit)
+      : look === 'retro' ? drawRetroArena(r, W, H, pad, p, arenaKind)
+        : drawNeonArena(r, W, H, pad, p, arenaKind);
   const c = new Container();
-  const s = new Sprite(Texture.from(draw(r, W, H, pad, p, arenaKind)));
+  const s = new Sprite(Texture.from(cv));
   s.position.set(-pad, -pad);
   c.addChild(s);
   return c;

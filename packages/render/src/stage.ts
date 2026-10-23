@@ -156,6 +156,9 @@ export class GameView {
   private bannerT?: Text;
   private bannerAt = -9;
   private impactSfxAt = -9;
+  /** Ring-out style arena (floor tiles over a drop): the floor is baked as a pit. */
+  private pit = false;
+  private pitChecked = false;
   private destroyed = false;
   private started = false;
 
@@ -367,6 +370,7 @@ export class GameView {
     this.interp.reset();
     this.director.reset();
     this.snap = undefined;
+    this.pitChecked = false;
     this.scores.clear();
     this.eventPopups = false;
     this.itemSprite = '';
@@ -411,11 +415,11 @@ export class GameView {
   private rebuildScene(): void {
     if (!this.started) return;
     if (this.neon) {
-      const key = `${this.look}|${this.palette.bg}|${this.palette.primary}|${this.palette.accent}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
+      const key = `${this.look}|${this.pit ? 'pit' : ''}|${this.palette.bg}|${this.palette.primary}|${this.palette.accent}|${this.rect.w}x${this.rect.h}|${this.arenaKind ?? ''}`;
       if (key === this.sceneKey) return;
       this.sceneKey = key;
       this.scene?.destroy({ children: true, texture: true, textureSource: true });
-      this.scene = buildLookScenery(this.look, this.rect, this.W, this.H, SHAKE_PAD, this.palette, this.arenaKind);
+      this.scene = buildLookScenery(this.look, this.rect, this.W, this.H, SHAKE_PAD, this.palette, this.arenaKind, this.pit);
       this.bake.stack.addChildAt(this.scene, 1);
       this.bake.invalidate();
       return;
@@ -471,6 +475,14 @@ export class GameView {
     if (!this.started) return;
     if (events) for (const e of events) this.onEvent(e, snap);
     if (fresh) this.scoreJuice(snap);
+    if (fresh && !this.pitChecked && this.neon) {
+      this.pitChecked = true;
+      const pit = snap.entities.some((e) => e.kind === 'tile' && ('ring' in e.props || 'crumbling' in e.props));
+      if (pit !== this.pit) {
+        this.pit = pit;
+        this.rebuildScene();
+      }
+    }
     for (const e of fx) this.onFx(e);
   }
 

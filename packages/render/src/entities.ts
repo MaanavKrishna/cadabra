@@ -518,7 +518,7 @@ export class EntityLayer {
     const seen = this.tileSeen;
     seen.clear();
     const L = this.L;
-    const dim = L.id === 'toybox' ? lighten(L.c.cyan, 0.72) : L.id === 'retro' ? 0x1d2b53 : L.id === 'cosmos' ? darken(L.c.cyan, 0.45) : darken(hexToNum(c.palette.primary), 0.35);
+    const dim = L.id === 'toybox' ? lighten(L.c.cyan, 0.72) : L.id === 'retro' ? 0x83769c : L.id === 'cosmos' ? 0x5b7fd6 : darken(hexToNum(c.palette.primary), 0.35);
     const solid = L.id === 'toybox' || L.id === 'retro';
     for (const t of tiles) {
       seen.add(t.id);
@@ -548,7 +548,7 @@ export class EntityLayer {
         s.alpha = solid ? 1 : 0.6;
       } else {
         s.tint = dim;
-        s.alpha = solid ? 1 : 0.45;
+        s.alpha = solid ? 1 : L.id === 'cosmos' ? 0.85 : 0.45;
       }
     }
     for (const [id, s] of this.tileS) {
@@ -1423,9 +1423,11 @@ export class EntityLayer {
     const pk = R * 4099 + col;
     if (v.flags.pk !== pk) {
       v.flags.pk = pk;
+      // pixel art has no hexagons: a square zone
+      const sides = this.L.pixel ? 4 : 6, rot = this.L.pixel ? Math.PI / 4 : 0;
       const hex = (g: Graphics, r: number) => {
-        for (let i = 0; i < 6; i++) {
-          const a = (i * Math.PI) / 3;
+        for (let i = 0; i < sides; i++) {
+          const a = rot + (i * Math.PI * 2) / sides;
           if (i === 0) g.moveTo(Math.cos(a) * r, Math.sin(a) * r);
           else g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
         }
@@ -1509,7 +1511,10 @@ export class EntityLayer {
     if (this.L.shadows && key !== 'hole' && key !== 'finish' && key !== 'base') this.shadowAt(v, x, y + size * 0.3, size * 0.8 * pop, size * 0.24 * pop, 0.28);
     else v.shadow.visible = false;
     if (key === 'hole' || key === 'finish') v.root.zIndex = Z_ZONE;
-    if (key === 'spike') v.body.rotation = (v.body.rotation + c.dt * 2.5) % TAU;
+    if (key === 'spike') {
+      v.flags.spin = (num(v.flags.spin) + c.dt * 2.5) % TAU;
+      v.body.rotation = this.L.pixel ? Math.round(num(v.flags.spin) / (Math.PI / 2)) * (Math.PI / 2) : num(v.flags.spin);
+    }
     v.top = y - size * 0.5;
   }
 
