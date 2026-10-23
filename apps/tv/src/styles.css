@@ -317,18 +317,18 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .fstep.is-done { color: var(--ink-2); }
 .fstep.is-done::before { content: '✓ '; }
 .fstep.is-active { color: #fff; font-weight: 600; }
-.forge-blocks { position: absolute; right: 300px; top: 230px; z-index: 2; width: 520px; height: 440px; }
+.forge-blocks { position: absolute; right: 330px; top: 150px; z-index: 2; display: flex; gap: 28px; }
 .fblock {
-  position: absolute; display: grid; place-items: center; width: 200px; height: 200px; border-radius: 48px;
+  display: grid; place-items: center; width: 168px; height: 168px; border-radius: 42px;
   background: var(--glass); border: 1px solid var(--line-2); box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
-  opacity: 0.25; transform: scale(0.9); transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
+  opacity: 0.2; transform: translateY(16px) scale(0.92); transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
 }
 .forge-blocks.is-on .fblock { opacity: 1; transform: none; }
-.fblock .neon-icon { width: 120px; height: 120px; stroke-width: 3.5; }
-.fb-0 { left: 0; top: 40px; } .fb-0 .neon-icon { stroke: var(--c-primary); }
-.fb-1 { left: 250px; top: 0; } .fb-1 .neon-icon { stroke: var(--c-accent); }
-.fb-2 { left: 140px; top: 240px; } .fb-2 .neon-icon { stroke: var(--c-glow); }
-.fb-3 { left: 390px; top: 220px; } .fb-3 .neon-icon { stroke: #fff; }
+.fblock .neon-icon { width: 100px; height: 100px; stroke-width: 3.5; }
+.fb-0 .neon-icon { stroke: var(--c-primary); }
+.fb-1 .neon-icon { stroke: var(--c-accent); }
+.fb-2 .neon-icon { stroke: var(--c-glow); }
+.fb-3 .neon-icon { stroke: #fff; }
 .forge-blocks.is-on .fb-1 { transition-delay: 0.15s; } .forge-blocks.is-on .fb-2 { transition-delay: 0.3s; } .forge-blocks.is-on .fb-3 { transition-delay: 0.45s; }
 .forge-ings { position: absolute; right: var(--mx); top: 150px; z-index: 3; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
 
