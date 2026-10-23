@@ -221,7 +221,7 @@
   const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(frame); } };
   addEventListener('scroll', onScroll, { passive: true });
   addEventListener('resize', () => {
-    const want = motion && innerWidth >= 900 && innerHeight >= 700;
+    const want = motion && innerWidth >= 1024 && innerHeight >= 820;
     d.classList.toggle('pin', want);
     onScroll();
   });

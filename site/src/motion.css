@@ -173,3 +173,7 @@ html.m .arch.in .a-dash, html.m .arch.in .a-lbl { opacity: 1; }
 html.pin #how .flow { grid-template-columns: minmax(0, 1.9fr) minmax(260px, 1fr); }
 @media (max-width: 767px) { .scroll-cue { display: none; } }
 @media (max-width: 560px) { .lab-stage .hud { display: none; } .lab-stage { aspect-ratio: 4 / 3; } }
+/* overlay steps: hide the screenshot completely, opaque stage behind the animation */
+.screen[data-step="storm"] > img, .screen[data-step="pitches"] > img, .screen[data-step="forge"] > img { opacity: 0 !important; }
+.screen[data-step="storm"] figcaption, .screen[data-step="pitches"] figcaption, .screen[data-step="forge"] figcaption { opacity: 0; }
+.ov { background: radial-gradient(900px 420px at 80% 110%, rgba(120, 70, 220, .45), transparent 60%), radial-gradient(700px 380px at 0% -10%, rgba(40, 90, 200, .35), transparent 60%), #0b0d1c; }
