@@ -105,6 +105,12 @@ export function WaitScreen({ data, name, avatar }: { data: ScreenData['wait']; n
       </div>
       <h1 class="display sm center">{data.message ?? <>You're in{name ? <>, <em>{name}</em></> : null}!</>}</h1>
       <p class="lede center">{data.sub ?? 'Eyes on the TV. The fun starts there.'}</p>
+      {data.progress !== undefined && (
+        <div class="build" data-build role="progressbar" aria-valuenow={Math.round(data.progress)} aria-valuemin={0} aria-valuemax={100}>
+          <div class="build-bar"><i style={{ transform: `scaleX(${data.progress / 100})` }} /></div>
+          <div class="build-pct">{Math.round(data.progress)}%</div>
+        </div>
+      )}
     </section>
   );
 }

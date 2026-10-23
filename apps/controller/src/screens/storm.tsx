@@ -3,7 +3,7 @@ import { cssUrl, type PitchOption, type ScreenData, type SendReply } from '../pr
 import { Btn, Countdown, Eyebrow } from '../ui/kit';
 import { TextSend } from '../ui/text-send';
 
-const SPARKS = ['Lava floor', 'Space cats', 'Ninja kitchen', 'Robot zoo'];
+const SPARKS = ['Laser sharks', 'Zero gravity', 'Lava floor', 'Robot dodgeball', 'Hot potato bomb', 'Disco ninjas'];
 
 export function StormScreen({ data, reply }: { data: ScreenData['storm']; reply: SendReply }) {
   const [ideas, setIdeas] = useState<string[]>([]);

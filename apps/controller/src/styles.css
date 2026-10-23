@@ -1,12 +1,13 @@
 /* Cadabra controller: cinematic dark, palette re-tinted per game via --c-* (themeVars). */
-@property --c-bg { syntax: '<color>'; inherits: true; initial-value: #07060d; }
-@property --c-primary { syntax: '<color>'; inherits: true; initial-value: #7c5cff; }
-@property --c-accent { syntax: '<color>'; inherits: true; initial-value: #ffb547; }
-@property --c-glow { syntax: '<color>'; inherits: true; initial-value: #8f6bff; }
+@property --c-bg { syntax: '<color>'; inherits: true; initial-value: #0a0e27; }
+@property --c-primary { syntax: '<color>'; inherits: true; initial-value: #00e5ff; }
+@property --c-accent { syntax: '<color>'; inherits: true; initial-value: #ff2bd6; }
+@property --c-glow { syntax: '<color>'; inherits: true; initial-value: #b6ff3b; }
 @property --c-text { syntax: '<color>'; inherits: true; initial-value: #f5f3ff; }
 
 :root {
-  --c-bg: #07060d; --c-primary: #7c5cff; --c-accent: #ffb547; --c-glow: #8f6bff; --c-text: #f5f3ff;
+  --c-bg: #0a0e27; --c-primary: #00e5ff; --c-accent: #ff2bd6; --c-glow: #b6ff3b; --c-text: #f5f3ff;
+  --n-cyan: #00e5ff; --n-magenta: #ff2bd6; --n-lime: #b6ff3b; --n-amber: #ffb020; --n-red: #ff3355;
   --cp-primary: var(--c-primary); --cp-accent: var(--c-accent); --cp-glow: var(--c-glow); --cp-text: var(--c-text);
   --cp-surface: rgba(255, 255, 255, .06);
   --font-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -298,3 +299,38 @@ img { -webkit-user-drag: none; user-select: none; }
 .hint-quiet .hint-ic { background: #3a7d5c; }
 .hint-dash .hint-ic { background: color-mix(in oklab, var(--c-accent) 80%, #000); }
 .hint-pull .hint-ic { background: #b4632c; }
+
+
+/* ---------- N3: neon arcade pass ---------- */
+.backdrop { background:
+  radial-gradient(90% 60% at 85% 0%, color-mix(in oklab, var(--c-accent) 26%, transparent), transparent 70%),
+  radial-gradient(90% 60% at 0% 100%, color-mix(in oklab, var(--c-primary) 24%, transparent), transparent 70%),
+  var(--c-bg); }
+.backdrop::before { content: ''; position: absolute; left: -30%; right: -30%; bottom: -8%; height: 46%;
+  background: repeating-linear-gradient(90deg, color-mix(in oklab, var(--c-primary) 30%, transparent) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(0deg, color-mix(in oklab, var(--c-primary) 26%, transparent) 0 1px, transparent 1px 34px);
+  transform: perspective(380px) rotateX(60deg); transform-origin: 50% 100%;
+  -webkit-mask-image: linear-gradient(0deg, #000 20%, transparent); mask-image: linear-gradient(0deg, #000 20%, transparent); }
+.blob { opacity: .22 !important; }
+.grain { display: none; }
+.display { text-transform: uppercase; letter-spacing: -.02em; text-shadow: 0 0 18px color-mix(in oklab, var(--c-primary) 45%, transparent); }
+.display em { text-shadow: none; }
+.eyebrow { color: var(--n-lime); }
+.gbtn { border-radius: 14px; text-transform: uppercase; letter-spacing: .04em; }
+.gbtn-primary, .gbtn-accent { --b: var(--c-primary); color: #0a0e27; text-shadow: none;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--b) 85%, #fff), var(--b));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--b) 60%, #000), 0 0 26px color-mix(in oklab, var(--b) 55%, transparent); }
+.gbtn-accent { --b: var(--c-accent); color: #fff; }
+.gbtn-glass { background: rgba(10, 14, 39, .7); box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--c-primary) 45%, transparent); -webkit-backdrop-filter: none; backdrop-filter: none; text-transform: none; letter-spacing: 0; }
+.gbtn-glass:active:not(:disabled) { box-shadow: inset 0 0 0 2px var(--c-primary), 0 0 22px color-mix(in oklab, var(--c-primary) 50%, transparent); }
+.text-field { border-radius: 14px; background: rgba(10, 14, 39, .75); border-color: color-mix(in oklab, var(--c-primary) 40%, transparent); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.code-slot { border-radius: 14px; border-color: color-mix(in oklab, var(--c-primary) 40%, transparent); }
+.pitch { border-radius: 16px !important; }
+.pitch.is-on { box-shadow: inset 0 0 0 2px var(--c-primary), 0 0 30px color-mix(in oklab, var(--c-primary) 45%, transparent) !important; }
+.idea { border-radius: 10px; border: 1.5px solid color-mix(in oklab, var(--c-accent) 60%, transparent); background: rgba(10, 14, 39, .7); }
+.spark-grid { grid-template-columns: 1fr 1fr 1fr; }
+.spark-grid .gbtn { min-height: 54px; padding: 0 10px; font-size: 15px; }
+.build { width: 100%; max-width: 320px; margin: 22px auto 0; }
+.build-bar { position: relative; height: 14px; border-radius: 7px; background: rgba(10, 14, 39, .8); box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--c-primary) 45%, transparent); overflow: hidden; }
+.build-bar i { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, var(--n-cyan), var(--n-magenta)); box-shadow: 0 0 16px var(--n-cyan); transition: transform .5s var(--ease-out); }
+.build-pct { margin-top: 10px; text-align: center; font: 800 28px/1 var(--font-display); color: var(--n-cyan); text-shadow: 0 0 14px color-mix(in oklab, var(--n-cyan) 60%, transparent); }

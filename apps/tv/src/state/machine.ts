@@ -2,7 +2,8 @@
 // The TV is the authority; screens render from PartyState and side effects (network, voice,
 // the game loop) live outside the reducer.
 import { makeBots, Rng, type Player } from '@cadabra/engine';
-import { DEFAULT_SETTINGS, MAX_PLAYERS, type GameSpec, type Pitch, type RoomSettings } from '@cadabra/spec';
+import { DEFAULT_SETTINGS, MAX_PLAYERS, type BackendToClient, type GameSpec, type Pitch, type RoomSettings } from '@cadabra/spec';
+import { addProgress, belongs, emptyForge, type ForgeInfo } from '../forge/forge';
 
 export type Phase = 'lobby' | 'storm' | 'pitching' | 'voting' | 'forge' | 'tutorial' | 'play' | 'results' | 'remix' | 'arcade';
 export type Settings = RoomSettings;
@@ -16,7 +17,7 @@ export const AVATAR_KEYS = [
   'penguin', 'cat', 'robot', 'astronaut', 'dragon', 'fox', 'panda', 'bunny', 'monkey', 'chef', 'ninja', 'unicorn',
 ] as const;
 
-export interface RankEntry { id: string; score: number }
+export interface RankEntry { id: string; score: number; team?: number }
 
 export interface PartyState {
   phase: Phase;
@@ -34,6 +35,8 @@ export interface PartyState {
   roster: Record<string, { name: string; avatar: string }>;
   /** Last round's ranking, winner first (runtime order). */
   ranking: RankEntry[];
+  /** The AI forge in progress (storm -> pitches -> vote -> forge). */
+  forge: ForgeInfo;
 }
 
 export type Action =
@@ -52,12 +55,20 @@ export type Action =
   | { type: 'results'; ranking: RankEntry[] }
   | { type: 'lobby' }
   /** Generated art arriving after the vote (forge.art): sprite key or 'keyArt' -> https URL. */
-  | { type: 'art'; key: string; url: string };
+  | { type: 'art'; key: string; url: string }
+  /** Start an Idea Storm (Create): clears the last forge. */
+  | { type: 'storm' }
+  /** A forge.* message from the backend; dropped unless it belongs to the current forge. */
+  | { type: 'forge'; msg: Extract<BackendToClient, { t: 'forge.pitches' | 'forge.progress' | 'forge.ready' | 'forge.art' }> }
+  /** The TV's own vote (D-pad Select), used to break ties. */
+  | { type: 'tvVote'; vote: number }
+  /** The vote closed: this pitch is being built. */
+  | { type: 'winner'; pitchId: string };
 
 export function initialState(code = '', settings: Settings = DEFAULT_SETTINGS): PartyState {
   return {
     phase: 'lobby', code, players: [], spectators: [], ingredients: [], pitches: [], votes: {},
-    art: {}, round: 0, settings: { ...settings }, roster: {}, ranking: [],
+    art: {}, round: 0, settings: { ...settings }, roster: {}, ranking: [], forge: emptyForge(),
   };
 }
 
@@ -190,6 +201,38 @@ export function reduce(s: PartyState, a: Action): PartyState {
 
     case 'art':
       return { ...s, art: { ...s.art, [a.key]: a.url } };
+
+    case 'storm':
+      return { ...s, phase: 'storm', ingredients: [], pitches: [], votes: {}, forge: emptyForge() };
+
+    case 'tvVote':
+      if (s.phase !== 'voting' || a.vote < 0 || a.vote >= s.pitches.length) return s;
+      return { ...s, forge: { ...s.forge, tvVote: a.vote } };
+
+    case 'winner':
+      if (s.phase !== 'voting' || !s.pitches.some((p) => p.id === a.pitchId)) return s;
+      return { ...s, phase: 'forge', forge: { ...s.forge, winner: a.pitchId } };
+
+    case 'forge': {
+      const m = a.msg;
+      const f = s.forge;
+      if (!belongs(f, s.pitches, m, s.phase === 'pitching')) return s;
+      switch (m.t) {
+        case 'forge.pitches':
+          return { ...s, phase: 'voting', pitches: m.pitches, votes: {}, forge: { ...emptyForge(), ...(m.forgeId ? { id: m.forgeId } : {}) } };
+        case 'forge.progress':
+          return { ...s, forge: { ...f, progress: { ...f.progress, [m.pitchId]: addProgress(f.progress[m.pitchId], m.step, m.pct) } } };
+        case 'forge.ready':
+          return { ...s, forge: { ...f, ready: { ...f.ready, [m.pitchId]: { spec: m.spec, fallback: !!m.fallback } } } };
+        case 'forge.art': {
+          const forge = { ...f, art: { ...f.art, [m.pitchId]: { ...f.art[m.pitchId], [m.key]: m.url } } };
+          // art for the forged game that is already on screen
+          const live = m.pitchId === f.winner && !!s.spec && f.ready[m.pitchId]?.spec.id === s.spec.id && (s.phase === 'play' || s.phase === 'results');
+          return { ...s, forge, ...(live ? { art: { ...s.art, [m.key]: m.url } } : {}) };
+        }
+      }
+      return s;
+    }
 
     case 'lobby':
       return promote({ ...s, phase: 'lobby', ingredients: [], pitches: [], votes: {} });

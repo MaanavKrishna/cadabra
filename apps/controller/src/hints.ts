@@ -21,10 +21,15 @@ const RULES: Rule[] = [
   { test: /pull|tug|heave/i, icon: 'pull', label: 'PULL', sub: 'tap on the beat!' },
   { test: /grab|bank|steal|take/i, icon: 'grab', label: 'GRAB / BANK', sub: 'grab loot, bank at your basket' },
   { test: /jump|hop/i, icon: 'tap', label: 'JUMP', sub: 'tap to hop' },
+  { test: /\brun\b|mash|sprint/i, icon: 'tap', label: 'RUN', sub: 'mash to sprint!' },
 ];
 
 const MOVE_SUB = (title: string) =>
-  /heist|sneak|steal/i.test(title) ? 'grab loot, run home'
+  /ring/i.test(title) ? 'stay on the ring'
+    : /overload|potato|bomb/i.test(title) ? 'touch a rival to pass the core'
+    : /paint/i.test(title) ? 'move to paint the floor'
+    : /core|rush/i.test(title) ? 'grab cores, run to base'
+    : /heist|sneak|steal/i.test(title) ? 'grab loot, run home'
     : /lava|penguin|dodge|floor/i.test(title) ? 'slide, grab fish, dodge lava'
       : /race|run/i.test(title) ? 'run!'
         : 'move around';
@@ -38,11 +43,14 @@ export function hintsFor(widgets: readonly ControlWidget[], title = ''): Hint[] 
     else if (w.kind === 'button' || w.kind === 'hold') {
       const key = `${w.id} ${w.label}`;
       const r = RULES.find((x) => x.test.test(key));
+      // "DASH (splash)": the game's own words win for the sub line
+      const own = /\(([^)]+)\)/.exec(w.label)?.[1]?.trim();
+      const bare = w.label.replace(/\s*\([^)]*\)/, '').trim() || w.label;
       out.push({
         id: w.id,
         icon: r?.icon ?? 'tap',
-        label: (r?.label ?? w.label).toUpperCase().slice(0, 14),
-        sub: r?.sub ?? (w.kind === 'hold' ? 'hold it down' : 'tap it'),
+        label: (r?.label ?? bare).toUpperCase().slice(0, 14),
+        sub: own ? (/^(tap|hold|mash)\b/i.test(own) ? own : `${w.kind === 'hold' ? 'hold' : 'tap'} to ${own}`) : r?.sub ?? (w.kind === 'hold' ? 'hold it down' : 'tap it'),
       });
     }
   }

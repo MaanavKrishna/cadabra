@@ -2,8 +2,7 @@
 // Back returns to the lobby.
 import { useEffect, useState } from 'preact/hooks';
 import type { HostPersonality } from '@cadabra/spec';
-import { Backdrop, TopBar, focus, useFocusable } from '../ui/components';
-import { QUICK_GAMES, keyArtFor } from '../fallback';
+import { NeonBg, TopBar, focus, useFocusable } from '../ui/components';
 import type { PartyState, Settings as S } from '../state/machine';
 import { loadMusicVolume, musicLabel, saveMusicVolume, stepMusic } from '../audio-prefs';
 
@@ -26,10 +25,9 @@ const cycle = <T,>(list: readonly T[], cur: T, dir: 1 | -1): T => {
 export const ROWS: RowDef[] = [
   { label: 'Family-safe mode', help: 'Screens ideas, names and generated text for all ages.', value: (s) => (s.familySafe ? 'On' : 'Off'), step: (s) => ({ familySafe: !s.familySafe }) },
   { label: 'Bots', help: 'AI players can fill empty seats.', value: (s) => (s.bots ? 'On' : 'Off'), step: (s) => ({ bots: !s.bots }) },
-  { label: 'Host voice', help: 'Captions always show, even with the voice off.', value: (s) => (s.hostVoice ? 'On' : 'Off'), step: (s) => ({ hostVoice: !s.hostVoice }) },
   { label: 'Round length', help: 'A surprise mid-round, a twist in the last 10 s.', value: (s) => `${s.roundSec} s`, step: (s, d) => ({ roundSec: cycle(ROUND_SECS, s.roundSec, d) }) },
   { label: 'Rounds per game night', help: 'How many games before the grand finale.', value: (s) => `${s.rounds}`, step: (s, d) => ({ rounds: Math.max(1, Math.min(10, s.rounds + d)) }) },
-  { label: 'Host personality', help: 'How the host talks to the room.', value: (s) => PERSONALITY_LABEL[s.hostPersonality], step: (s, d) => ({ hostPersonality: cycle(PERSONALITIES, s.hostPersonality, d) }) },
+  { label: 'Host personality', help: 'The tone of the on-screen host captions.', value: (s) => PERSONALITY_LABEL[s.hostPersonality], step: (s, d) => ({ hostPersonality: cycle(PERSONALITIES, s.hostPersonality, d) }) },
 ];
 
 function Row({ i, label, value, onStep, onFocus }: { i: number; label: string; value: string; onStep: (d: 1 | -1) => void; onFocus: () => void }) {
@@ -48,7 +46,7 @@ function Row({ i, label, value, onStep, onFocus }: { i: number; label: string; v
   );
 }
 
-const MUSIC_HELP = 'Party music under the game. The host voice always ducks it.';
+const MUSIC_HELP = 'Party music under the game.';
 
 function Done({ onClose }: { onClose: () => void }) {
   const ref = useFocusable(ROWS.length + 1, 0, { select: onClose });
@@ -66,7 +64,7 @@ export function Settings({ state, status, onChange, onClose }: { state: PartySta
   const label = focused < ROWS.length ? ROWS[focused]!.label : focused === ROWS.length ? 'Music volume' : 'Done';
   return (
     <section class="screen settings">
-      <Backdrop art={keyArtFor(QUICK_GAMES[0]!)} dim />
+      <NeonBg quiet />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="settings-panel">
         <div class="eyebrow">House rules</div>

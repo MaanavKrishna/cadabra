@@ -42,7 +42,11 @@ export const ScreenDataSchemas = {
   }),
   remix: z.object({ ...base, prompt: text(120).optional() }),
   tweak: z.object({ ...base, message: text(200).optional() }),
-  wait: z.object({ ...base, message: text(120).optional(), sub: text(200).optional() }),
+  wait: z.object({
+    ...base, message: text(120).optional(), sub: text(200).optional(),
+    /** N3: forge build progress 0-100 (the phone shows a "building…" bar). */
+    progress: z.number().finite().min(0).max(100).optional(),
+  }),
   blocked: z.object({ ...base, message: text(200).optional() }),
 } satisfies Record<ScreenName, z.ZodTypeAny>;
 

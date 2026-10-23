@@ -1,6 +1,8 @@
-// The TV app: party state machine + room (phones) + key bridge + host voice + screens.
+// The TV app: party state machine + room (phones) + key bridge + host captions + screens.
+// Flows: Create (AI forge: storm -> pitches -> vote -> forge -> play), Party (4 quick rounds with a
+// points table) and Quick Play (one built-in game). The host never speaks: lines are big captions.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks';
-import { duckMusic, setMusicVolume, setSfxVolume } from '@cadabra/render';
+import { setMusicVolume } from '@cadabra/render';
 import { loadMusicVolume } from './audio-prefs';
 import type { GameEvent, Judgement } from '@cadabra/engine';
 import { MAX_PLAYERS, type BackendToClient, type GameSpec, type PeerMsg } from '@cadabra/spec';
@@ -13,12 +15,23 @@ import { installKeyBridge, MenuTaps } from './ui/keys';
 import { Caption, Toast, focus } from './ui/components';
 import { DebugOverlay } from './ui/Debug';
 import { QUICK_GAMES, cardFor, withRoundLength } from './fallback';
+import {
+  ALL_VOTED_MS, DEFAULT_INGREDIENTS, FORGE_MIN_MS, FORGE_TIMEOUT_MS, PITCH_TIMEOUT_MS, STORM_SEC, VOTE_SEC,
+  fallbackGame, isForgeMsg, pickWinner,
+} from './forge/forge';
+import { finishRound, isOver, newParty, nextRound, type PartyRun } from './play/party';
+import { ForgeBuild, Pitches, Storm } from './screens/Forge';
+import { PartyChampion, PartyStandings } from './screens/Party';
 import { Lobby } from './screens/Lobby';
 import { Settings } from './screens/Settings';
 import { Play, type PlaySession } from './screens/Play';
 import { Results } from './screens/Results';
 
 const SAY_TIMEOUT_MS = 4500;
+/** "Game ready" stays on the forge screen this long before the intro card. */
+const READY_HOLD_MS = 900;
+const FORGE_PHASES = ['storm', 'pitching', 'voting', 'forge'] as const;
+const inForge = (p: string) => (FORGE_PHASES as readonly string[]).includes(p);
 
 export function App() {
   const [state, dispatch] = useReducer(reduce, undefined, () => initialState());
@@ -37,6 +50,16 @@ export function App() {
   const again = useRef(new Set<string>());
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
   const sayId = useRef(0);
+  // ---- forge flow timers and party run ----
+  const [endsAt, setEndsAt] = useState<number | undefined>();
+  const forgeTimer = useRef<ReturnType<typeof setTimeout>>();
+  const voteCloseTimer = useRef<ReturnType<typeof setTimeout>>();
+  const forgeAt = useRef(0);
+  const focusedPitch = useRef(1);
+  const busyRetried = useRef(false);
+  const [party, setPartyState] = useState<PartyRun | undefined>();
+  const partyRef = useRef<PartyRun | undefined>();
+  const setParty = (r: PartyRun | undefined) => { partyRef.current = r; setPartyState(r); };
 
   const showToast = (t: string) => {
     setToast(t);
@@ -44,13 +67,9 @@ export function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   };
 
+  // No host voice (N3): the queue only paces the captions (voiceOn is always false, no audio URL).
   const voice = useMemo(
-    () => new VoiceQueue(browserVoiceDeps({
-      caption: setCaption,
-      // the host voice ducks the music and lowers (not mutes) the sound effects
-      duck: (on) => { duckMusic(on); setSfxVolume(on ? 0.4 : 1); },
-      voiceOn: () => stateRef.current.settings.hostVoice,
-    })),
+    () => new VoiceQueue(browserVoiceDeps({ caption: setCaption, duck: () => {}, voiceOn: () => false })),
     [],
   );
 
@@ -87,7 +106,7 @@ export function App() {
     const ok = s.code && room.send({
       t: 'host.say', code: s.code, id, ...req,
       ...(req.text ? { text: req.text.slice(0, 240) } : {}),
-      personality: s.settings.hostPersonality, familySafe: s.settings.familySafe, voice: s.settings.hostVoice,
+      personality: s.settings.hostPersonality, familySafe: s.settings.familySafe, voice: false,
     });
     if (!ok) return voice.say({ text: fallback });
     pendingSay.current.set(id, setTimeout(() => {
@@ -102,20 +121,28 @@ export function App() {
       const t = m.id ? pendingSay.current.get(m.id) : undefined;
       if (m.id && !t) return; // too late: the fallback caption already ran
       if (t) { clearTimeout(t); pendingSay.current.delete(m.id!); }
-      voice.say({ text: m.text, ...(m.url ? { url: m.url } : {}) });
+      voice.say({ text: m.text });
     } else if (m.t === 'host.roasted') {
       const t = pendingSay.current.get(m.id);
       if (!t) return;
       clearTimeout(t);
       pendingSay.current.delete(m.id);
-      m.lines.forEach((text, i) => {
-        const url = m.urls?.[i];
-        voice.say({ text, ...(url ? { url } : {}) });
-      });
-    } else if (m.t === 'forge.art') {
-      // generated art for the coming game (absent while the image model is unavailable)
-      const spec = stateRef.current.spec;
-      if (!m.specId || !spec || m.specId === spec.id) dispatch({ type: 'art', key: m.key, url: m.url });
+      m.lines.forEach((text) => voice.say({ text }));
+    } else if (isForgeMsg(m)) {
+      // the reducer drops messages of another forge (forgeId) or a stale phase
+      dispatch({ type: 'forge', msg: m });
+    } else if (m.t === 'error') {
+      const phase = stateRef.current.phase;
+      if (m.code === 'forge.busy' && phase === 'pitching') {
+        // the room's last forge still holds the lock: retry once, then a built-in game
+        if (busyRetried.current) return forgeFallback();
+        busyRetried.current = true;
+        showToast('The forge is warming up…');
+        clearTimeout(forgeTimer.current);
+        forgeTimer.current = setTimeout(() => sendPitch(), 3500);
+      } else if (m.code === 'room.rateLimited' && phase === 'pitching') {
+        forgeFallback();
+      }
     } else if (m.t === 'judge.result') {
       session.current?.resolveJudgement(m.id, m.result);
     }
@@ -129,7 +156,7 @@ export function App() {
       dispatch(a);
     } else if (a.type === 'pick') {
       const s = stateRef.current;
-      if (s.phase !== 'results') return;
+      if (s.phase !== 'results' || partyRef.current) return;
       if (a.action === 'again') again.current.add(id);
       const want = humans(s).filter((p) => p.connected).length;
       if (want > 0 && again.current.size * 2 > want) actions.current.again();
@@ -139,7 +166,7 @@ export function App() {
   }
 
   // ---- game flow ----
-  const start = (spec: GameSpec) => {
+  const start = (spec: GameSpec, art?: Record<string, string>, durationSec?: number) => {
     const s = stateRef.current;
     const card = cardFor(spec);
     const seats = humans(s).length === 0 ? MAX_PLAYERS : card.seats;
@@ -158,8 +185,89 @@ export function App() {
     voice.clear();
     // dev only: ?dur=N shortens rounds for a quick look at the finale and results
     const dur = import.meta.env.DEV ? Number(new URLSearchParams(location.search).get('dur')) : 0;
-    dispatch({ type: 'start', spec: withRoundLength(spec, dur >= 30 ? dur : s.settings.roundSec) });
+    dispatch({ type: 'start', spec: withRoundLength(spec, dur >= 30 ? dur : durationSec ?? s.settings.roundSec), ...(art ? { art } : {}) });
   };
+
+  // ---- Create: the AI forge ----
+  const clearForgeTimers = () => {
+    clearTimeout(forgeTimer.current);
+    clearTimeout(voteCloseTimer.current);
+    voteCloseTimer.current = undefined;
+    setEndsAt(undefined);
+  };
+
+  /** The forge could not deliver (offline, busy, timeout): play a built-in game, never an error. */
+  function forgeFallback() {
+    if (!inForge(stateRef.current.phase)) return;
+    clearForgeTimers();
+    const game = fallbackGame(QUICK_GAMES, Date.now() / 1000);
+    say(`The forge needs a breather, so let's play ${game.title}!`);
+    start(game);
+  }
+
+  function sendPitch() {
+    const s = stateRef.current;
+    if (s.phase !== 'pitching') return;
+    const ingredients = s.ingredients.length
+      ? s.ingredients.map((g) => ({ text: g.text.slice(0, 80), playerId: g.by.slice(0, 32) }))
+      : DEFAULT_INGREDIENTS;
+    const ok = !!s.code && room.send({
+      t: 'forge.pitch', code: s.code, ingredients: ingredients.slice(-12),
+      players: s.players.slice(0, MAX_PLAYERS).map((p) => ({ id: p.id.slice(0, 32), name: p.name.slice(0, 40) })),
+      settings: { ...s.settings, hostVoice: false },
+    });
+    if (!ok) return forgeFallback();
+    clearTimeout(forgeTimer.current);
+    forgeTimer.current = setTimeout(forgeFallback, PITCH_TIMEOUT_MS);
+  }
+
+  function endStorm() {
+    if (stateRef.current.phase !== 'storm') return;
+    clearForgeTimers();
+    dispatch({ type: 'phase', phase: 'pitching' });
+    stateRef.current = { ...stateRef.current, phase: 'pitching' };
+    sendPitch();
+  }
+
+  function closeVote() {
+    const s = stateRef.current;
+    if (s.phase !== 'voting' || s.pitches.length === 0) return;
+    clearForgeTimers();
+    const pitch = s.pitches[pickWinner(s.votes, s.pitches.length, s.forge.tvVote, focusedPitch.current)]!;
+    room.send({ t: 'forge.vote', code: s.code, pitchId: pitch.id });
+    forgeAt.current = performance.now();
+    dispatch({ type: 'winner', pitchId: pitch.id });
+    forgeTimer.current = setTimeout(forgeFallback, FORGE_TIMEOUT_MS);
+  }
+
+  function create() {
+    const s = stateRef.current;
+    if (room.status !== 'online' || !s.code) {
+      showToast('Create needs the internet. Try Party or Quick Play!');
+      return;
+    }
+    setParty(undefined);
+    busyRetried.current = false;
+    focusedPitch.current = 1;
+    voice.clear();
+    dispatch({ type: 'storm' });
+    const end = performance.now() + STORM_SEC * 1000;
+    setEndsAt(end);
+    clearTimeout(forgeTimer.current);
+    forgeTimer.current = setTimeout(endStorm, STORM_SEC * 1000);
+  }
+
+  // ---- Party: 4 quick rounds ----
+  const playPartyRound = (run: PartyRun) => {
+    const r = run.rounds[run.index]!;
+    const spec = QUICK_GAMES.find((g) => g.id === r.gameId) ?? QUICK_GAMES[0]!;
+    start(spec, undefined, r.durationSec);
+  };
+  function startParty() {
+    const run = newParty(QUICK_GAMES.map((g) => g.id), (Date.now() & 0x7fffffff) || 1);
+    setParty(run);
+    playPartyRound(run);
+  }
 
   const actions = useRef({ again: () => {}, next: () => {}, lobby: () => {} });
   actions.current = {
@@ -167,21 +275,27 @@ export function App() {
       const spec = stateRef.current.spec;
       if (!spec) return;
       const base = QUICK_GAMES.find((g) => g.id === spec.id) ?? spec;
-      start(base);
+      const run = partyRef.current;
+      if (run) return start(base, undefined, run.rounds[run.index]?.durationSec);
+      start(base, stateRef.current.art);
     },
     next: () => {
       const i = QUICK_GAMES.findIndex((g) => g.id === stateRef.current.spec?.id);
+      if (i < 0) return create(); // after a forged game: forge another
       start(QUICK_GAMES[(i + 1) % QUICK_GAMES.length]!);
     },
     lobby: () => {
       voice.clear();
+      clearForgeTimers();
+      setParty(undefined);
       dispatch({ type: 'lobby' });
     },
   };
 
-  const onDone = useCallback((ranking: { id: string; score: number }[], events: GameEvent[], team?: 0 | 1) => {
+  const onDone = useCallback((ranking: { id: string; score: number; team?: number }[], events: GameEvent[], team?: 0 | 1) => {
     const s = stateRef.current;
     setWinnerTeam(team);
+    if (partyRef.current) setParty(finishRound(partyRef.current, ranking, team));
     dispatch({ type: 'results', ranking });
     const names = new Map(s.players.map((p) => [p.id, p.name]));
     const winner = names.get(ranking[0]?.id ?? '') ?? 'Everyone';
@@ -192,7 +306,7 @@ export function App() {
       events: events.slice(-800).map((e) => ({ t: e.t, type: e.type.slice(0, 40), ...(e.player ? { player: e.player.slice(0, 40) } : {}), ...(e.data ? { data: e.data } : {}) })),
       players: s.players.map((p) => ({ id: p.id.slice(0, 40), name: p.name.slice(0, 40) })),
       title: s.spec.title.slice(0, 80), hook: s.spec.hook.slice(0, 200),
-      personality: s.settings.hostPersonality, familySafe: s.settings.familySafe, voice: s.settings.hostVoice,
+      personality: s.settings.hostPersonality, familySafe: s.settings.familySafe, voice: false,
     });
     if (!ok) return voice.say({ text: fallback });
     pendingSay.current.set(id, setTimeout(() => { pendingSay.current.delete(id); voice.say({ text: fallback }); }, 9000));
@@ -232,12 +346,65 @@ export function App() {
   // a screen change resets focus targets; settings view only exists in the lobby
   useEffect(() => { if (state.phase !== 'lobby') setView('main'); }, [state.phase]);
 
+  // ---- forge flow: pitches arrived -> vote; everyone voted -> close early; spec ready -> play ----
+  useEffect(() => {
+    if (state.phase === 'voting' && endsAt === undefined) {
+      clearTimeout(forgeTimer.current);
+      setEndsAt(performance.now() + VOTE_SEC * 1000);
+      forgeTimer.current = setTimeout(closeVote, VOTE_SEC * 1000);
+    }
+    if (state.phase === 'voting') {
+      const voters = humans(state).filter((p) => p.connected);
+      const all = voters.length > 0 && voters.every((p) => state.votes[p.id] !== undefined);
+      if (all && !voteCloseTimer.current) voteCloseTimer.current = setTimeout(closeVote, ALL_VOTED_MS);
+    }
+    if (state.phase === 'forge') {
+      const ready = state.forge.ready[state.forge.winner ?? ''];
+      if (ready && !voteCloseTimer.current) {
+        const wait = Math.max(0, FORGE_MIN_MS - (performance.now() - forgeAt.current)) + READY_HOLD_MS;
+        clearTimeout(forgeTimer.current);
+        voteCloseTimer.current = setTimeout(() => {
+          voteCloseTimer.current = undefined;
+          const s = stateRef.current;
+          const w = s.forge.winner ?? '';
+          const r = s.forge.ready[w];
+          if (s.phase !== 'forge' || !r) return;
+          setEndsAt(undefined);
+          if (r.fallback) say(`Here's ${r.spec.title}, fresh from the forge!`);
+          start(r.spec, s.forge.art[w]);
+        }, wait);
+      }
+    }
+  }, [state.phase, state.votes, state.forge, state.players]);
+
   const changeSettings = useCallback((p: Partial<S>) => dispatch({ type: 'settings', patch: p }), []);
   const closeSettings = useCallback(() => setView('main'), []);
   const toLobby = useCallback(() => actions.current.lobby(), []);
 
   let screen;
-  if (state.phase === 'play' && state.spec) {
+  const nextPartySpec = party && !isOver(party) ? QUICK_GAMES.find((g) => g.id === party.rounds[Math.min(party.rounds.length - 1, party.played)]?.gameId) : undefined;
+  if (state.phase === 'storm') {
+    screen = <Storm state={state} status={status} endsAt={endsAt} total={STORM_SEC} onCook={endStorm} onCancel={toLobby} />;
+  } else if (state.phase === 'pitching' || state.phase === 'voting') {
+    screen = (
+      <Pitches
+        state={state} status={status} endsAt={endsAt} total={VOTE_SEC} onCancel={toLobby}
+        onTvVote={(i) => dispatch({ type: 'tvVote', vote: i })}
+        onFocusPitch={(i) => { focusedPitch.current = i; }}
+      />
+    );
+  } else if (state.phase === 'forge') {
+    screen = <ForgeBuild state={state} status={status} />;
+  } else if (state.phase === 'results' && state.spec && party) {
+    screen = isOver(party)
+      ? <PartyChampion state={state} status={status} run={party} onAgain={startParty} onLobby={toLobby} />
+      : (
+        <PartyStandings
+          state={state} status={status} run={party} {...(nextPartySpec ? { next: nextPartySpec } : {})} onQuit={toLobby}
+          onNext={() => { const r = partyRef.current; if (!r || stateRef.current.phase !== 'results') return; const n = nextRound(r); setParty(n); playPartyRound(n); }}
+        />
+      );
+  } else if (state.phase === 'play' && state.spec) {
     screen = (
       <Play
         key={state.round}
@@ -251,7 +418,7 @@ export function App() {
       />
     );
   } else if (state.phase === 'results' && state.spec) {
-    screen = <Results state={state} status={status} winnerTeam={winnerTeam} onAgain={() => actions.current.again()} onNext={() => actions.current.next()} onLobby={toLobby} />;
+    screen = <Results state={state} status={status} winnerTeam={winnerTeam} forged={!QUICK_GAMES.some((g) => g.id === state.spec?.id)} onAgain={() => actions.current.again()} onNext={() => actions.current.next()} onLobby={toLobby} />;
   } else if (view === 'settings') {
     screen = <Settings state={state} status={status} onChange={changeSettings} onClose={closeSettings} />;
   } else {
@@ -259,7 +426,9 @@ export function App() {
       <Lobby
         state={state}
         status={status}
-        onPlay={start}
+        onPlay={(spec) => { setParty(undefined); start(spec); }}
+        onCreate={create}
+        onParty={startParty}
         onFillBots={() => dispatch({ type: 'fillBots' } satisfies Action)}
         onSettings={() => setView('settings')}
       />

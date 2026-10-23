@@ -160,15 +160,30 @@ export function Tile(p: TileProps) {
   );
 }
 
+/** The neon arcade backdrop: a pre-made gradient grid with two glows (no filters, no per-frame work). */
+export function NeonBg({ quiet = false }: { quiet?: boolean }) {
+  return (
+    <div class={`neon-bg ${quiet ? 'is-quiet' : ''}`} aria-hidden="true">
+      <div class="neon-floor" />
+      <div class="neon-horizon" />
+    </div>
+  );
+}
+
+/** The host's line as a big animated caption (no voice): words rise in one after another. */
 export function Caption({ text }: { text: string | null }) {
   const [shown, setShown] = useState(text);
+  const [seq, setSeq] = useState(0);
   useEffect(() => {
-    if (text) setShown(text);
+    if (text) { setShown(text); setSeq((n) => n + 1); }
   }, [text]);
+  const words = (shown ?? '').split(/\s+/).filter(Boolean);
   return (
     <div class={`caption ${text ? 'is-on' : ''}`} aria-live="polite">
       <span class="caption-dot" />
-      <span>{shown}</span>
+      <span class="caption-text" key={seq}>
+        {words.map((w, i) => <span key={i} class="cw" style={{ animationDelay: `${Math.min(i, 24) * 0.045}s` }}>{w} </span>)}
+      </span>
     </div>
   );
 }
@@ -177,7 +192,7 @@ export function Toast({ text }: { text: string | null }) {
   return <div class={`toast ${text ? 'is-on' : ''}`}>{text}</div>;
 }
 
-export function Icon({ name }: { name: 'bots' | 'gear' | 'play' | 'again' | 'home' | 'next' | 'resume' | 'quit' }) {
+export function Icon({ name }: { name: 'bots' | 'gear' | 'play' | 'again' | 'home' | 'next' | 'resume' | 'quit' | 'spark' | 'party' | 'grid' }) {
   const paths: Record<string, JSX.Element> = {
     bots: (
       <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
@@ -198,6 +213,24 @@ export function Icon({ name }: { name: 'bots' | 'gear' | 'play' | 'again' | 'hom
     again: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M50 32a18 18 0 1 1-6-13.4" /><path d="M46 8v12H34" /></g>,
     home: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"><path d="M10 30 L32 12 L54 30" /><path d="M16 26v26h32V26" /></g>,
     next: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 32h34" /><path d="M36 18l14 14-14 14" /></g>,
+    spark: (
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M30 6 L35 25 L54 30 L35 35 L30 54 L25 35 L6 30 L25 25 Z" />
+        <path d="M50 8v8M46 12h8M12 46v8M8 50h8" />
+      </g>
+    ),
+    party: (
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M18 54h28M32 54V40M20 10h24v10a12 12 0 0 1-24 0Z" />
+        <path d="M20 14H10v4a8 8 0 0 0 10 8M44 14h10v4a8 8 0 0 1-10 8" />
+      </g>
+    ),
+    grid: (
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round">
+        <rect x="10" y="10" width="18" height="18" rx="4" /><rect x="36" y="10" width="18" height="18" rx="4" />
+        <rect x="10" y="36" width="18" height="18" rx="4" /><rect x="36" y="36" width="18" height="18" rx="4" />
+      </g>
+    ),
     quit: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><path d="M18 18l28 28M46 18L18 46" /></g>,
   };
   return <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">{paths[name]}</svg>;

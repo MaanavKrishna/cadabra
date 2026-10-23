@@ -5,12 +5,15 @@ import { themeVars } from '@cadabra/render';
 import type { Player } from '@cadabra/engine';
 import { Avatar, Backdrop, Icon, Tile, TopBar, focus } from '../ui/components';
 import { keyArtFor } from '../fallback';
+import { TEAM_NAME } from '../play/flow';
 import type { PartyState } from '../state/machine';
 
 export interface ResultsProps {
   state: PartyState;
   status: string;
   winnerTeam?: 0 | 1;
+  /** A game from the AI forge: "Next game" forges another. */
+  forged?: boolean;
   onAgain: () => void;
   onNext: () => void;
   onLobby: () => void;
@@ -19,7 +22,7 @@ export interface ResultsProps {
 const PLACE = ['1st', '2nd', '3rd', '4th'];
 const CONFETTI = Array.from({ length: 28 }, (_, i) => i);
 
-export function Results({ state, status, winnerTeam, onAgain, onNext, onLobby }: ResultsProps) {
+export function Results({ state, status, winnerTeam, forged, onAgain, onNext, onLobby }: ResultsProps) {
   const spec = state.spec!;
   useEffect(() => {
     focus.setBack(() => { onLobby(); return true; });
@@ -34,7 +37,16 @@ export function Results({ state, status, winnerTeam, onAgain, onNext, onLobby }:
   const winner = ranked[0];
   // podium order: 2nd, 1st, 3rd
   const podium = [ranked[1], ranked[0], ranked[2]];
-  const headline = winnerTeam !== undefined ? `Team ${winnerTeam === 0 ? 'Red' : 'Blue'} wins!` : winner ? `${winner.p.name} wins!` : 'Round over';
+  const teamGame = spec.teams === 2 && state.ranking.some((r) => r.team === 0 || r.team === 1);
+  const headline = teamGame
+    ? (winnerTeam !== undefined ? `Team ${TEAM_NAME[winnerTeam]} wins!` : 'It’s a draw!')
+    : winner ? `${winner.p.name} wins!` : 'Round over';
+  const teams = ([0, 1] as const)
+    .map((t) => {
+      const members = state.ranking.filter((r) => r.team === t).map((r) => ({ r, p: byId.get(r.id) }));
+      return { t, members, total: members.reduce((a, m) => a + m.r.score, 0) };
+    })
+    .sort((a, b) => (a.t === winnerTeam ? -1 : b.t === winnerTeam ? 1 : a.t - b.t));
 
   return (
     <section class="screen results" style={themeVars(spec.theme)}>
@@ -47,6 +59,28 @@ export function Results({ state, status, winnerTeam, onAgain, onNext, onLobby }:
         <div class="eyebrow">{spec.title} · round {state.round}</div>
         <h1 class="title title-sm">{headline}</h1>
       </div>
+      {teamGame ? (
+        <div class="teams">
+          {teams.map((tm, k) => (
+            <div key={tm.t} class={`team-panel team-${tm.t} ${tm.t === winnerTeam ? 'is-win' : ''}`} style={{ animationDelay: `${0.2 + k * 0.35}s` }}>
+              <div class="team-head">
+                <span class="team-name">Team {TEAM_NAME[tm.t]}</span>
+                {tm.t === winnerTeam && <span class="team-badge">Winners</span>}
+                <span class="team-total">{tm.total}</span>
+              </div>
+              <div class="team-members">
+                {tm.members.map(({ r, p }) => p && (
+                  <div key={r.id} class="team-m">
+                    <Avatar p={p} size={tm.t === winnerTeam ? 150 : 112} index={indexOf.get(p.id) ?? 0} />
+                    <b>{p.name}</b>
+                    <span>{r.score} pts</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div class="podium">
         {podium.map((e, col) => {
           if (!e) return <div key={`empty-${col}`} class="podium-col is-empty" />;
@@ -70,14 +104,15 @@ export function Results({ state, status, winnerTeam, onAgain, onNext, onLobby }:
           );
         })}
       </div>
-      {ranked[3] && (
+      )}
+      {!teamGame && ranked[3] && (
         <div class="fourth">
           <span>4th</span><Avatar p={ranked[3].p} size={72} index={indexOf.get(ranked[3].p.id) ?? 3} /><b>{ranked[3].p.name}</b><span>{ranked[3].r.score}</span>
         </div>
       )}
       <nav class="tiles tiles-results">
         <Tile col={0} label="Play again" class="tile-pill" autofocus onSelect={onAgain}><Icon name="again" />Play again</Tile>
-        <Tile col={1} label="Next game" class="tile-pill" onSelect={onNext}><Icon name="next" />Next game</Tile>
+        <Tile col={1} label={forged ? 'Create another' : 'Next game'} class="tile-pill" onSelect={onNext}><Icon name={forged ? 'spark' : 'next'} />{forged ? 'Create another' : 'Next game'}</Tile>
         <Tile col={2} label="Lobby" class="tile-pill" onSelect={onLobby}><Icon name="home" />Lobby</Tile>
       </nav>
     </section>

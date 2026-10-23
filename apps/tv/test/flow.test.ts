@@ -57,15 +57,17 @@ describe('intro card', () => {
       expect(i.steps.every((s) => s.icon)).toBe(true);
       expect(i.controls.length).toBe(spec.controller.length);
     }
-    const heist = introFor(FALLBACK_SPECS[0]!);
-    expect(heist.controls.map((c) => c.kind)).toEqual(['stick', 'hold']);
-    expect(heist.controls[1]!.label + (heist.controls[1]!.hint ?? '')).toMatch(/quiet/i);
+    const ring = introFor(FALLBACK_SPECS.find((s) => s.id === 'fallback-ring-out')!);
+    expect(ring.controls.map((c) => c.kind)).toEqual(['stick', 'button']);
+    expect(ring.steps.every((s) => s.icon?.startsWith('neon:'))).toBe(true);
   });
 
   test('generated games get steps from their blocks', () => {
     const base = FALLBACK_SPECS[0]!;
     const i = introFor({ ...base, id: 'gen-1', blocks: [{ block: 'collect', params: { itemSprite: 'gem', carryToGoal: true } }, { block: 'dodge', params: { hazardSprite: 'fireball' } }] });
     expect(i.steps.map((s) => s.text)).toEqual(['Grab gems', 'Bank them at your base', 'Dodge the fireball']);
+    const ring = introFor({ ...base, id: 'gen-2', blocks: [{ block: 'arena-move', params: { ringOut: true } }] });
+    expect(ring.steps[0]).toEqual({ icon: 'neon:ring', text: 'Shove rivals off the ring' });
   });
 });
 

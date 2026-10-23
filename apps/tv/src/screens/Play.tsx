@@ -2,6 +2,7 @@
 // GameView (HUD is in Pixi), wrapped in the match flow (play/flow.ts): intro card -> 3-2-1-GO ->
 // play -> FINAL 10 -> TIME! -> winner shot -> podium. The DOM only shows the intro card, the
 // countdown, rare callout banners and the pause menu; nothing in the DOM updates per frame.
+import type { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { BlockRegistry, GameRuntime, registerBuiltins, stubJudgement, type GameEvent, type Judgement, type Player } from '@cadabra/engine';
 import {
@@ -90,6 +91,25 @@ export function ControlGlyph({ c }: { c: IntroControl }) {
   );
 }
 
+/** Neon line-art icons for the intro goal steps (no raster art). */
+export function NeonIcon({ name }: { name: string }) {
+  const d: Record<string, JSX.Element> = {
+    ring: <><circle cx="32" cy="32" r="24" /><circle cx="32" cy="32" r="12" stroke-dasharray="6 5" /></>,
+    shove: <><circle cx="20" cy="32" r="9" /><path d="M32 32h22M46 24l8 8-8 8" /></>,
+    skull: <><path d="M16 30a16 16 0 1 1 32 0v8h-6v8H22v-8h-6z" /><circle cx="26" cy="30" r="3" /><circle cx="38" cy="30" r="3" /></>,
+    core: <><path d="M32 8l20 12v24L32 56 12 44V20z" /><circle cx="32" cy="32" r="7" /></>,
+    bomb: <><circle cx="28" cy="36" r="17" /><path d="M40 22l6-6M46 10v6h6" /></>,
+    paint: <><rect x="10" y="10" width="20" height="20" /><rect x="34" y="34" width="20" height="20" /><rect x="34" y="10" width="20" height="20" stroke-dasharray="5 4" /></>,
+    splash: <><circle cx="32" cy="32" r="8" /><path d="M32 8v10M32 46v10M8 32h10M46 32h10M15 15l7 7M42 42l7 7M15 49l7-7M42 22l7-7" /></>,
+    base: <><path d="M10 50h44M16 50V26l16-12 16 12v24" /><path d="M26 50V36h12v14" /></>,
+    bolt: <path d="M36 6L14 36h16l-4 22 24-32H34z" />,
+    gate: <><path d="M14 10v44M50 10v44" /><path d="M14 22h36M14 32h36M14 42h36" stroke-dasharray="4 4" /></>,
+    flag: <><path d="M14 56V8" /><path d="M14 10h32l-6 9 6 9H14" /></>,
+    star: <path d="M32 6l7 17 18 1-14 11 5 18-16-10-16 10 5-18L7 24l18-1z" />,
+  };
+  return <svg class={`neon-icon ni-${name}`} viewBox="0 0 64 64" aria-hidden="true">{d[name] ?? d.star}</svg>;
+}
+
 function IntroCard({ state, spec, loaded }: { state: PartyState; spec: GameSpec; loaded: boolean }) {
   const intro = introFor(spec);
   return (
@@ -102,7 +122,7 @@ function IntroCard({ state, spec, loaded }: { state: PartyState; spec: GameSpec;
           {intro.steps.map((s, i) => (
             <div key={i} class="goal-step" style={{ animationDelay: `${0.15 + i * 0.18}s` }}>
               {i > 0 && <span class="goal-arrow">→</span>}
-              {s.icon && art(s.icon) && <img src={art(s.icon)} alt="" />}
+              {s.icon?.startsWith('neon:') ? <NeonIcon name={s.icon.slice(5)} /> : s.icon && art(s.icon) && <img src={art(s.icon)} alt="" />}
               <span>{s.text}</span>
             </div>
           ))}
@@ -289,7 +309,7 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
         if (f.phase === 'done') {
           dead = true;
           const res = rt.result();
-          props.current.onDone(res.ranking.map((p) => ({ id: p.id, score: p.score })), [...rt.events], res.winnerTeam);
+          props.current.onDone(res.ranking.map((p) => ({ id: p.id, score: p.score, ...(p.team !== undefined ? { team: p.team } : {}) })), [...rt.events], res.winnerTeam);
           return;
         }
       }

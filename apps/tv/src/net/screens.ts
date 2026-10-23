@@ -1,7 +1,9 @@
 // What each phone should show for the current party state (TV -> phone `screen` messages).
 import { themeVars } from '@cadabra/render';
 import type { ScreenData, ScreenName, Standing } from '@cadabra/spec';
+import { isSafeArtUrl } from '@cadabra/spec';
 import { AVATAR_KEYS, type PartyState } from '../state/machine';
+import { STORM_SEC, VOTE_SEC, shownPct } from '../forge/forge';
 
 export type PhoneScreen = { [K in ScreenName]: { name: K; data: Partial<ScreenData[K]> } }[ScreenName];
 
@@ -48,6 +50,33 @@ export function phoneScreen(s: PartyState, id: string, picked: boolean): PhoneSc
           ...(rank >= 0 ? { rank: Math.min(8, rank + 1) } : {}),
           standings: standings(s, id),
         },
+      };
+    }
+    case 'storm':
+      if (watching) break;
+      return { name: 'storm', data: { prompt: 'Throw in game ingredients!', seconds: STORM_SEC } };
+    case 'pitching':
+      return { name: 'wait', data: { message: 'Cooking up three games…', sub: 'Your ingredients are in the pot. Eyes on the TV.' } };
+    case 'voting':
+      if (watching || s.pitches.length === 0) break;
+      return {
+        name: 'vote',
+        data: {
+          seconds: VOTE_SEC,
+          options: s.pitches.map((p) => {
+            const art = s.forge.art[p.id]?.keyArt;
+            return { title: p.title.slice(0, 60), tagline: p.hook.slice(0, 120), ...(art && art.length < 2000 && isSafeArtUrl(art) ? { art } : {}) };
+          }),
+        },
+      };
+    case 'forge': {
+      const w = s.forge.winner ?? '';
+      const ready = !!s.forge.ready[w];
+      const p = s.forge.progress[w];
+      const title = s.pitches.find((x) => x.id === w)?.title ?? 'your game';
+      return {
+        name: 'wait',
+        data: { message: `Building ${title.slice(0, 60)}…`, sub: ready ? 'Game ready! Get set…' : (p?.step ?? 'Reading the ingredients').slice(0, 200), progress: shownPct(p, ready) },
       };
     }
     default:
