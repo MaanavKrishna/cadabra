@@ -81,7 +81,7 @@ export function Lobby({ state, status, onPlay, onCreate, onParty, onArcade, onFi
     eyebrow = 'Quick-fire minigames';
     title = 'Party';
     hook = 'Four short rounds back to back. Points carry over, standings after every round, and one grand champion at the end.';
-    meta = ['4 rounds', '35–45 s each', 'Points table'];
+    meta = ['4 rounds', '45 s each', 'Points table'];
     cta = 'Start party';
   } else if (focused.kind === 'quick' || focused.kind === 'back') {
     eyebrow = 'Pick one game';

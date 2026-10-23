@@ -611,3 +611,4 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .party-champion ~ .caption.is-on { transform: none; }
 .intro-line { margin: -6px 0 26px; font-family: var(--display); font-size: 46px; font-weight: 800; line-height: 1.1; color: var(--n-lime); text-shadow: 0 0 22px rgba(182, 255, 59, 0.45); max-width: 1180px; }
 .results ~ .caption { top: 150px; max-width: 760px; font-size: 32px; }
+.toast { top: 62px; }
