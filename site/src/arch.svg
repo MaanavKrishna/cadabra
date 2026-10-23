@@ -1,4 +1,4 @@
-<svg class="arch" viewBox="0 0 1240 600" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+<svg class="arch" viewBox="0 0 1240 556" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
   <title id="arch-title">Cadabra architecture</title>
   <desc id="arch-desc">Phones load the controller site from S3 and CloudFront and join rooms over an API Gateway WebSocket. The Fire TV Stick runs the game and talks to phones directly over a WebRTC DataChannel. In AWS ap-south-1, the WsFn Lambda handles rooms, signaling and relay and stores state in DynamoDB. It invokes ForgeFn, the AI designer, and HostFn, the captions writer. Both call Amazon Bedrock and Bedrock Guardrails. ForgeFn reads the Anthropic API fallback key from Secrets Manager and falls back to the Anthropic API while Bedrock quota is zero.</desc>
   <defs>
