@@ -177,3 +177,10 @@ html.pin #how .flow { grid-template-columns: minmax(0, 1.9fr) minmax(260px, 1fr)
 .screen[data-step="storm"] > img, .screen[data-step="pitches"] > img, .screen[data-step="forge"] > img { opacity: 0 !important; }
 .screen[data-step="storm"] figcaption, .screen[data-step="pitches"] figcaption, .screen[data-step="forge"] figcaption { opacity: 0; }
 .ov { background: radial-gradient(900px 420px at 80% 110%, rgba(120, 70, 220, .45), transparent 60%), radial-gradient(700px 380px at 0% -10%, rgba(40, 90, 200, .35), transparent 60%), #0b0d1c; }
+/* mobile: keep the step screen in view while tapping steps; thumb-sized lab buttons */
+@media (max-width: 900px) {
+  html:not(.pin) #how .screen { position: sticky; top: 70px; z-index: 3; }
+  .lab .ask button { min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; }
+  .lab .ask { gap: 10px; }
+}
+@media (max-width: 560px) { .lab-stage { aspect-ratio: 1 / 1; } }

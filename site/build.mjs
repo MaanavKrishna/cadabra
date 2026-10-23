@@ -37,13 +37,13 @@ const ARCH = read(join(here, 'src/arch.svg'));
 
 // ---------------------------------------------------------------- landing
 const STEPS = [
-  ['Join', 'Scan the QR code on the TV. Phones join in the browser and pick an orb or a selfie avatar. Bots fill empty seats.', '', 'media/phone-join-play.jpg', 'Phone controller screens: join, avatar, play, results', 'The phone is the controller', 'contain'],
-  ['Idea Storm', 'Everyone types ideas like "laser sharks" or "zero gravity", and they float onto the TV.', '30 s', 'media/tv-storm.jpg', 'Ideas from phones floating onto the TV', 'Idea Storm on the TV'],
-  ['Three pitches', 'The AI pitches three games, each with a title, a hook and a look. The room votes on their phones.', '~6 s', 'media/tv-vote.jpg', 'Three pitch cards with live vote bars', 'Voting on three AI pitches'],
-  ['Forge', 'The AI designer builds the winner with tool calls, then bots play a full round to prove it works.', '4–7 s', 'media/tv-forge.jpg', 'The Forge screen while bots playtest the game', 'Bots playtest before you do'],
-  ['Play', 'A real physics game at about 59 fps, and each phone becomes the controller that game needs.', '45 s', 'media/tv-crate-crash-stick.jpg', 'Crate Crash running on a Fire TV Stick', 'Crate Crash, captured on the stick'],
-  ['Tweak', 'Tap "Low gravity" or "More chaos", or type your own rule. The AI patches the game and it replays.', '~5 s', 'media/tv-tweak-changed.jpg', 'What changed card: gravity, bounce and chaos changes', 'The "What changed" card'],
-  ['Arcade', 'Every game the room makes is saved for the household, ready to replay or remix.', '', 'media/games/arcade.jpg', 'The Arcade row of saved games', 'Saved games in the Arcade'],
+  ['Join', 'Scan the QR code on the TV. Phones join in the browser and pick an orb or a selfie avatar. Bots fill empty seats.', '', 'media/phone-join-play.webp', 'Phone controller screens: join, avatar, play, results', 'The phone is the controller', 'contain'],
+  ['Idea Storm', 'Everyone types ideas like "laser sharks" or "zero gravity", and they float onto the TV.', '30 s', 'media/tv-storm.webp', 'Ideas from phones floating onto the TV', 'Idea Storm on the TV'],
+  ['Three pitches', 'The AI pitches three games, each with a title, a hook and a look. The room votes on their phones.', '~6 s', 'media/tv-vote.webp', 'Three pitch cards with live vote bars', 'Voting on three AI pitches'],
+  ['Forge', 'The AI designer builds the winner with tool calls, then bots play a full round to prove it works.', '4–7 s', 'media/tv-forge.webp', 'The Forge screen while bots playtest the game', 'Bots playtest before you do'],
+  ['Play', 'A real physics game at about 59 fps, and each phone becomes the controller that game needs.', '45 s', 'media/tv-crate-crash-stick.webp', 'Crate Crash running on a Fire TV Stick', 'Crate Crash, captured on the stick'],
+  ['Tweak', 'Tap "Low gravity" or "More chaos", or type your own rule. The AI patches the game and it replays.', '~5 s', 'media/tv-tweak-changed.webp', 'What changed card: gravity, bounce and chaos changes', 'The "What changed" card'],
+  ['Arcade', 'Every game the room makes is saved for the household, ready to replay or remix.', '', 'media/games/arcade.webp', 'The Arcade row of saved games', 'Saved games in the Arcade'],
 ];
 const stepsHtml = STEPS.map(([t, d, time, img, alt, cap, fit], i) =>
   `<li><button type="button" role="tab" id="step-${i}" data-img="${img}" data-alt="${esc(alt)}" data-cap="${esc(cap)}" data-fit="${fit || 'cover'}"><span class="t">${t}</span><span class="time">${time}</span><span class="d">${esc(d)}</span></button></li>`).join('\n        ');
@@ -58,10 +58,10 @@ const GAMES = [
   ['crate-crash', 'Crate Crash', 'toybox', "Knock rivals' crates out of their zones. Barrels explode."],
 ];
 const tilesHtml = GAMES.map(([id, name, look, desc], i) =>
-  `<button class="tile" type="button" role="tab" aria-controls="home" data-name="${esc(name)}" data-look="${look}" data-desc="${esc(desc)}"><img src="media/games/${id}.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async"><span>${name}</span></button>`).join('');
+  `<button class="tile" type="button" role="tab" aria-controls="home" data-name="${esc(name)}" data-look="${look}" data-desc="${esc(desc)}"><img src="media/games/${id}-800.webp" alt="" width="800" height="450" loading="lazy" decoding="async"><span>${name}</span></button>`).join('');
 const bgHtml = GAMES.map(([id], i) => i === 0
-  ? `<img class="on" src="media/games/${id}.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async">`
-  : `<img data-src="media/games/${id}.jpg" alt="" width="1600" height="900" decoding="async">`).join('');
+  ? `<img class="on" src="media/games/${id}.webp" srcset="media/games/${id}-800.webp 800w, media/games/${id}.webp 1600w" sizes="(max-width: 1400px) 100vw, 1320px" alt="" width="1600" height="900" loading="lazy" decoding="async">`
+  : `<img data-src="media/games/${id}.webp" data-srcset="media/games/${id}-800.webp 800w, media/games/${id}.webp 1600w" sizes="(max-width: 1400px) 100vw, 1320px" alt="" width="1600" height="900" decoding="async">`).join('');
 
 let index = read(join(here, 'src/index.html'))
   .replace('{{STEPS}}', stepsHtml).replace('{{TILES}}', tilesHtml).replace('{{HOME_BG}}', bgHtml).replace('{{ARCH}}', ARCH);

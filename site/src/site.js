@@ -9,6 +9,15 @@
   addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 
+  // mobile menu
+  const navBtn = $('#nav-btn');
+  if (navBtn) {
+    const setNav = (open) => { bar.classList.toggle('open', open); navBtn.setAttribute('aria-expanded', String(open)); navBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
+    navBtn.addEventListener('click', () => setNav(!bar.classList.contains('open')));
+    $$('#bar nav a').forEach((a) => a.addEventListener('click', () => setNav(false)));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && bar.classList.contains('open')) { setNav(false); navBtn.focus(); } });
+  }
+
   // hero video: off for reduced motion, paused off-screen, user toggle
   const hv = $('#hero-video');
   const toggle = $('#motion');
@@ -66,6 +75,7 @@
     stepImg.style.opacity = '0';
     const img = new Image();
     img.onload = img.onerror = () => {
+      stepImg.removeAttribute('srcset');
       stepImg.src = b.dataset.img;
       stepImg.alt = b.dataset.alt;
       stepImg.classList.toggle('contain', b.dataset.fit === 'contain');
@@ -86,7 +96,7 @@
     desc.textContent = t.dataset.desc;
     look.innerHTML = `<i style="--c:${lookColor[t.dataset.look]}"></i>${t.dataset.look} look`;
     bgs.forEach((im, j) => {
-      if (j === i && !im.getAttribute('src')) im.src = im.dataset.src;
+      if (j === i && !im.getAttribute('src')) { if (im.dataset.srcset) im.srcset = im.dataset.srcset; im.src = im.dataset.src; }
       im.classList.toggle('on', j === i);
     });
     const row = t.parentElement;
@@ -95,6 +105,6 @@
   }, 'h');
   // warm the other stills once the gallery is near
   new IntersectionObserver((es, o) => {
-    if (es.some((e) => e.isIntersecting)) { bgs.forEach((im) => { if (!im.getAttribute('src')) im.src = im.dataset.src; }); o.disconnect(); }
+    if (es.some((e) => e.isIntersecting)) { bgs.forEach((im) => { if (!im.getAttribute('src')) { if (im.dataset.srcset) im.srcset = im.dataset.srcset; im.src = im.dataset.src; } }); o.disconnect(); }
   }, { rootMargin: '400px' }).observe($('#home'));
 })();

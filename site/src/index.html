@@ -34,13 +34,15 @@
 
 <header class="bar" id="bar">
   <a class="mark" href="./" aria-label="Cadabra home">{{SPARK}}cadabra</a>
-  <nav aria-label="Main">
+  <button class="nav-btn" id="nav-btn" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="Open menu"><span></span><span></span></button>
+  <nav aria-label="Main" id="main-nav">
     <a class="opt" href="#how">How it works</a>
     <a class="opt" href="#games">Games</a>
     <a class="opt" href="#tweak">Tweak</a>
     <a class="opt" href="#tech">Tech</a>
     <a href="docs/">Docs</a>
-    <a class="gh" href="https://github.com/MaanavKrishna/cadabra" aria-label="Cadabra on GitHub">{{GH}}</a>
+    <a class="opt only-m" href="https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0">Download the APK</a>
+    <a class="gh" href="https://github.com/MaanavKrishna/cadabra" aria-label="Cadabra on GitHub">{{GH}}<span class="only-m gh-t">GitHub</span></a>
   </nav>
 </header>
 
@@ -71,7 +73,7 @@
     <p class="intro">"Cadabra" was Amazon's first name. Abracadabra means <em>I create as I speak</em>, and that is the whole game: the room says what it wants, and the TV builds it.</p>
     <div class="flow">
       <figure class="screen" aria-live="polite">
-        <img id="step-img" src="media/phone-join-play.jpg" alt="Phone controller screens: join, pick an orb avatar, play, results" width="1590" height="844" class="contain" loading="lazy">
+        <img id="step-img" src="media/phone-join-play-800.webp" srcset="media/phone-join-play-800.webp 800w, media/phone-join-play.webp 1590w" sizes="(max-width: 900px) 100vw, 800px" alt="Phone controller screens: join, pick an orb avatar, play, results" width="1590" height="844" class="contain" loading="lazy">
         <div class="ov ov-storm" aria-hidden="true">
           <div class="ov-label">Throw in your ideas<small>Idea Storm, 30 s</small></div>
           <i class="ph l"></i><i class="ph c"></i><i class="ph r"></i>
@@ -130,10 +132,10 @@
       <p>All the art is drawn in code, so a look is a setting, not an asset pack. The AI picks one for each pitch, with music and sound to match.</p>
     </div>
     <div class="looks">
-      <figure><img src="media/look-neon.jpg" alt="Rocket Ball in the neon look" width="640" height="361" loading="lazy"><figcaption><b>Neon</b><span>Dark grid, glowing bodies, synthwave</span></figcaption></figure>
-      <figure><img src="media/look-toybox.jpg" alt="Crate Crash in the toybox look" width="640" height="361" loading="lazy"><figcaption><b>Toybox</b><span>Glossy vinyl, toy-brick crates, swing</span></figcaption></figure>
-      <figure><img src="media/look-cosmos.jpg" alt="Overload in the cosmos look" width="640" height="361" loading="lazy"><figcaption><b>Cosmos</b><span>Nebula, astronaut orbs, ambient pads</span></figcaption></figure>
-      <figure><img src="media/look-retro.jpg" alt="Paint Wars in the retro look" width="640" height="361" loading="lazy"><figcaption><b>Retro</b><span>Pixel art, scanlines, chiptune</span></figcaption></figure>
+      <figure><img src="media/look-neon.webp" alt="Rocket Ball in the neon look" width="640" height="361" loading="lazy"><figcaption><b>Neon</b><span>Dark grid, glowing bodies, synthwave</span></figcaption></figure>
+      <figure><img src="media/look-toybox.webp" alt="Crate Crash in the toybox look" width="640" height="361" loading="lazy"><figcaption><b>Toybox</b><span>Glossy vinyl, toy-brick crates, swing</span></figcaption></figure>
+      <figure><img src="media/look-cosmos.webp" alt="Overload in the cosmos look" width="640" height="361" loading="lazy"><figcaption><b>Cosmos</b><span>Nebula, astronaut orbs, ambient pads</span></figcaption></figure>
+      <figure><img src="media/look-retro.webp" alt="Paint Wars in the retro look" width="640" height="361" loading="lazy"><figcaption><b>Retro</b><span>Pixel art, scanlines, chiptune</span></figcaption></figure>
     </div>
   </div>
 </section>
@@ -141,11 +143,11 @@
 <section class="sec ambient" id="tweak" aria-labelledby="tweak-title">
   <div class="wrap tweak">
     <div class="tweak-media">
-      <video id="tweak-video" muted loop playsinline preload="none" poster="media/tv-tweak-changed.jpg" aria-label="The AI rebuilds Magnet Lava Pinball with low gravity and more bounce, then the new version plays">
+      <video id="tweak-video" muted loop playsinline preload="none" poster="media/tv-tweak-changed-800.webp" aria-label="The AI rebuilds Magnet Lava Pinball with low gravity and more bounce, then the new version plays">
         <source src="media/tweak-640.mp4" type="video/mp4" media="(max-width: 767px)">
         <source src="media/tweak.mp4" type="video/mp4">
       </video>
-      <img class="phone" src="media/phone-tweak.jpg" alt="Phone tweak screen with chips like Low gravity and More chaos" width="468" height="600" loading="lazy">
+      <img class="phone" src="media/phone-tweak.webp" alt="Phone tweak screen with chips like Low gravity and More chaos" width="468" height="600" loading="lazy">
     </div>
     <div class="tweak-copy">
       <h2 id="tweak-title" class="split">Don't like a rule? Change it from your phone.</h2>
@@ -178,7 +180,34 @@
     <h2 id="tech-title" class="split">The AI designs. It never writes code.</h2>
     <p class="intro">A game is a <code>GameSpec</code>: data that composes nine tested blocks with a physics world and a look. The designer builds specs with tool calls, and a spec only reaches the TV after four bots finish a full round with it.</p>
     <div class="arch-scroll" tabindex="0" aria-label="Architecture diagram, scrolls sideways on small screens">{{ARCH}}</div>
-    <p class="swipe-hint">Swipe sideways to see the whole diagram.</p>
+    <div class="arch-m" aria-label="Architecture, top to bottom">
+      <div class="am-node am-dev"><b>Phones</b><span>Controller web page, no install</span></div>
+      <div class="am-link am-rtc"><i></i><span><b>WebRTC DataChannel</b>, direct on the LAN, 13 to 16 ms</span></div>
+      <div class="am-node am-dev"><b>Fire TV Stick HD</b><span>Engine, 9 blocks, bots, planck physics, PixiJS. The authoritative host.</span></div>
+      <div class="am-link"><i></i><span><b>WSS</b> from both phones and TV</span></div>
+      <div class="am-aws">
+        <p class="am-region">AWS ap-south-1, one CDK stack</p>
+        <div class="am-node"><b>API Gateway WebSocket</b><span>Rooms, signaling, relay fallback</span></div>
+        <div class="am-link"><i></i></div>
+        <div class="am-row">
+          <div class="am-node"><b>Lambda WsFn</b><span>Rooms, relay, rate limits</span></div>
+          <div class="am-node"><b>DynamoDB</b><span>One table + TTL</span></div>
+        </div>
+        <div class="am-link"><i></i><span>async invoke</span></div>
+        <div class="am-row">
+          <div class="am-node am-hot"><b>Lambda ForgeFn</b><span>AI designer, tweak, playtest</span></div>
+          <div class="am-node"><b>Lambda HostFn</b><span>Captions, roast</span></div>
+        </div>
+        <div class="am-link"><i></i></div>
+        <div class="am-row">
+          <div class="am-node am-ai"><b>Amazon Bedrock</b><span>Converse, tool use</span></div>
+          <div class="am-node am-ai"><b>Guardrails</b><span>cadabra-family-safe</span></div>
+        </div>
+        <div class="am-side"><b>S3 + CloudFront</b> serves the phone site. <b>Secrets Manager</b> holds the fallback key.</div>
+      </div>
+      <div class="am-link am-dash"><i></i><span>Fallback while Bedrock quota is 0</span></div>
+      <div class="am-node am-ext"><b>Anthropic API</b><span>Claude 5.5 models</span></div>
+    </div>
     <div class="rules">
       <div><h3>The TV is in charge</h3><p>A deterministic, seeded engine and the physics run on the stick. Phones only send inputs.</p></div>
       <div><h3>Bots test every game</h3><p>The playtest gate says exactly what failed, like "only 1 of 4 bots scored", so the model fixes it in its next call.</p></div>
@@ -237,7 +266,7 @@
         <a class="btn" href="https://github.com/MaanavKrishna/cadabra">Cadabra source</a>
       </div>
     </div>
-    <img src="media/phone-join-play.jpg" alt="Four phone screens: join with a code, pick an avatar, a joystick and dash button, and results" width="1590" height="844" loading="lazy">
+    <img src="media/phone-join-play-800.webp" srcset="media/phone-join-play-800.webp 800w, media/phone-join-play.webp 1590w" sizes="(max-width: 900px) 100vw, 800px" alt="Four phone screens: join with a code, pick an avatar, a joystick and dash button, and results" width="1590" height="844" loading="lazy">
   </div>
 </section>
 

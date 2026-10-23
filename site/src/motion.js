@@ -124,8 +124,13 @@
     let gx = innerWidth / 2, gy = innerHeight / 2, tx = gx, ty = gy, glowOn = false;
     addEventListener('pointermove', (e) => { tx = e.clientX; ty = e.clientY; if (!glowOn && innerWidth >= 1024) { glowOn = true; glow.classList.add('on'); } }, { passive: true });
     document.addEventListener('pointerleave', () => { glowOn = false; glow.classList.remove('on'); });
-    const g = () => { gx += (tx - gx) * 0.12; gy += (ty - gy) * 0.12; glow.style.transform = `translate3d(${gx}px, ${gy}px, 0)`; requestAnimationFrame(g); };
-    requestAnimationFrame(g);
+    let gRun = false;
+    const g = () => {
+      gx += (tx - gx) * 0.12; gy += (ty - gy) * 0.12;
+      glow.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
+      if (Math.abs(tx - gx) + Math.abs(ty - gy) > 0.6) requestAnimationFrame(g); else gRun = false;
+    };
+    addEventListener('pointermove', () => { if (!gRun) { gRun = true; requestAnimationFrame(g); } }, { passive: true });
 
     // 3D tilt on game tiles
     for (const t of $$('.tile')) {

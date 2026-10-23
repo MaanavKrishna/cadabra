@@ -258,3 +258,4 @@ figure.code .copy.done { color: var(--mint); border-color: var(--mint); backgrou
 .params td.px, .params td.pr { min-width: 0; }
 .params td.pn code { overflow-wrap: anywhere; white-space: normal; }
 .params td.pd code { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 860px) { .side-nav a { min-height: 44px; } .tab-list button { min-height: 44px; } }
