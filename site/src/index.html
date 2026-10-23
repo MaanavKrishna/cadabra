@@ -23,9 +23,13 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/figtree-300.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="motion.css">
+<script>(function(){var d=document.documentElement,r=matchMedia("(prefers-reduced-motion: reduce)").matches;if(!r){d.classList.add("m");if(innerWidth>=900&&innerHeight>=700)d.classList.add("pin");}})();</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<div class="cursor-glow" id="glow" aria-hidden="true"></div>
 
 <header class="bar" id="bar">
   <a class="mark" href="./" aria-label="Cadabra home">{{SPARK}}cadabra</a>
@@ -45,8 +49,9 @@
   <video id="hero-video" autoplay muted loop playsinline preload="auto" poster="media/hero-poster.jpg" aria-hidden="true">
     <source src="media/hero.mp4" type="video/mp4">
   </video>
+  <div class="orbs" aria-hidden="true"><i class="orb a"></i><i class="orb b"></i><i class="grain"></i></div>
   <div class="hero-inner">
-    <h1 id="hero-title"><span class="ln">Your living room</span> <span class="ln">just invented</span> <span class="ln">a game.</span></h1>
+    <h1 id="hero-title" class="split"><span class="ln">Your living room</span> <span class="ln">just invented</span> <span class="ln">a game.</span></h1>
     <p class="lede">Cadabra is a party game for Fire TV. Everyone throws ideas in from their phone, an AI designer turns them into a real physics game, and a few seconds later the room is playing it. Phones are the controllers. Nothing to install.</p>
     <div class="ctas">
       <a class="btn primary" href="https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0">{{DL}}Download the APK</a>
@@ -54,19 +59,47 @@
     </div>
     <p class="fine">v1.0 for Fire TV Stick. MIT licensed. Runs in a desktop browser too.</p>
   </div>
+  <span class="scroll-cue" aria-hidden="true"></span>
   <button class="motion-toggle" id="motion" type="button" aria-pressed="false">Pause video</button>
 </section>
 
 <section class="sec ambient" id="how" aria-labelledby="how-title">
   <div class="wrap">
-    <h2 id="how-title">From a shout to a game in under a minute.</h2>
+    <h2 id="how-title" class="split">From a shout to a game in under a minute.</h2>
     <p class="intro">"Cadabra" was Amazon's first name. Abracadabra means <em>I create as I speak</em>, and that is the whole game: the room says what it wants, and the TV builds it.</p>
     <div class="flow">
       <figure class="screen" aria-live="polite">
         <img id="step-img" src="media/phone-join-play.jpg" alt="Phone controller screens: join, pick an orb avatar, play, results" width="1590" height="844" class="contain" loading="lazy">
+        <div class="ov ov-storm" aria-hidden="true">
+          <div class="ov-label">Throw in your ideas<small>Idea Storm, 30 s</small></div>
+          <i class="ph l"></i><i class="ph c"></i><i class="ph r"></i>
+          <span class="idea" style="--x:8%;--y:24%;--fx:-10vw;--fy:22vw;--d:0;--c:#6fd6ff"><b>Asha</b>laser sharks</span>
+          <span class="idea" style="--x:52%;--y:20%;--fx:18vw;--fy:24vw;--d:220;--c:#ff8fe6"><b>Ravi</b>disco floor</span>
+          <span class="idea" style="--x:30%;--y:40%;--fx:6vw;--fy:20vw;--d:420;--c:#9be7b4"><b>Maya</b>zero gravity</span>
+          <span class="idea" style="--x:62%;--y:46%;--fx:14vw;--fy:16vw;--d:640;--c:#f0cd78"><b>Leo</b>giant magnets</span>
+          <span class="idea" style="--x:12%;--y:58%;--fx:-6vw;--fy:12vw;--d:860;--c:#6fd6ff"><b>Asha</b>floor is lava</span>
+          <span class="idea" style="--x:44%;--y:64%;--fx:2vw;--fy:12vw;--d:1080;--c:#ff8fe6"><b>Ravi</b>pinball bumpers</span>
+        </div>
+        <div class="ov ov-pitch" aria-hidden="true">
+          <div class="ov-label">Which one do we play?<small>Vote on your phone</small></div>
+          <div class="cards">
+            <div class="card" style="--tx:-104%;--ty:8%;--r:-7deg;--d:0;--v:24%;--c:#6fd6ff;--art:linear-gradient(135deg,#1f3b8f,#6fd6ff)"><div class="art"></div><b>Crown Snatchers</b><span>Steal the crown, keep it</span><div class="vote"><i></i></div></div>
+            <div class="card win" style="--tx:0%;--ty:-6%;--r:0deg;--d:120;--v:62%;--c:#ff6bd5;--art:linear-gradient(135deg,#7a1f5c,#ff6bd5 60%,#f0cd78)"><div class="art"></div><b>Magnet Lava Pinball</b><span>Bounce off magnets, dodge lava</span><div class="vote"><i></i></div></div>
+            <div class="card" style="--tx:104%;--ty:8%;--r:7deg;--d:240;--v:14%;--c:#9be7b4;--art:linear-gradient(135deg,#1d5a4a,#9be7b4)"><div class="art"></div><b>Disco Cat Heist</b><span>Sneak past the dance floor</span><div class="vote"><i></i></div></div>
+          </div>
+        </div>
+        <div class="ov ov-forge" aria-hidden="true">
+          <div class="panel">
+            <div class="row"><span>Building Magnet Lava Pinball</span><span>from the vote</span></div>
+            <div class="stage" id="forge-stage"><span>Reading the ingredients</span></div>
+            <div class="line"><i id="forge-line"></i></div>
+            <div class="row"><div class="ticks" id="forge-ticks"><span>Ingredients</span><span>Blocks</span><span>Bot playtest</span><span>Ready</span></div><span class="timer" id="forge-timer">0.0 s</span></div>
+          </div>
+        </div>
         <figcaption id="step-cap">Real screenshots from a Fire TV Stick HD</figcaption>
       </figure>
       <ol class="steps" role="tablist" aria-label="How a round works" aria-orientation="vertical">
+        <li class="step-rail" aria-hidden="true" role="presentation"><i></i></li>
         {{STEPS}}
       </ol>
     </div>
@@ -75,7 +108,7 @@
 
 <section class="sec" id="games" aria-labelledby="games-title">
   <div class="wrap">
-    <h2 id="games-title">Seven games. Four looks. Real physics.</h2>
+    <h2 id="games-title" class="split">Seven games. Four looks. Real physics.</h2>
     <p class="intro">Cadabra ships with seven built-in games, and every game the AI invents is built from the same parts. Each one runs on planck physics: bumpers kick, balls bounce, crates topple and barrels explode.</p>
     <div class="home" id="home">
       <div class="bg" aria-hidden="true">{{HOME_BG}}</div>
@@ -112,7 +145,7 @@
       <img class="phone" src="media/phone-tweak.jpg" alt="Phone tweak screen with chips like Low gravity and More chaos" width="468" height="600" loading="lazy">
     </div>
     <div class="tweak-copy">
-      <h2 id="tweak-title">Don't like a rule? Change it from your phone.</h2>
+      <h2 id="tweak-title" class="split">Don't like a rule? Change it from your phone.</h2>
       <p class="intro">After every round, the phones get ten seconds to ask for something different. The AI patches the game, shows what it changed, and you play the new version.</p>
       <ul class="ask" aria-label="Tweak chips on the phone">
         <li>Low gravity</li><li>Faster</li><li>Bigger arena</li><li>Bouncier</li><li>More chaos</li><li>Harder for leader</li><li class="typed">or type your own</li>
@@ -124,11 +157,25 @@
       </ol>
     </div>
   </div>
+  <div class="wrap lab" data-reveal>
+    <div class="lab-stage" id="lab-stage">
+      <canvas id="lab" aria-label="A toy physics arena with bouncing balls. Use the buttons to change its rules." role="img"></canvas>
+      <div class="changed" id="changed" role="status" aria-live="polite"><small>What changed</small><b id="changed-title">Low gravity</b><div class="tags" id="changed-tags"></div></div>
+      <div class="hud" id="lab-hud"></div>
+    </div>
+    <div>
+      <h3>Try it here.</h3>
+      <p>A toy version of the tweak loop, running in your browser. Tap a chip and the rules of this little arena change, the same way the AI patches a real game on the TV.</p>
+      <div class="ask" role="group" aria-label="Tweak the demo arena">
+        <button type="button" data-tweak="low">Low gravity</button><button type="button" data-tweak="bounce">Bouncier</button><button type="button" data-tweak="fast">Faster</button><button type="button" data-tweak="chaos">More chaos</button><button type="button" data-tweak="big">Bigger arena</button><button type="button" class="reset" data-tweak="reset">Reset</button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="sec" id="tech" aria-labelledby="tech-title">
   <div class="wrap">
-    <h2 id="tech-title">The AI designs. It never writes code.</h2>
+    <h2 id="tech-title" class="split">The AI designs. It never writes code.</h2>
     <p class="intro">A game is a <code>GameSpec</code>: data that composes nine tested blocks with a physics world and a look. The designer builds specs with tool calls, and a spec only reaches the TV after four bots finish a full round with it.</p>
     <div class="arch-scroll" tabindex="0" aria-label="Architecture diagram, scrolls sideways on small screens">{{ARCH}}</div>
     <div class="rules">
@@ -143,14 +190,14 @@
 
 <section class="sec ambient" id="numbers" aria-labelledby="numbers-title">
   <div class="wrap">
-    <h2 id="numbers-title">Measured on the cheapest Fire TV Stick.</h2>
+    <h2 id="numbers-title" class="split">Measured on the cheapest Fire TV Stick.</h2>
     <p class="intro">Frame rates are from a Fire TV Stick HD (Fire OS 7.7, 922 MB RAM) in the real app with four bots. Timings are from the live backend.</p>
     <div class="numbers">
-      <div class="num"><b>59<small>fps</small></b><span>in every built-in game, rendered at 1280x720</span></div>
-      <div class="num"><b>~6<small>s</small></b><span>for three AI pitches after the Idea Storm</span></div>
-      <div class="num"><b>4–7<small>s</small></b><span>from the vote to a bot-tested game</span></div>
-      <div class="num"><b>~5<small>s</small></b><span>to tweak a game and replay it</span></div>
-      <div class="num"><b>633</b><span>tests across engine, backend, TV, phone and couchpad</span></div>
+      <div class="num"><b><span data-count="59">59</span><small>fps</small></b><span>in every built-in game, rendered at 1280x720</span></div>
+      <div class="num"><b>~<span data-count="6">6</span><small>s</small></b><span>for three AI pitches after the Idea Storm</span></div>
+      <div class="num"><b><span data-count="4">4</span>–<span data-count="7">7</span><small>s</small></b><span>from the vote to a bot-tested game</span></div>
+      <div class="num"><b>~<span data-count="5">5</span><small>s</small></b><span>to tweak a game and replay it</span></div>
+      <div class="num"><b><span data-count="633">633</span></b><span>tests across engine, backend, TV, phone and couchpad</span></div>
     </div>
     <div class="fps">
       <div>
@@ -176,7 +223,7 @@
 <section class="sec" id="oss" aria-labelledby="oss-title">
   <div class="wrap oss">
     <div>
-      <h2 id="oss-title">Make any phone a controller.</h2>
+      <h2 id="oss-title" class="split">Make any phone a controller.</h2>
       <p class="intro">We pulled the controller layer out into <b>couchpad</b>, an MIT library for TV and web party games. Scan a QR code and the phone is a gamepad.</p>
       <ul>
         <li><b>Direct by default.</b> A WebRTC DataChannel on the local network, 13 to 16 ms measured.</li>
@@ -195,7 +242,7 @@
 
 <section class="sec ambient closing" aria-labelledby="close-title">
   <div class="wrap">
-    <h2 id="close-title">Say it. Play it.</h2>
+    <h2 id="close-title" class="split">Say it. Play it.</h2>
     <p class="intro">Sideload the APK on a Fire TV Stick, or run the TV app in a desktop browser with <code>npm install</code> and two dev servers.</p>
     <div class="ctas">
       <a class="btn primary" href="https://github.com/MaanavKrishna/cadabra/releases/tag/v1.0">{{DL}}Download the APK</a>
@@ -222,5 +269,6 @@
   </div>
 </footer>
 <script src="site.js" defer></script>
+<script src="motion.js" defer></script>
 </body>
 </html>

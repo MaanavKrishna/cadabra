@@ -19,6 +19,8 @@ cpSync(join(here, 'src/site.css'), join(out, 'site.css'));
 cpSync(join(here, 'src/docs.css'), join(out, 'docs.css'));
 cpSync(join(here, 'src/site.js'), join(out, 'site.js'));
 cpSync(join(here, 'src/docs.js'), join(out, 'docs.js'));
+cpSync(join(here, 'src/motion.css'), join(out, 'motion.css'));
+cpSync(join(here, 'src/motion.js'), join(out, 'motion.js'));
 writeFileSync(join(out, '.nojekyll'), '');
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
