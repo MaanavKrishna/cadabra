@@ -93,7 +93,7 @@ export function Results({ state, status, winnerTeam, forged, onAgain, onNext, on
                   <path d="M4 14 L18 26 L32 4 L46 26 L60 14 L54 40 H10 Z" fill="#f4d58d" />
                 </svg>
               )}
-              <Avatar p={e.p} size={place === 0 ? 210 : 160} index={indexOf.get(e.p.id) ?? 0} />
+              <Avatar p={e.p} size={place === 0 ? 176 : 136} index={indexOf.get(e.p.id) ?? 0} />
               <div class="podium-name">{e.p.name}</div>
               <div class="podium-block">
                 <span class="podium-place">{PLACE[place]}</span>

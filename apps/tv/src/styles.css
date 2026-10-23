@@ -201,7 +201,9 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .home ~ .toast.is-on { transform: none; }
 .home ~ .caption, .settings ~ .caption, .library ~ .caption { bottom: auto; top: 470px; left: auto; right: var(--mx); transform: translateY(-12px); font-size: 28px; max-width: 760px; border-radius: 26px; }
 .home ~ .caption.is-on, .settings ~ .caption.is-on, .library ~ .caption.is-on { transform: none; }
-.results ~ .caption, .party-champion ~ .caption { bottom: 170px; }
+.results ~ .caption { bottom: 170px; }
+.party-champion ~ .caption { left: var(--mx); bottom: 330px; max-width: 520px; font-size: 28px; transform: translateY(24px); border-radius: 26px; }
+.party-champion ~ .caption.is-on { transform: none; }
 .play ~ .caption { bottom: 150px; }
 .play.phase-intro ~ .caption { left: auto; right: var(--mx); bottom: 130px; max-width: 760px; transform: translateY(24px); border-radius: 26px; }
 .play.phase-intro ~ .caption.is-on { transform: none; }
@@ -333,23 +335,24 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 /* ================= RESULTS ================= */
 .results-head { position: absolute; left: var(--mx); right: var(--mx); top: 150px; z-index: 3; text-align: center; animation: rise 0.4s var(--ease) both; }
 .results-head .title { font-size: 92px; }
-.podium { position: absolute; left: 50%; bottom: 210px; z-index: 3; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 36px; }
+.podium { position: absolute; left: 50%; bottom: 280px; z-index: 3; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 36px; }
 .podium-col { width: 340px; display: flex; flex-direction: column; align-items: center; animation: podium-up 0.6s var(--ease) both; }
 .podium-col.is-empty { visibility: hidden; }
 @keyframes podium-up { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: none; } }
-.podium-name { margin: 18px 0 16px; font-size: 36px; font-weight: 600; }
+.podium-name { margin: 14px 0 14px; font-size: 36px; font-weight: 600; }
 .podium-block {
-  width: 100%; border-radius: 26px 26px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 24px;
+  width: 100%; border-radius: 26px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 16px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03)); border: 1px solid var(--line); border-bottom: 0;
 }
-.place-1 .podium-block { height: 260px; background: linear-gradient(180deg, rgba(240, 205, 120, 0.32), rgba(240, 205, 120, 0.04)); border-color: rgba(240, 205, 120, 0.4); }
-.place-2 .podium-block { height: 190px; }
-.place-3 .podium-block { height: 140px; }
+.place-1 .podium-block { height: 200px; background: linear-gradient(180deg, rgba(240, 205, 120, 0.32), rgba(240, 205, 120, 0.04)); border-color: rgba(240, 205, 120, 0.4); }
+.place-2 .podium-block { height: 150px; }
+.place-2 .podium-pts, .place-3 .podium-pts { display: none; }
+.place-3 .podium-block { height: 120px; }
 .podium-place { font-size: 26px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.06em; }
-.podium-score { font-size: 72px; font-weight: 300; line-height: 1.1; }
+.podium-score { font-size: 60px; font-weight: 300; line-height: 1.1; }
 .podium-pts { font-size: 24px; color: var(--ink-3); }
-.crown { width: 84px; margin-bottom: 8px; }
-.fourth { position: absolute; right: var(--mx); bottom: 230px; z-index: 3; display: flex; align-items: center; gap: 18px; padding: 12px 28px 12px 14px; font-size: 28px; color: var(--ink-2); border-radius: 999px; background: var(--glass); border: 1px solid var(--line); }
+.crown { width: 72px; margin-bottom: 6px; }
+.fourth { position: absolute; right: var(--mx); bottom: 320px; z-index: 3; display: flex; align-items: center; gap: 18px; padding: 12px 28px 12px 14px; font-size: 28px; color: var(--ink-2); border-radius: 999px; background: var(--glass); border: 1px solid var(--line); }
 .fourth b { color: #fff; font-weight: 600; }
 .results .actions, .party-standings .actions, .party-champion .actions { position: absolute; left: 50%; bottom: 70px; z-index: 4; transform: translateX(-50%); }
 .confetti { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
@@ -398,13 +401,13 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .party-next-title { font-size: 54px; font-weight: 300; line-height: 1.05; }
 .party-next p { margin: 12px 0 0; font-size: 27px; line-height: 1.35; color: var(--ink-2); }
 .party-champion .results-head { text-align: center; }
-.champ-row { position: absolute; left: 0; right: 0; top: 330px; z-index: 3; display: flex; justify-content: center; gap: 80px; }
+.champ-row { position: absolute; left: 0; right: 0; top: 310px; z-index: 3; display: flex; justify-content: center; gap: 80px; }
 .champ { display: flex; flex-direction: column; align-items: center; animation: podium-up 0.7s var(--ease) both; }
 .champ .crown { width: 110px; }
 .champ .avatar { box-shadow: inset 0 0 0 5px var(--gold), 0 30px 60px rgba(0, 0, 0, 0.5); }
 .champ-name { margin-top: 22px; font-size: 52px; font-weight: 400; }
 .champ-pts { font-size: 30px; color: var(--gold); font-weight: 600; }
-.champ-rest { position: absolute; left: 0; right: 0; bottom: 200px; z-index: 3; display: flex; justify-content: center; gap: 22px; }
+.champ-rest { position: absolute; left: 0; right: 0; bottom: 190px; z-index: 3; display: flex; justify-content: center; gap: 22px; }
 .champ-rest-row { display: flex; align-items: center; gap: 14px; padding: 10px 26px 10px 18px; border-radius: 999px; font-size: 28px; color: var(--ink-2); background: var(--glass-flat); border: 1px solid var(--line); }
 .champ-rest-row b { color: #fff; font-weight: 600; }
 
@@ -469,7 +472,7 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 }
 .goal-step img { width: 64px; height: 64px; object-fit: contain; }
 .neon-icon { width: 60px; height: 60px; fill: none; stroke: #8fe3ff; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
-.goal-step .neon-icon { width: 56px; height: 56px; padding: 6px; border-radius: 14px; background: rgba(255, 255, 255, 0.06); }
+.goal-step .neon-icon { width: 68px; height: 68px; padding: 6px; border-radius: 14px; background: rgba(255, 255, 255, 0.06); }
 .goal-step:nth-child(2) .neon-icon { stroke: #ff9be3; }
 .goal-step:nth-child(3) .neon-icon { stroke: #c9ff8a; }
 .controls { display: flex; align-items: center; gap: 16px; margin-top: 26px; }
