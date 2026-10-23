@@ -1,5 +1,7 @@
 # Cadabra
 
+[![CI](https://github.com/MaanavKrishna/cadabra/actions/workflows/ci.yml/badge.svg)](https://github.com/MaanavKrishna/cadabra/actions/workflows/ci.yml)
+
 ### Say it. Play it.
 
 **Cadabra is a Fire TV party game where the room invents the game and then plays it.** Everyone throws ideas in from their phone ("laser sharks", "disco floor", "zero gravity"). An AI game designer pitches three games, the room votes, and a few seconds later the winning game is running on the TV with real physics. Every phone becomes the controller. After the round, the room can tell the AI "low gravity" or "more chaos" and play the new version about 5 seconds later.
