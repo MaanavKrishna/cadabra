@@ -20,9 +20,12 @@ export interface MusicStyle {
   lead: 'square' | 'tri' | 'saw' | 'sine';
   /** Swing 0..0.3 on off-beat 8ths. */
   swing: number;
+  /** Synthwave groove (neon arcade): four-on-the-floor, 16th bass arpeggio, sustained pad. */
+  synth?: boolean;
 }
 
 export const MUSIC_STYLES: Record<string, MusicStyle> = {
+  neon: { bpm: 116, root: 38, minor: true, prog: [0, 5, 2, 6], bass: 'saw', stab: 'saw', lead: 'square', swing: 0, synth: true },
   arcade: { bpm: 128, root: 45, minor: false, prog: [0, 4, 5, 3], bass: 'square', stab: 'square', lead: 'square', swing: 0 },
   cartoon: { bpm: 118, root: 43, minor: false, prog: [0, 3, 4, 0], bass: 'tri', stab: 'tri', lead: 'square', swing: 0.18 },
   spooky: { bpm: 108, root: 40, minor: true, prog: [0, 5, 3, 4], bass: 'saw', stab: 'tri', lead: 'tri', swing: 0.12 },
@@ -96,6 +99,38 @@ function noise(out: Float32Array, rate: number, at: number, dur: number, vol: nu
   }
 }
 
+/** Neon synthwave bars: kick on every beat, big snare on 2 and 4, 16th bass arp, pad, finale lead. */
+function synthwave(style: MusicStyle, rate: number, base: Float32Array, fin: Float32Array, beat: number): void {
+  const s16 = beat / 4;
+  for (let bar = 0; bar < 4; bar++) {
+    const deg = style.prog[bar]!;
+    const b0 = bar * 4 * beat;
+    const root = stepNote(style, deg);
+    const chord = [stepNote(style, deg, 1), stepNote(style, deg + 2, 1), stepNote(style, deg + 4, 1)];
+    for (let q = 0; q < 4; q++) {
+      const t = b0 + q * beat;
+      tone(base, rate, t, 0.26, 120, 'sine', 1, 0.3);
+      if (q % 2 === 1) {
+        noise(base, rate, t, 0.3, 0.5, 0.3);
+        tone(base, rate, t, 0.1, 200, 'tri', 0.25, 0.6);
+      }
+      noise(base, rate, t + beat / 2, 0.05, 0.14, 0.9);
+    }
+    // driving 16th bass arpeggio: root, octave, fifth, octave
+    const pat = [0, 12, 7, 12];
+    for (let i = 0; i < 16; i++) tone(base, rate, b0 + i * s16, s16 * 0.9, midiHz(root + pat[i % 4]!), style.bass, i % 4 === 0 ? 0.3 : 0.2);
+    // pad: the chord held through the bar (soft saw)
+    for (const m of chord) tone(base, rate, b0, beat * 4, midiHz(m), 'saw', 0.035);
+    // finale: open 16th hats and a square lead arpeggio two octaves up
+    for (let i = 0; i < 16; i++) {
+      const t = b0 + i * s16;
+      noise(fin, rate, t, 0.035, i % 4 === 2 ? 0.2 : 0.1, 0.9);
+      const m = chord[[0, 1, 2, 1, 2, 0, 1, 2][i % 8]!]! + 12;
+      tone(fin, rate, t, s16 * 0.8, midiHz(m), style.lead, 0.06);
+    }
+  }
+}
+
 /** Base layer (drums, bass, stabs) and finale layer (16th hats, lead arp). Pure; deterministic. */
 export function renderLoop(style: MusicStyle, rate = MUSIC_RATE): { base: Float32Array; final: Float32Array } {
   seed = 0x9e3779b9;
@@ -103,7 +138,8 @@ export function renderLoop(style: MusicStyle, rate = MUSIC_RATE): { base: Float3
   const base = new Float32Array(L), fin = new Float32Array(L);
   const beat = 60 / style.bpm;
   const e8 = (i: number) => (i * beat) / 2 + (i % 2 === 1 ? style.swing * beat * 0.5 : 0);
-  for (let bar = 0; bar < 4; bar++) {
+  if (style.synth) synthwave(style, rate, base, fin, beat);
+  else for (let bar = 0; bar < 4; bar++) {
     const deg = style.prog[bar]!;
     const b0 = bar * 4 * beat;
     const root = stepNote(style, deg);
@@ -164,7 +200,7 @@ function ramp(p: AudioParam, v: number, ac: AudioContext, tc = 0.12): void {
 }
 
 function buffers(ac: AudioContext, set: string): { base: AudioBuffer; final: AudioBuffer } {
-  const key = MUSIC_STYLES[set] ? set : 'arcade';
+  const key = MUSIC_STYLES[set] ? set : 'neon';
   let b = cache.get(key);
   if (!b) {
     const { base, final } = renderLoop(MUSIC_STYLES[key]!);

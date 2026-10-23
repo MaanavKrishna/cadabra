@@ -99,7 +99,7 @@ export class Graphics extends Container {
     return this;
   }
 }
-for (const m of ['rect', 'roundRect', 'circle', 'ellipse', 'moveTo', 'lineTo', 'arc', 'poly', 'fill', 'stroke']) {
+for (const m of ['rect', 'roundRect', 'circle', 'ellipse', 'moveTo', 'lineTo', 'arc', 'poly', 'fill', 'stroke', 'closePath']) {
   (Graphics.prototype as unknown as Record<string, unknown>)[m] = function (this: Graphics) {
     this.draws++;
     return this;

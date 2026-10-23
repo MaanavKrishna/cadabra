@@ -61,6 +61,8 @@ export const SFX_BANK: Record<SfxName, Voice[]> = {
 
 /** Per-set flavour: pitch multiplier and what square waves become. */
 const SETS: Record<string, { pitch: number; square: Wave }> = {
+  // neon arcade: brighter, buzzier saw leads
+  neon: { pitch: 1.06, square: 'saw' },
   arcade: { pitch: 1, square: 'square' },
   cartoon: { pitch: 1.12, square: 'tri' },
   spooky: { pitch: 0.78, square: 'saw' },
@@ -68,8 +70,8 @@ const SETS: Record<string, { pitch: number; square: Wave }> = {
   nature: { pitch: 0.95, square: 'sine' },
 };
 
-let set = SETS.arcade!;
-let setName = 'arcade';
+let set = SETS.neon!;
+let setName = 'neon';
 let ctx: AudioContext | null | undefined;
 let master: GainNode | undefined;
 const cache = new Map<string, AudioBuffer>();
@@ -83,8 +85,8 @@ let sfxVol = 1;
 /** Pick the sound flavour for the current game (Theme.sfxSet). */
 export function setSfxSet(name: string): void {
   if (name === setName) return;
-  set = SETS[name] ?? SETS.arcade!;
-  setName = SETS[name] ? name : 'arcade';
+  set = SETS[name] ?? SETS.neon!;
+  setName = SETS[name] ? name : 'neon';
   cache.clear();
 }
 
