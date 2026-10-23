@@ -14,6 +14,15 @@ export const FINALE_SEC = 10;
 export const COMEBACK_EVERY_SEC = 5;
 export const BANNER_SEC = 3;
 export const FIRST_TO_DEFAULT = 10;
+/** Positive score deltas are multiplied by this during the final FINALE_SEC ("FINAL 10: DOUBLE POINTS"). */
+export const FINAL_MULTIPLIER = 2;
+/** At most one `lead.change` event per this many seconds (the TV banner would spam otherwise). */
+export const LEAD_THROTTLE_SEC = 6;
+
+export interface RuntimeOpts {
+  /** Multiplier for positive score deltas in the final FINALE_SEC (default FINAL_MULTIPLIER; 1 = off). */
+  finalMultiplier?: number;
+}
 
 export type RuntimeState = 'intro' | 'playing' | 'finale' | 'over';
 
@@ -100,9 +109,17 @@ export class GameRuntime {
   /** Open judgements in request order (Map preserves insertion order). */
   private readonly judgements = new Map<string, { kind: JudgementKind; payload: unknown; block: ActiveBlock; result?: { v: unknown } }>();
   private judgementSeq = 0;
+  private readonly finalMultiplier: number;
+  /** Unique leader right now (player id, or 'team:N' in team games); undefined on a tie / nobody scored. */
+  private rawLeader?: string;
+  /** Leader last announced with lead.change, and when. */
+  private announcedLeader?: string;
+  private lastLeadAt = -Infinity;
+  private _leadChanges = 0;
 
-  constructor(spec: GameSpec, players: Player[], registry: BlockRegistry, seed: number) {
+  constructor(spec: GameSpec, players: Player[], registry: BlockRegistry, seed: number, opts: RuntimeOpts = {}) {
     this.spec = spec;
+    this.finalMultiplier = Math.max(1, opts.finalMultiplier ?? FINAL_MULTIPLIER);
     // own copies: the runtime never mutates the caller's objects
     this.players = players.map((p) => ({ ...p, score: 0 }));
     this.world = new World(spec.arena.width, spec.arena.height);
@@ -150,6 +167,19 @@ export class GameRuntime {
   /** Live entity count, O(1) (playtest budget checks; no snapshot copy). */
   get entityCount(): number {
     return this.world.size;
+  }
+
+  /**
+   * How often the unique leader changed hands this round (unthrottled; the first leader is
+   * not a change). Balance metric: close rounds have several.
+   */
+  get leadChanges(): number {
+    return this._leadChanges;
+  }
+
+  /** Current score multiplier for positive deltas (FINAL_MULTIPLIER in the finale, else 1). */
+  get scoreMultiplier(): number {
+    return this._state === 'finale' ? this.finalMultiplier : 1;
   }
 
   /** Append-only event log (copy). */
@@ -256,8 +286,10 @@ export class GameRuntime {
     if (this._state === 'playing' && this.remaining <= FINALE_SEC) {
       this._state = 'finale';
       this.emit({ type: 'finale' });
+      this.emit({ type: 'final.start', data: { multiplier: this.finalMultiplier, remainingSec: Math.round(this.remaining) } });
       this.showBanner(this.spec.host.finale);
     }
+    this.trackLead();
     if (this.remaining <= 0 || this.winReached()) this.end();
   }
 
@@ -373,8 +405,51 @@ export class GameRuntime {
     if (this._state === 'over') return;
     const p = this.players.find((q) => q.id === playerId);
     if (!p || delta === 0) return;
-    p.score += delta;
-    this.emit({ type: 'score', player: playerId, data: { delta, reason } });
+    const mult = delta > 0 ? this.scoreMultiplier : 1;
+    const d = delta * mult;
+    p.score += d;
+    const data: Record<string, unknown> = { delta: d, reason };
+    if (mult !== 1) Object.assign(data, { base: delta, mult });
+    this.emit({ type: 'score', player: playerId, data });
+  }
+
+  /** Unique leader by score (team total in team games), or undefined on a tie / all zero. */
+  private leaderNow(): string | undefined {
+    if (this.spec.teams === 2) {
+      const [a, b] = this.teamTotals();
+      if (a === b) return undefined;
+      return a > b ? 'team:0' : 'team:1';
+    }
+    let best: Player | undefined, tie = false;
+    for (const p of this.players) {
+      if (!best || p.score > best.score) { best = p; tie = false; }
+      else if (p.score === best.score) tie = true;
+    }
+    return best && !tie && best.score > 0 ? best.id : undefined;
+  }
+
+  /** Count raw lead changes and emit throttled `lead.change` events. */
+  private trackLead(): void {
+    const now = this.leaderNow();
+    if (now === undefined) return;
+    if (this.rawLeader !== undefined && now !== this.rawLeader) this._leadChanges++;
+    this.rawLeader = now;
+    if (now === this.announcedLeader || this.time - this.lastLeadAt < LEAD_THROTTLE_SEC) return;
+    const prev = this.announcedLeader;
+    this.announcedLeader = now;
+    this.lastLeadAt = this.time;
+    const data: Record<string, unknown> = { prev: prev ?? null };
+    let player = now;
+    if (now.startsWith('team:')) {
+      const team = Number(now.slice(5)) as 0 | 1;
+      data.team = team;
+      data.score = this.teamTotals()[team];
+      player = this.players.find((p) => p.team === team)?.id ?? now;
+      if (prev?.startsWith('team:')) data.prev = Number(prev.slice(5));
+    } else {
+      data.score = this.players.find((p) => p.id === now)?.score ?? 0;
+    }
+    this.emit({ type: 'lead.change', player, data });
   }
 
   private isEliminated(id: string): boolean {
