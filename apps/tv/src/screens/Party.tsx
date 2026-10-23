@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { GameSpec } from '@cadabra/spec';
 import type { Player } from '@cadabra/engine';
-import { Avatar, Icon, NeonBg, Tile, TopBar, focus } from '../ui/components';
+import { Avatar, NeonBg, Pill, TopBar, focus } from '../ui/components';
+import { HERO, displayTitle, gameStill } from '../ui/hero';
 import { champions, standings, type PartyRun } from '../play/party';
 import type { PartyState } from '../state/machine';
 
@@ -36,10 +37,10 @@ export function PartyStandings({ state, status, run, next, onNext, onQuit }: Sta
   }, []);
   return (
     <section class="screen party-standings">
-      <NeonBg />
+      <NeonBg url={HERO.party} />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="party-head">
-        <div class="eyebrow">Party · after round {run.played} of {run.rounds.length}</div>
+        <div class="eyebrow">Party, round {run.played} of {run.rounds.length}</div>
         <h1 class="title title-sm">Standings</h1>
       </div>
       <div class="standings" style={{ height: `${rows.length * ROW_H}px` }}>
@@ -63,12 +64,17 @@ export function PartyStandings({ state, status, run, next, onNext, onQuit }: Sta
           );
         })}
       </div>
-      <aside class="party-next">
-        {next && <><div class="eyebrow">Up next</div><div class="party-next-title">{next.title}</div><p>{next.hook}</p></>}
+      <aside class="party-next glass">
+        {next && (
+          <>
+            <div class="party-next-art" style={{ backgroundImage: `url("${gameStill(next.id) ?? HERO.party}")` }} />
+            <div class="party-next-body"><div class="eyebrow">Up next</div><div class="party-next-title">{displayTitle(next.title)}</div><p>{next.hook}</p></div>
+          </>
+        )}
       </aside>
-      <nav class="tiles tiles-results">
-        <Tile col={0} label="Next round" class="tile-pill" autofocus onSelect={onNext}><Icon name="next" />Next round · {left}s</Tile>
-        <Tile col={1} label="Quit party" class="tile-pill" onSelect={onQuit}><Icon name="home" />Quit party</Tile>
+      <nav class="actions">
+        <Pill row={0} col={0} label={`Next round in ${left}`} icon="next" primary autofocus onSelect={onNext} />
+        <Pill row={0} col={1} label="Quit party" icon="home" onSelect={onQuit} />
       </nav>
     </section>
   );
@@ -89,13 +95,13 @@ export function PartyChampion({ state, status, run, onAgain, onLobby }: { state:
   const headline = names.length === 1 ? `${names[0]} is the champion!` : `${names.join(' & ')} share the crown!`;
   return (
     <section class="screen party-champion">
-      <NeonBg />
+      <NeonBg url={HERO.party} />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="confetti" aria-hidden="true">
         {CONFETTI.map((i) => <i key={i} style={{ left: `${(i * 29) % 100}%`, animationDelay: `${0.6 + (i % 9) * 0.16}s`, ['--hue' as string]: `${[186, 312, 84, 38][i % 4]}` }} />)}
       </div>
       <div class="results-head">
-        <div class="eyebrow">Party over · {run.rounds.length} rounds</div>
+        <div class="eyebrow">Party over, {run.rounds.length} rounds</div>
         <h1 class="title title-sm">{headline}</h1>
       </div>
       <div class="champ-row">
@@ -104,7 +110,7 @@ export function PartyChampion({ state, status, run, onAgain, onLobby }: { state:
           return (
             <div key={id} class="champ" style={{ animationDelay: `${0.3 + k * 0.2}s` }}>
               <svg class="crown" viewBox="0 0 64 44" aria-hidden="true">
-                <path d="M4 14 L18 26 L32 4 L46 26 L60 14 L54 40 H10 Z" fill="none" stroke="#FFB020" stroke-width="4" stroke-linejoin="round" />
+                <path d="M4 14 L18 26 L32 4 L46 26 L60 14 L54 40 H10 Z" fill="#f4d58d" />
               </svg>
               <Avatar p={e.p} size={230} index={e.i} />
               <div class="champ-name">{e.p.name}</div>
@@ -119,9 +125,9 @@ export function PartyChampion({ state, status, run, onAgain, onLobby }: { state:
           return <div key={r.id} class="champ-rest-row"><span>{r.rank}</span><Avatar p={e.p} size={64} index={e.i} /><b>{e.p.name}</b><span>{r.points}</span></div>;
         })}
       </div>
-      <nav class="tiles tiles-results">
-        <Tile col={0} label="Party again" class="tile-pill" autofocus onSelect={onAgain}><Icon name="party" />Party again</Tile>
-        <Tile col={1} label="Lobby" class="tile-pill" onSelect={onLobby}><Icon name="home" />Lobby</Tile>
+      <nav class="actions">
+        <Pill row={0} col={0} label="Party again" icon="party" primary autofocus onSelect={onAgain} />
+        <Pill row={0} col={1} label="Home" icon="home" onSelect={onLobby} />
       </nav>
     </section>
   );

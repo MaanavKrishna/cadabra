@@ -1,10 +1,10 @@
 import { render } from 'preact';
-import '@fontsource/bricolage-grotesque/latin-700.css';
+// the game canvas (packages/render) draws its neon HUD and name plates with these
 import '@fontsource/bricolage-grotesque/latin-800.css';
-import '@fontsource/figtree/latin-500.css';
-import '@fontsource/figtree/latin-600.css';
 import '@fontsource/figtree/latin-700.css';
 import '@fontsource/figtree/latin-800.css';
+// the app chrome: self-hosted Figtree 300/400/600 subset
+import './fonts/fonts.css';
 import './styles.css';
 import { App } from './app';
 

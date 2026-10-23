@@ -12,7 +12,10 @@ import type { GameSpec, InputFrame } from '@cadabra/spec';
 import { HostLoop } from '../play/loop';
 import { FINAL_SEC, LeadWatch, TEAM_NAME, flowAt, momentCallout, type FlowClock, type FlowPhase } from '../play/flow';
 import { introFor, type IntroControl } from '../play/intro';
-import { Avatar, Backdrop, Icon, Tile, art, colorOf, focus } from '../ui/components';
+import { Avatar, Backdrop, Pill, TrophyToast, art, colorOf, focus } from '../ui/components';
+import { displayTitle } from '../ui/hero';
+import { uiSound } from '../ui/sound';
+import { TrophyWatch, type Trophy } from '../play/trophies';
 import { keyArtFor } from '../fallback';
 import type { PartyState, RankEntry } from '../state/machine';
 
@@ -61,15 +64,15 @@ interface Callout {
 function PauseMenu({ onResume, onRestart, onQuit }: { onResume: () => void; onRestart: () => void; onQuit: () => void }) {
   return (
     <div class="pause">
-      <div class="pause-inner">
-        <div class="eyebrow">Game paused</div>
+      <div class="pause-inner glass">
+        <div class="eyebrow">Paused</div>
         <h1 class="title title-sm">Take a breather</h1>
-        <nav class="tiles tiles-inline">
-          <Tile col={0} label="Resume" class="tile-action" autofocus onSelect={onResume}><Icon name="resume" /></Tile>
-          <Tile col={1} label="Restart" class="tile-action" onSelect={onRestart}><Icon name="again" /></Tile>
-          <Tile col={2} label="Quit to lobby" class="tile-action" onSelect={onQuit}><Icon name="home" /></Tile>
+        <nav class="actions actions-col">
+          <Pill row={0} col={0} label="Resume" icon="resume" primary autofocus onSelect={onResume} />
+          <Pill row={1} col={0} label="Restart round" icon="again" onSelect={onRestart} />
+          <Pill row={2} col={0} label="Quit to home" icon="home" onSelect={onQuit} />
         </nav>
-        <div class="hint">⏯ Play/Pause to resume</div>
+        <div class="hint">Play/Pause also resumes</div>
       </div>
     </div>
   );
@@ -117,20 +120,19 @@ function IntroCard({ state, spec, loaded }: { state: PartyState; spec: GameSpec;
     <div class="intro">
       <Backdrop art={keyArtFor(spec, state.art.keyArt)} />
       <div class="hero hero-intro">
-        <div class="eyebrow">Round {state.round} · how to win</div>
-        <h1 class="title">{spec.title}</h1>
+        <div class="eyebrow">Round {state.round}</div>
+        <h1 class="title">{displayTitle(spec.title)}</h1>
         {intro.line && <p class="intro-line">{intro.line}</p>}
         <div class="goal">
           {intro.steps.map((s, i) => (
             <div key={i} class="goal-step" style={{ animationDelay: `${0.15 + i * 0.18}s` }}>
-              {i > 0 && <span class="goal-arrow">→</span>}
               {s.icon?.startsWith('neon:') ? <NeonIcon name={s.icon.slice(5)} /> : s.icon && art(s.icon) && <img src={art(s.icon)} alt="" />}
               <span>{s.text}</span>
             </div>
           ))}
         </div>
         <div class="controls">
-          <span class="controls-lbl">On your phone</span>
+          <span class="controls-lbl">Your phone</span>
           {intro.controls.map((c, i) => <ControlGlyph key={i} c={c} />)}
         </div>
       </div>
@@ -154,6 +156,7 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
   const [loaded, setLoaded] = useState(false);
   const [callout, setCallout] = useState<Callout | undefined>();
   const [paused, setPaused] = useState(false);
+  const [trophy, setTrophy] = useState<Trophy | undefined>();
   const pausedRef = useRef(false);
   const ctl = useRef<{ pause?: (on: boolean) => void }>({});
   const props = useRef({ judge, say, onDone });
@@ -184,6 +187,15 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
     loop.paused = true;
     const feed = new EventFeed();
     const lead = new LeadWatch();
+    const trophies = new TrophyWatch();
+    let trophyTimer: ReturnType<typeof setTimeout> | undefined;
+    const unlock = (t: Trophy) => {
+      setTrophy(t);
+      uiSound('trophy');
+      clearTimeout(trophyTimer);
+      trophyTimer = setTimeout(() => setTrophy(undefined), 3800);
+    };
+    const titleName = (id?: string) => names.get(id ?? '') ?? 'Someone';
     const clock: FlowClock = { mountAt: performance.now() };
     let frames = 0, fpsT = performance.now(), fps = 60;
     session.current = {
@@ -319,6 +331,10 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
         const { alpha } = loop.tick(dt, view.timeScale, view.hitStopMs);
         const events = feed.next(rt);
         for (const e of events) {
+          if (f.running) {
+            const tr = trophies.next(e, rt.time, titleName);
+            if (tr) unlock(tr);
+          }
           if (e.type === 'lead.change' && f.running) {
             const who = lead.fromEvent(e.player, typeof e.data?.team === 'number' ? e.data.team : undefined);
             if (who) show({ kind: 'lead', ...leadText(who.player, who.team) }, now);
@@ -366,6 +382,7 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
     focus.setBack(() => { setPause(!pausedRef.current); return true; });
     return () => {
       dead = true;
+      clearTimeout(trophyTimer);
       cancelAnimationFrame(raf);
       stopMusic();
       session.current = undefined;
@@ -389,6 +406,7 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
           {callout.sub && <div class="callout-sub">{callout.sub}</div>}
         </div>
       )}
+      {trophy && <TrophyToast t={trophy} />}
       {paused && <PauseMenu onResume={() => setPause(false)} onRestart={onRestart} onQuit={onQuit} />}
     </section>
   );

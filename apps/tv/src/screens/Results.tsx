@@ -3,7 +3,8 @@
 import { useEffect } from 'preact/hooks';
 import { themeVars } from '@cadabra/render';
 import type { Player } from '@cadabra/engine';
-import { Avatar, Backdrop, Icon, Tile, TopBar, focus } from '../ui/components';
+import { Avatar, Backdrop, Pill, TopBar, focus } from '../ui/components';
+import { displayTitle } from '../ui/hero';
 import { keyArtFor } from '../fallback';
 import { TEAM_NAME } from '../play/flow';
 import type { PartyState } from '../state/machine';
@@ -56,7 +57,7 @@ export function Results({ state, status, winnerTeam, forged, onAgain, onNext, on
         {CONFETTI.map((i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${0.9 + (i % 7) * 0.18}s`, ['--hue' as string]: `${(i * 47) % 360}` }} />)}
       </div>
       <div class="results-head">
-        <div class="eyebrow">{spec.title} · round {state.round}</div>
+        <div class="eyebrow">{displayTitle(spec.title)}, round {state.round}</div>
         <h1 class="title title-sm">{headline}</h1>
       </div>
       {teamGame ? (
@@ -89,8 +90,7 @@ export function Results({ state, status, winnerTeam, forged, onAgain, onNext, on
             <div key={e.r.id} class={`podium-col place-${place + 1}`} style={{ animationDelay: `${[0.45, 0.9, 0.15][col]}s` }}>
               {place === 0 && (
                 <svg class="crown" viewBox="0 0 64 44" aria-hidden="true">
-                  <path d="M4 14 L18 26 L32 4 L46 26 L60 14 L54 40 H10 Z" fill="#ffd23f" stroke="#7a4b00" stroke-width="3" stroke-linejoin="round" />
-                  <circle cx="32" cy="28" r="4" fill="#f72585" /><circle cx="18" cy="32" r="3" fill="#4cc9f0" /><circle cx="46" cy="32" r="3" fill="#4cc9f0" />
+                  <path d="M4 14 L18 26 L32 4 L46 26 L60 14 L54 40 H10 Z" fill="#f4d58d" />
                 </svg>
               )}
               <Avatar p={e.p} size={place === 0 ? 210 : 160} index={indexOf.get(e.p.id) ?? 0} />
@@ -110,10 +110,10 @@ export function Results({ state, status, winnerTeam, forged, onAgain, onNext, on
           <span>4th</span><Avatar p={ranked[3].p} size={72} index={indexOf.get(ranked[3].p.id) ?? 3} /><b>{ranked[3].p.name}</b><span>{ranked[3].r.score}</span>
         </div>
       )}
-      <nav class="tiles tiles-results">
-        <Tile col={0} label="Play again" class="tile-pill" autofocus onSelect={onAgain}><Icon name="again" />Play again</Tile>
-        <Tile col={1} label={forged ? 'Create another' : 'Next game'} class="tile-pill" onSelect={onNext}><Icon name={forged ? 'spark' : 'next'} />{forged ? 'Create another' : 'Next game'}</Tile>
-        <Tile col={2} label="Lobby" class="tile-pill" onSelect={onLobby}><Icon name="home" />Lobby</Tile>
+      <nav class="actions">
+        <Pill row={0} col={0} label="Play again" icon="again" primary autofocus onSelect={onAgain} />
+        <Pill row={0} col={1} label={forged ? 'Create another' : 'Next game'} icon={forged ? 'spark' : 'next'} onSelect={onNext} />
+        <Pill row={0} col={2} label="Home" icon="home" onSelect={onLobby} />
       </nav>
     </section>
   );

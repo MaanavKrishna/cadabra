@@ -12,6 +12,8 @@ import { phoneAction } from './net/replies';
 import { phoneScreen } from './net/screens';
 import { VoiceQueue, browserVoiceDeps } from './host/voice';
 import { installKeyBridge, MenuTaps } from './ui/keys';
+import { uiSound } from './ui/sound';
+import { preloadHeroes } from './ui/hero';
 import { Caption, Toast, focus } from './ui/components';
 import { DebugOverlay } from './ui/Debug';
 import { QUICK_GAMES, cardFor, withRoundLength } from './fallback';
@@ -347,7 +349,19 @@ export function App() {
     setMusicVolume(loadMusicVolume());
     room.start();
     const taps = new MenuTaps();
+    preloadHeroes();
+    // soft UI sounds: a tick when the focus moves, a chime on select, a blip on back (menus only)
+    let moved = false;
+    focus.onChange = () => { moved = true; };
+    const menu = () => stateRef.current.phase !== 'play' || !!document.querySelector('.pause');
     const off = installKeyBridge({
+      onAny: (name) => {
+        if (!menu()) { moved = false; return; }
+        if ((name === 'up' || name === 'down' || name === 'left' || name === 'right') && moved) uiSound('move');
+        else if (name === 'select') uiSound('select');
+        else if (name === 'back') uiSound('back');
+        moved = false;
+      },
       focus,
       phase: () => stateRef.current.phase,
       onPlayPause: () => session.current?.togglePause(),

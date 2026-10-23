@@ -2,7 +2,8 @@
 // Back returns to the lobby.
 import { useEffect, useState } from 'preact/hooks';
 import type { HostPersonality } from '@cadabra/spec';
-import { NeonBg, TopBar, focus, useFocusable } from '../ui/components';
+import { Icon, NeonBg, TopBar, focus, useFocusable } from '../ui/components';
+import { HERO } from '../ui/hero';
 import type { PartyState, Settings as S } from '../state/machine';
 import { loadMusicVolume, musicLabel, saveMusicVolume, stepMusic } from '../audio-prefs';
 
@@ -30,7 +31,7 @@ export const ROWS: RowDef[] = [
   { label: 'Host personality', help: 'The tone of the on-screen host captions.', value: (s) => PERSONALITY_LABEL[s.hostPersonality], step: (s, d) => ({ hostPersonality: cycle(PERSONALITIES, s.hostPersonality, d) }) },
 ];
 
-function Row({ i, label, value, onStep, onFocus }: { i: number; label: string; value: string; onStep: (d: 1 | -1) => void; onFocus: () => void }) {
+function Row({ i, label, value, help, onStep, onFocus }: { i: number; label: string; value: string; help: string; onStep: (d: 1 | -1) => void; onFocus: () => void }) {
   const ref = useFocusable(i, 0, {
     autofocus: i === 0,
     select: () => onStep(1),
@@ -42,6 +43,7 @@ function Row({ i, label, value, onStep, onFocus }: { i: number; label: string; v
     <div ref={ref} class="set-row">
       <div class="set-label">{label}</div>
       <div class="set-value"><span class="set-arrow">‹</span><b>{value}</b><span class="set-arrow">›</span></div>
+      <div class="set-help">{help}</div>
     </div>
   );
 }
@@ -50,41 +52,38 @@ const MUSIC_HELP = 'Party music under the game.';
 
 function Done({ onClose }: { onClose: () => void }) {
   const ref = useFocusable(ROWS.length + 1, 0, { select: onClose });
-  return <div ref={ref} class="set-done" onClick={onClose}>Done</div>;
+  return <div ref={ref} class="pill-btn set-done" onClick={onClose}><span>Done</span></div>;
 }
 
 export function Settings({ state, status, onChange, onClose }: { state: PartyState; status: string; onChange: (p: Partial<S>) => void; onClose: () => void }) {
-  const [focused, setFocused] = useState(0);
+  const [, setFocused] = useState(0);
   const [music, setMusic] = useState(loadMusicVolume);
   useEffect(() => {
     focus.setBack(() => { onClose(); return true; });
     return () => focus.setBack(undefined);
   }, [onClose]);
-  const help = focused < ROWS.length ? ROWS[focused]!.help : focused === ROWS.length ? MUSIC_HELP : 'Back to the lobby.';
-  const label = focused < ROWS.length ? ROWS[focused]!.label : focused === ROWS.length ? 'Music volume' : 'Done';
   return (
     <section class="screen settings">
-      <NeonBg quiet />
+      <NeonBg url={HERO.calm} />
       <TopBar code={state.code} players={state.players} status={status} />
-      <div class="settings-panel">
-        <div class="eyebrow">House rules</div>
+      <aside class="set-aside">
+        <span class="set-icon"><Icon name="gear" /></span>
         <h1 class="title title-sm">Settings</h1>
+        <p>House rules for tonight. Changes apply straight away.</p>
+        <div class="hint">◀ ▶ change, Back returns home</div>
+      </aside>
+      <div class="settings-panel">
         <div class="set-rows">
           {ROWS.map((r, i) => (
-            <Row key={r.label} i={i} label={r.label} value={r.value(state.settings)} onStep={(d) => onChange(r.step(state.settings, d))} onFocus={() => setFocused(i)} />
+            <Row key={r.label} i={i} label={r.label} help={r.help} value={r.value(state.settings)} onStep={(d) => onChange(r.step(state.settings, d))} onFocus={() => setFocused(i)} />
           ))}
           <Row
-            i={ROWS.length} label="Music volume" value={musicLabel(music)} onFocus={() => setFocused(ROWS.length)}
+            i={ROWS.length} label="Music volume" help={MUSIC_HELP} value={musicLabel(music)} onFocus={() => setFocused(ROWS.length)}
             onStep={(d) => { const v = stepMusic(music, d); setMusic(v); saveMusicVolume(v); }}
           />
         </div>
         <Done onClose={onClose} />
       </div>
-      <aside class="set-aside" key={focused}>
-        <div class="set-aside-lbl">{label}</div>
-        <p>{help}</p>
-        <div class="hint">◀ ▶ change · OK toggle · Back to return</div>
-      </aside>
     </section>
   );
 }

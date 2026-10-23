@@ -1,6 +1,7 @@
 // Fallback key art: procedural SVG scenes per theme (no network, no AI), composed with a few
 // sprites from the default art pack as hero characters. Rasterised once as a CSS background.
 import type { GameSpec } from '@cadabra/spec';
+import { gameStill } from '../ui/hero';
 
 type Pal = GameSpec['theme']['palette'];
 
@@ -224,6 +225,9 @@ const cache = new Map<string, KeyArt>();
 export function keyArtFor(spec: Pick<GameSpec, 'id' | 'theme' | 'arena'>, generated?: string): KeyArt {
   // generated key art (forge.art 'keyArt') wins; CSS-safe because it passed ArtUrlSchema
   if (generated) return { backdrop: generated, sprites: [] };
+  // built-in games: the still baked from the real game view
+  const still = gameStill(spec.id);
+  if (still) return { backdrop: still, sprites: [] };
   const k = `${spec.id}|${JSON.stringify(spec.theme.palette)}`;
   let art = cache.get(k);
   if (!art) {

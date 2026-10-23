@@ -5,7 +5,9 @@ import { useEffect, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import type { Pitch } from '@cadabra/spec';
 type Palette = Pitch['palette'];
-import { Avatar, NeonBg, TopBar, colorOf, focus, useFocusable } from '../ui/components';
+import { Avatar, HeroLayers, NeonBg, TopBar, colorOf, focus, useFocusable } from '../ui/components';
+import { HERO } from '../ui/hero';
+import { NeonIcon } from './Play';
 import { pickWinner, shownPct, stepRows, tally } from '../forge/forge';
 import type { PartyState } from '../state/machine';
 
@@ -27,7 +29,7 @@ function useSecondsLeft(endsAt: number | undefined): number | undefined {
 
 function Ring({ endsAt, total }: { endsAt?: number; total: number }) {
   const left = useSecondsLeft(endsAt);
-  const r = 88;
+  const r = 92;
   const c = 2 * Math.PI * r;
   const frac = left === undefined ? 1 : left / total;
   return (
@@ -56,8 +58,8 @@ function Chips({ state }: { state: PartyState }) {
         const [x, y] = SLOTS[i % SLOTS.length]!;
         const c = colorOf(idx.get(g.by) ?? i);
         return (
-          <div key={`${i}-${g.text}`} class="chip" style={{ left: `${x}px`, top: `${y}px`, ['--chip' as string]: c, ['--tilt' as string]: `${TILT[i % TILT.length]}deg` }}>
-            {g.text}
+          <div key={`${i}-${g.text}`} class="chip" style={{ left: `${x}px`, top: `${y}px`, ['--chip' as string]: c, ['--tilt' as string]: `${(TILT[i % TILT.length] ?? 0) * 0.4}deg`, ['--d' as string]: `${(i % 4) * 0.9}s` }}>
+            <i />{g.text}
           </div>
         );
       })}
@@ -78,12 +80,12 @@ export function Storm({ state, status, endsAt, total, onCook, onCancel }: StormP
   for (const g of state.ingredients) counts.set(g.by, (counts.get(g.by) ?? 0) + 1);
   return (
     <section class="screen forge-screen storm">
-      <NeonBg />
+      <NeonBg url={HERO.create} />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="hero hero-storm">
-        <div class="eyebrow">Idea Storm · create a game</div>
-        <h1 class="title">Throw in <em>ingredients!</em></h1>
-        <p class="hook">Type anything on your phone: a place, a creature, a silly rule. The AI mixes them into three brand-new games.</p>
+        <div class="eyebrow">Idea Storm</div>
+        <h1 class="title">Throw in your ideas</h1>
+        <p class="hook">Type anything on your phone: a place, a creature, a silly rule. The AI mixes them into three new games.</p>
         <div class="storm-row">
           <Ring endsAt={endsAt} total={total} />
           <div class="storm-who">
@@ -96,33 +98,51 @@ export function Storm({ state, status, endsAt, total, onCook, onCancel }: StormP
             ))}
           </div>
         </div>
-        <div ref={ref} class="btn-neon">{state.ingredients.length ? 'Cook it now' : 'Surprise us'}</div>
-        <div class="hint">OK to cook early · Back to cancel</div>
+        <div class="storm-actions">
+          <div ref={ref} class="pill-btn is-primary"><span>{state.ingredients.length ? 'Cook it now' : 'Surprise us'}</span></div>
+          <span class="hint">Back cancels</span>
+        </div>
       </div>
       <Chips state={state} />
     </section>
   );
 }
 
-function PitchCard({ p, i, art, count, voters, tv, onFocus, onSelect }: {
-  p: Pitch; i: number; art?: string; count: number; voters: PartyState['players']; tv: boolean;
+const SKETCH_ICON: [RegExp, string][] = [
+  [/ring|shove|push|arena/i, 'shove'], [/collect|grab|core|loot/i, 'core'], [/sneak|guard|stealth/i, 'eye'], [/dodge|hazard|avoid/i, 'gate'],
+  [/race|run|lap/i, 'flag'], [/tug|pull/i, 'bolt'], [/trivia|quiz/i, 'star'], [/draw|paint/i, 'paint'], [/bomb|overload|pass/i, 'bomb'], [/goal|base|bank/i, 'base'],
+];
+const sketchIcons = (p: Pitch) => {
+  const out: string[] = [];
+  for (const b of p.blocksSketch) {
+    const hit = SKETCH_ICON.find(([re]) => re.test(b));
+    if (hit && !out.includes(hit[1])) out.push(hit[1]);
+  }
+  return out.slice(0, 4);
+};
+
+function PitchCard({ p, i, art, count, total, voters, tv, lead, onFocus, onSelect }: {
+  p: Pitch; i: number; art?: string; count: number; total: number; voters: PartyState['players']; tv: boolean; lead: boolean;
   onFocus: () => void; onSelect: () => void;
 }) {
   const ref = useFocusable(0, i, { autofocus: i === 1, focus: onFocus, select: onSelect });
+  const share = total > 0 ? count / total : 0;
   return (
-    <div ref={ref} class={`pitch-card ${tv ? 'is-tv' : ''}`} style={{ ...paletteVars(p.palette), animationDelay: `${0.12 + i * 0.14}s` }} onClick={onSelect}>
-      <div class="pitch-art" style={art ? { backgroundImage: `url("${art}")` } : undefined} />
-      <div class="pitch-letter">{String.fromCharCode(65 + i)}</div>
+    <div ref={ref} class={`pitch-card ${tv ? 'is-tv' : ''} ${lead && total > 0 ? 'is-lead' : ''}`} style={{ ...paletteVars(p.palette), animationDelay: `${0.08 + i * 0.1}s` }} onClick={onSelect}>
+      <div class="pitch-art" style={art ? { backgroundImage: `url("${art}")` } : undefined}>
+        <span class="pitch-icons">{sketchIcons(p).map((n) => <NeonIcon key={n} name={n} />)}</span>
+      </div>
       <div class="pitch-body">
         <h2>{p.title}</h2>
         <p>{p.hook}</p>
       </div>
       <div class="pitch-votes">
-        <b key={count} class="pitch-count">{count}</b>
-        <span class="pitch-voters">
-          {voters.map((v) => <Avatar key={v.id} p={v} size={56} index={0} ring={false} />)}
-        </span>
-        {tv && <span class="pitch-tv">TV pick</span>}
+        <div class="vote-bar"><i style={{ transform: `scaleX(${share})` }} /></div>
+        <div class="vote-row">
+          <span class="pitch-voters">{voters.map((v) => <Avatar key={v.id} p={v} size={44} index={0} ring={false} />)}</span>
+          {tv && <span class="pitch-tv">TV pick</span>}
+          <b key={count} class="pitch-count">{count} {count === 1 ? 'vote' : 'votes'}</b>
+        </div>
       </div>
     </div>
   );
@@ -137,11 +157,12 @@ export function Pitches({ state, status, endsAt, total, onTvVote, onFocusPitch, 
   }, [onCancel]);
   const cooking = state.phase === 'pitching' || state.pitches.length === 0;
   const counts = tally(state.votes, state.pitches.length);
+  const votes = counts.reduce((a, b) => a + b, 0);
   const lead = state.pitches.length ? pickWinner(state.votes, state.pitches.length, state.forge.tvVote) : -1;
   const byId = new Map(state.players.map((p) => [p.id, p]));
   return (
     <section class={`screen forge-screen pitches ${cooking ? 'is-cooking' : ''}`}>
-      <NeonBg />
+      <NeonBg url={HERO.create} />
       <TopBar code={state.code} players={state.players} status={status} />
       <div class="pitches-head">
         <div>
@@ -152,27 +173,22 @@ export function Pitches({ state, status, endsAt, total, onTvVote, onFocusPitch, 
       </div>
       {cooking ? (
         <div class="pitch-row">
-          {[0, 1, 2].map((i) => <div key={i} class="pitch-card is-blank" style={{ animationDelay: `${i * 0.2}s` }}><div class="pitch-shimmer" /></div>)}
+          {[0, 1, 2].map((i) => <div key={i} class="pitch-card is-blank" style={{ animationDelay: `${i * 0.12}s` }}><div class="pitch-shimmer" /></div>)}
           <div class="cook-chips">{state.ingredients.slice(-8).map((g, i) => <span key={i} class="chip chip-sm">{g.text}</span>)}</div>
         </div>
       ) : (
         <div class="pitch-row">
           {state.pitches.map((p, i) => (
             <PitchCard
-              key={p.id} p={p} i={i} art={state.forge.art[p.id]?.keyArt} count={counts[i] ?? 0}
+              key={p.id} p={p} i={i} art={state.forge.art[p.id]?.keyArt} count={counts[i] ?? 0} total={votes}
               voters={Object.entries(state.votes).filter(([, v]) => v === i).map(([id]) => byId.get(id)!).filter(Boolean)}
-              tv={state.forge.tvVote === i}
+              tv={state.forge.tvVote === i} lead={lead === i}
               onFocus={() => onFocusPitch(i)} onSelect={() => onTvVote(i)}
             />
           ))}
         </div>
       )}
-      {!cooking && (
-        <div class="hint pitches-hint">
-          {lead >= 0 && <span class="lead-pill" style={paletteVars(state.pitches[lead]!.palette)}>Leading: {state.pitches[lead]!.title}</span>}
-          OK casts the TV's tie-break vote
-        </div>
-      )}
+      {!cooking && <div class="hint pitches-hint">OK casts the TV's tie-break vote</div>}
     </section>
   );
 }
@@ -187,34 +203,30 @@ export function ForgeBuild({ state, status }: ForgeProps) {
   const rows = stepRows(progress, ready);
   const pct = shownPct(progress, ready);
   const art = state.forge.art[w]?.keyArt;
+  const active = rows.find((r) => r.state === 'active') ?? rows[rows.length - 1];
   useEffect(() => {
     focus.setBack(() => true); // no way out mid-build: it takes seconds
     return () => focus.setBack(undefined);
   }, []);
   return (
     <section class={`screen forge-screen forge ${ready ? 'is-ready' : ''}`} style={p ? paletteVars(p.palette) : undefined}>
-      <NeonBg />
-      {art && <div class="forge-art" style={{ backgroundImage: `url("${art}")` }} />}
+      <div class="forge-bg">
+        <HeroLayers url={art ?? HERO.create} />
+        <div class="scrim" />
+      </div>
       <TopBar code={state.code} players={state.players} status={status} />
-      <div class="hero hero-forge">
-        <div class="eyebrow">Forging your game</div>
+      <div class="forge-stage">
+        <div class="eyebrow">{ready ? 'Ready to play' : 'Building your game'}</div>
         <h1 class="title">{p?.title ?? 'Your game'}</h1>
         <p class="hook">{p?.hook}</p>
-      </div>
-      <div class="forge-steps">
-        {rows.map((r, i) => (
-          <div key={r.label} class={`fstep is-${r.state}`} style={{ animationDelay: `${0.1 + i * 0.12}s` }}>
-            <span class="fstep-box">{r.state === 'done' ? '✓' : i + 1}</span>
-            <span class="fstep-label">
-              {r.label}
-              {r.state === 'active' && progress?.step && progress.step !== r.label && <small>{progress.step}</small>}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div class="forge-bar">
-        <div class="forge-fill" style={{ transform: `scaleX(${pct / 100})` }} />
-        <b>{pct}%</b>
+        <div class="forge-line"><i style={{ transform: `scaleX(${Math.max(0.02, pct / 100)})` }} /></div>
+        <div class="forge-now">
+          <b key={active?.label}>{ready ? 'Game ready' : progress?.step && progress.step !== active?.label ? progress.step : active?.label}</b>
+          <span>{pct}%</span>
+        </div>
+        <div class="forge-steps">
+          {rows.map((r) => <span key={r.label} class={`fstep is-${r.state}`}>{r.label}</span>)}
+        </div>
       </div>
       <div class="forge-ings">{state.ingredients.slice(-6).map((g, i) => <span key={i} class="chip chip-sm">{g.text}</span>)}</div>
     </section>

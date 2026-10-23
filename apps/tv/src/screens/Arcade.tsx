@@ -2,7 +2,8 @@
 // the bottom like the lobby; OK plays the focused game, Back returns home.
 import { useEffect, useState } from 'preact/hooks';
 import type { ArcadeGameSummary, GameSpec } from '@cadabra/spec';
-import { Backdrop, Icon, NeonBg, Tile, TopBar, focus } from '../ui/components';
+import { NeonBg, TopBar, focus, useFocusable } from '../ui/components';
+import { HERO } from '../ui/hero';
 import { keyArtFor } from '../fallback';
 import type { PartyState } from '../state/machine';
 
@@ -24,34 +25,56 @@ const ago = (ms: number) => {
   return d < 60 ? `${Math.max(1, Math.round(d))} min ago` : d < 1440 ? `${Math.round(d / 60)} h ago` : `${Math.round(d / 1440)} d ago`;
 };
 
+const COLS = 4;
+
+function GameCard({ g, i, loading, onFocus, onSelect }: { g: ArcadeGameSummary; i: number; loading: boolean; onFocus: () => void; onSelect: () => void }) {
+  const ref = useFocusable(Math.floor(i / COLS), i % COLS, { autofocus: i === 0, focus: onFocus, select: onSelect });
+  return (
+    <div ref={ref} class="lib-card" style={{ animationDelay: `${Math.min(i, 8) * 0.04}s` }} onClick={onSelect}>
+      <div class="lib-art" style={{ backgroundImage: `url("${artOf(g).backdrop}")` }}>
+        {g.unplayed && <span class="lib-new">New</span>}
+        {loading && <span class="lib-loading">Loading…</span>}
+      </div>
+      <div class="lib-title">{g.title}</div>
+      <div class="lib-sub">{g.unplayed ? 'Not played yet' : `Played ${g.playedCount}×`}{g.lastPlayed > 0 ? `, ${ago(g.lastPlayed)}` : ''}</div>
+    </div>
+  );
+}
+
 export function Arcade({ state, status, games, loadingId, onPlay, onClose }: ArcadeProps) {
   const [focused, setFocused] = useState(0);
   useEffect(() => {
     focus.setBack(() => { onClose(); return true; });
     return () => focus.setBack(undefined);
   }, [onClose]);
-  const list = games ?? [];
+  const list = (games ?? []).slice(0, 12);
   const g = list[Math.min(focused, list.length - 1)];
+  // the grid scrolls a row at a time so the focused card stays on screen
+  const row = Math.floor(focused / COLS);
   return (
-    <section class="screen lobby arcade">
-      {g ? <Backdrop art={artOf(g)} /> : <NeonBg />}
+    <section class="screen library">
+      <NeonBg url={HERO.arcade} quiet />
       <TopBar code={state.code} players={state.players} status={status} />
-      <div class="hero" key={g?.id ?? 'empty'}>
-        <div class="eyebrow">Family arcade{g && <span class="eyebrow-cta"><i>OK</i>{loadingId === g.id ? 'Loading…' : 'Play'}</span>}</div>
-        <h1 class="title">{g ? g.title : games ? 'Nothing saved yet' : 'Opening the arcade…'}</h1>
-        <p class="hook">{g ? g.hook : games ? 'Every game you forge with Create is saved here after you play it.' : 'Fetching your saved games.'}</p>
-        {g && <div class="meta"><span>{g.unplayed ? 'New' : `Played ${g.playedCount}×`}</span>{g.lastPlayed > 0 && <span>{ago(g.lastPlayed)}</span>}</div>}
+      <div class="lib-head">
+        <h1 class="title title-sm">Arcade</h1>
+        <span class="lib-count">{games ? `${games.length} saved ${games.length === 1 ? 'game' : 'games'}` : 'Opening…'}</span>
       </div>
-      <nav class="tiles tiles-games">
-        {list.slice(0, 6).map((x, i) => (
-          <Tile key={x.id} col={i} label={x.title} class="tile-game" autofocus={i === 0} onFocus={() => setFocused(i)} onSelect={() => onPlay(x.id)}>
-            <div class="tile-art" style={{ backgroundImage: `url("${artOf(x).backdrop}")` }} />
-          </Tile>
-        ))}
-        <Tile col={Math.min(6, list.length)} label="Back" class="tile-action" autofocus={list.length === 0} onSelect={onClose}>
-          <Icon name="home" />
-        </Tile>
-      </nav>
+      {list.length === 0 ? (
+        <div class="lib-empty glass">
+          <h2>{games ? 'Nothing saved yet' : 'Opening the arcade…'}</h2>
+          <p>{games ? 'Every game you make with Create is saved here after you play it.' : 'Fetching your saved games.'}</p>
+          <span class="hint">Back to return home</span>
+        </div>
+      ) : (
+        <>
+          <div class="lib-grid" style={{ transform: `translate3d(0, ${-Math.max(0, row - 1) * 330}px, 0)` }}>
+            {list.map((x, i) => (
+              <GameCard key={x.id} g={x} i={i} loading={loadingId === x.id} onFocus={() => setFocused(i)} onSelect={() => onPlay(x.id)} />
+            ))}
+          </div>
+          {g && <div class="lib-hook" key={g.id}><b>{g.title}</b><span>{g.hook}</span></div>}
+        </>
+      )}
     </section>
   );
 }
