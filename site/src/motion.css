@@ -171,3 +171,5 @@ html.m .arch.in .a-dash, html.m .arch.in .a-lbl { opacity: 1; }
 .screen[data-step="storm"] > img, .screen[data-step="pitches"] > img, .screen[data-step="forge"] > img { opacity: .13 !important; }
 .ov { background: radial-gradient(120% 90% at 50% 50%, rgba(5, 6, 12, 0), rgba(5, 6, 12, .55)); }
 html.pin #how .flow { grid-template-columns: minmax(0, 1.9fr) minmax(260px, 1fr); }
+@media (max-width: 767px) { .scroll-cue { display: none; } }
+@media (max-width: 560px) { .lab-stage .hud { display: none; } .lab-stage { aspect-ratio: 4 / 3; } }
