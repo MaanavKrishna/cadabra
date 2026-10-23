@@ -55,7 +55,7 @@ export function reskinFallback(
   spec.theme.palette = { ...pitch.palette };
   spec.theme.keyArtPrompt = clip(pitch.keyArtPrompt, 600);
   spec.host.intro = clip(`Welcome to ${pitch.title}! ${pitch.hook}`, 240);
-  spec.host.finale = clip(`That was ${pitch.title}! Let us see who won.`, 240);
+  spec.host.finale = clip(`Final ten seconds of ${pitch.title}! Every point counts double. Go go go!`, 240);
   const view = spec.arena.kind === 'topdown' ? 'top-down cartoon' : 'side view cartoon';
   const sprite = (key: unknown, thing: string | undefined) => {
     if (typeof key === 'string' && thing && key in spec.theme.sprites) {

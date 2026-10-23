@@ -2,30 +2,48 @@
   "version": 1,
   "id": "fallback-bear-tug",
   "title": "Bear Tug",
-  "hook": "Two teams, one rope, one very confused bear in the middle.",
+  "hook": "Two teams, one rope, one mud pit, and a very confused bear. Pull on the beat or go for a swim.",
   "theme": {
     "palette": { "bg": "#1b1b3a", "primary": "#f4d35e", "accent": "#ee964b", "glow": "#f95738", "text": "#faf0ca" },
     "artStyle": "bouncy rubber-hose cartoon",
-    "keyArtPrompt": "Two teams of cartoon kids pulling a giant rope while a puzzled bear sits on the middle of it, silly and dramatic, no text",
+    "keyArtPrompt": "Two teams of cartoon kids heaving a giant striped rope over a bubbling mud pit while a puzzled bear sits on the middle of it, one kid mid-splash, silly and dramatic, no text",
     "sprites": { "player": "cartoon kid pulling hard, side view", "rope": "giant striped rope with a bear sitting on it, side view" },
     "sfxSet": "cartoon"
   },
   "arena": { "kind": "tug", "width": 1280, "height": 720 },
   "teams": 2,
   "durationSec": 75,
-  "blocks": [{ "block": "tug", "params": { "mode": "mash", "suddenDeathAtSec": 65 } }],
+  "blocks": [
+    {
+      "block": "tug",
+      "params": {
+        "mode": "beat",
+        "rhythmBpm": 100,
+        "beatBonus": 2.5,
+        "surgeCombo": 8,
+        "forcePerTap": 90,
+        "fatigue": 0.05,
+        "ropeLength": 640,
+        "suddenDeathAtSec": 55,
+        "suddenDeathBpmMul": 1.4,
+        "underdogBoost": 0.8,
+        "winPoints": 3,
+        "callout": "tug"
+      }
+    }
+  ],
   "modifiers": [],
   "win": { "type": "teamScore" },
   "timeline": [
-    { "atSec": 35, "kind": "slippery-rope", "params": {}, "hostLine": "The rope got slippery! Grip it tight!" },
-    { "atSec": 65, "kind": "sudden-death", "params": {}, "hostLine": "Sudden death! Every tap counts double!" }
+    { "atSec": 35, "kind": "bear-sneeze", "params": {}, "hostLine": "The bear SNEEZED! The rope lurches! Grab on!" },
+    { "atSec": 55, "kind": "sudden-death", "params": {}, "hostLine": "Sudden death! The beat speeds up and every pull counts double!" }
   ],
-  "comeback": { "enabled": true, "strength": 0.4 },
-  "controller": [{ "kind": "button", "id": "pull", "label": "PULL" }],
+  "comeback": { "enabled": true, "strength": 0.6 },
+  "controller": [{ "kind": "button", "id": "pull", "label": "PULL (on the beat!)" }],
   "host": {
-    "intro": "Two teams. One rope. No mercy.",
-    "finale": "The rope has chosen its champions. Well pulled, everyone.",
-    "tutorial": "Mash PULL as fast as you can. Your team pulls together."
+    "intro": "Two teams. One rope. One mud pit. Tap PULL on the beat to heave hardest. Losers get muddy!",
+    "finale": "Final ten! Double points! Pull like your socks depend on it!",
+    "tutorial": "Tap PULL. Taps on the beat pull extra hard. Everyone on the beat four times in a row = SURGE! Drag the bear over your line."
   },
   "origin": { "ingredients": [], "wild": false }
 }

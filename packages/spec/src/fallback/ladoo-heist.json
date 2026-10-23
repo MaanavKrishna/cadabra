@@ -2,15 +2,16 @@
   "version": 1,
   "id": "fallback-ladoo-heist",
   "title": "Ladoo Heist",
-  "hook": "Tiptoe past a sleeping bear and sneak every ladoo out of Grandma's kitchen.",
+  "hook": "A bear is napping on Grandma's ladoos. Grab some, tiptoe home, bank them. Greedy pockets are LOUD pockets.",
   "theme": {
     "palette": { "bg": "#2b1a12", "primary": "#ff9f1c", "accent": "#e63946", "glow": "#ffd166", "text": "#fff6e5" },
     "artStyle": "warm storybook cartoon",
-    "keyArtPrompt": "A huge sleeping brown bear snoring in a cozy grandma's kitchen, plates of golden ladoos on every counter, warm lamplight, no text",
+    "keyArtPrompt": "A huge sleeping brown bear in a flowery apron snoring on a pile of golden ladoos in a cozy grandma's kitchen, tiny kids in socks tiptoeing with arms full of sweets, warm lamplight, no text",
     "sprites": {
       "player": "tiny sneaky kid in socks, top-down cartoon",
       "ladoo": "golden round ladoo sweet, top-down cartoon",
-      "bear": "sleeping brown bear in an apron, top-down cartoon"
+      "bear": "sleeping brown bear in a flowery apron, top-down cartoon",
+      "base": "woven picnic basket, top-down cartoon"
     },
     "sfxSet": "cartoon"
   },
@@ -18,24 +19,62 @@
   "teams": 0,
   "durationSec": 90,
   "blocks": [
-    { "block": "sneak", "params": { "guardSprite": "bear", "hearingRadius": 320, "wakeDurationSec": 5 } },
-    { "block": "collect", "params": { "itemSprite": "ladoo", "maxItems": 24, "spawnEverySec": 1.5 } }
+    {
+      "block": "sneak",
+      "params": {
+        "guardSprite": "bear",
+        "onWake": "chase",
+        "chaseSec": 3,
+        "chaseSpeed": 200,
+        "hearingRadius": 380,
+        "noiseLimit": 100,
+        "noisePerMove": 55,
+        "noiseDecayPerSec": 14,
+        "tiptoeSpeedFactor": 0.5,
+        "wakePenalty": 2,
+        "daringPoints": 0,
+        "callout": "heist"
+      }
+    },
+    {
+      "block": "collect",
+      "params": {
+        "itemSprite": "ladoo",
+        "carryToGoal": true,
+        "homeBases": true,
+        "goalRadius": 70,
+        "carryMax": 3,
+        "bankBonus": 1,
+        "carrySlowdown": 0.12,
+        "carryNoise": 0.6,
+        "spawnArea": "centre",
+        "spawnRadius": 280,
+        "maxItems": 10,
+        "spawnEverySec": 1,
+        "itemRadius": 16,
+        "goldenChance": 0,
+        "goldenMultiplier": 5,
+        "stealOnBump": true,
+        "stealCooldownSec": 1.5,
+        "callout": "heist"
+      }
+    }
   ],
   "modifiers": [],
   "win": { "type": "highScore" },
   "timeline": [
-    { "atSec": 45, "kind": "guard-sleepwalk", "params": { "durationSec": 10 }, "hostLine": "The guard is sleepwalking! Everyone, freeze!" },
-    { "atSec": 80, "kind": "double-loot", "params": { "multiplier": 2 }, "hostLine": "Final ten seconds: grab everything!" }
+    { "atSec": 45, "kind": "golden-ladoo", "params": {}, "hostLine": "A GOLDEN LADOO just rolled up next to the bear! It's worth five. Who's brave enough?" },
+    { "atSec": 80, "kind": "ladoo-frenzy", "params": {}, "hostLine": "Grandma dropped the whole tray! Ladoos everywhere!" }
   ],
   "comeback": { "enabled": true, "strength": 0.5 },
   "controller": [
     { "kind": "joystick", "id": "move" },
-    { "kind": "hold", "id": "tiptoe", "label": "Tiptoe" }
+    { "kind": "hold", "id": "tiptoe", "label": "TIPTOE (quiet)" }
   ],
   "host": {
-    "intro": "The guard is snoring and the treats are out. Sneak in and grab them all.",
-    "finale": "The guard wakes up to an empty room. Who is the sneakiest of them all?",
-    "tutorial": "Move with the stick. Hold Tiptoe near the guard to stay silent. Touch a treat to grab it."
+    "intro": "Shh! The bear is snoring on Grandma's ladoos. Grab up to three, sneak them to YOUR basket, and try not to jingle.",
+    "finale": "Final ten seconds! Every ladoo counts DOUBLE. Run, little ladoo bandits, run!",
+    "tutorial": "Stick to move. Touch ladoos to grab them (three max: heavy and loud). Bank them in your basket. Hold TIPTOE near the bear. Bump a carrier to steal one!"
   },
   "origin": { "ingredients": [], "wild": false }
 }

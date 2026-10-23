@@ -2,15 +2,16 @@
   "version": 1,
   "id": "fallback-lava-penguins",
   "title": "Lava Floor Penguins",
-  "hook": "The floor is lava, the fish are falling, and penguins cannot fly. Waddle fast.",
+  "hook": "Penguins on slippery ice, lava waves rolling in, fish everywhere. Slide, grab, and shove your friends into the lava.",
   "theme": {
     "palette": { "bg": "#14213d", "primary": "#4cc9f0", "accent": "#ff5400", "glow": "#ffbe0b", "text": "#f1faee" },
     "artStyle": "chunky bright vector cartoon",
-    "keyArtPrompt": "Cheerful penguins hopping across glowing orange lava cracks on an ice floe, fish raining from the sky, bold shapes, no text",
+    "keyArtPrompt": "Cheerful round penguins sliding and bumping on cracked ice tiles while glowing orange lava waves roll across, shiny fish flying everywhere, bold shapes, no text",
     "sprites": {
       "player": "round penguin with a scarf, top-down cartoon",
       "fish": "shiny blue fish, top-down cartoon",
-      "lava": "bubbling orange lava blob with a warning glow, top-down cartoon"
+      "lava": "bubbling orange lava blob with a warning glow, top-down cartoon",
+      "tile": "cracked square ice floe tile, top-down cartoon"
     },
     "sfxSet": "arcade"
   },
@@ -18,25 +19,53 @@
   "teams": 0,
   "durationSec": 90,
   "blocks": [
-    { "block": "arena-move", "params": { "speed": 300, "friction": 3, "dashButton": "dash" } },
-    { "block": "collect", "params": { "itemSprite": "fish", "spawnEverySec": 0.9, "maxItems": 12 } },
-    { "block": "dodge", "params": { "hazardSprite": "lava", "pattern": "rain", "onHit": "stun", "startRate": 0.6, "maxRate": 2.5 } }
+    {
+      "block": "arena-move",
+      "params": { "speed": 300, "accel": 750, "friction": 1.2, "dashButton": "dash", "dashPower": 2.6, "dashCooldownSec": 1.2, "dashMs": 200, "dashShove": 2.5, "avatarScale": 1.25 }
+    },
+    {
+      "block": "collect",
+      "params": { "itemSprite": "fish", "spawnEverySec": 0.8, "maxItems": 10, "pointsPerItem": 1, "goldenChance": 0, "goldenMultiplier": 3, "itemRadius": 16, "stealOnBump": false, "callout": "penguin" }
+    },
+    {
+      "block": "dodge",
+      "params": {
+        "hazardSprite": "lava",
+        "pattern": "sweep",
+        "startRate": 0.7,
+        "rampPerSec": 0.02,
+        "maxRate": 2.4,
+        "telegraphMs": 1100,
+        "hazardSpeed": 190,
+        "hazardRadius": 26,
+        "onHit": "losePoints",
+        "hitPenalty": 2,
+        "invulnSec": 1.5,
+        "hitKnockback": 520,
+        "knockoutPoints": 3,
+        "survivePoints": 0,
+        "nearMissPoints": 1,
+        "crumbleLastSec": 10,
+        "callout": "penguin"
+      }
+    }
   ],
   "modifiers": [],
   "win": { "type": "highScore" },
   "timeline": [
-    { "atSec": 40, "kind": "surprise", "params": {}, "hostLine": "Something big is coming! Watch the sky, everyone!" },
-    { "atSec": 80, "kind": "twist", "params": {}, "hostLine": "Ten seconds left and the sky is ANGRY!" }
+    { "atSec": 40, "kind": "surprise", "params": {}, "hostLine": "Uh oh. The volcano sneezed! Something new is coming, eyes up!" },
+    { "atSec": 50, "kind": "golden-fish", "params": {}, "hostLine": "A golden fish! Worth triple! Go go go!" },
+    { "atSec": 80, "kind": "twist", "params": {}, "hostLine": "The ice is cracking! Get to the middle, penguins!" }
   ],
   "comeback": { "enabled": true, "strength": 0.6 },
   "controller": [
     { "kind": "joystick", "id": "move" },
-    { "kind": "button", "id": "dash", "label": "Slide" }
+    { "kind": "button", "id": "dash", "label": "DASH (shove)" }
   ],
   "host": {
-    "intro": "Grab the goodies, dodge the falling blobs, and slide like you mean it.",
-    "finale": "The dust settles. One player waddles home a champion.",
-    "tutorial": "Stick to move, tap Slide to dash. Grab the goodies, dodge the glowing drops."
+    "intro": "The floor is ice, the waves are lava, and penguins cannot brake. Grab fish, dodge waves, and shove your friends!",
+    "finale": "Final ten! Fish count DOUBLE and the ice is falling apart. Waddle for your lives!",
+    "tutorial": "Stick to slide (it's icy!). Grab fish. Dodge the glowing lava waves. Tap DASH to shove a penguin into the lava for bonus points!"
   },
   "origin": { "ingredients": [], "wild": false }
 }
