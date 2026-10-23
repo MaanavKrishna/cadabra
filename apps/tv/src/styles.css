@@ -206,7 +206,9 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .home ~ .caption, .settings ~ .caption, .library ~ .caption { bottom: auto; top: 470px; left: auto; right: var(--mx); transform: translateY(-12px); font-size: 28px; max-width: 1060px; border-radius: 26px; }
 .home ~ .caption .caption-text, .settings ~ .caption .caption-text, .library ~ .caption .caption-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .home ~ .caption.is-on, .settings ~ .caption.is-on, .library ~ .caption.is-on { transform: none; }
-.results ~ .caption { bottom: 170px; }
+.results ~ .caption { bottom: 170px; max-width: 1500px; font-size: 28px; border-radius: 26px; }
+/* the roast sits between the podium (ends 280px up) and the buttons: two lines at most, never over the scores */
+.results ~ .caption .caption-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .party-champion ~ .caption { left: var(--mx); bottom: 330px; max-width: 520px; font-size: 28px; transform: translateY(24px); border-radius: 26px; }
 .party-champion ~ .caption.is-on { transform: none; }
 .play ~ .caption { bottom: 150px; }
