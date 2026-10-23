@@ -31,6 +31,7 @@ interface Item { key: string; kind: Kind; label: string; image: string; icon?: I
 
 const GLYPH: Record<string, string> = {
   'fallback-ring-out': 'ring', 'fallback-overload': 'bomb', 'fallback-paint-wars': 'paint', 'fallback-core-rush': 'core', 'fallback-neon-dash': 'flag',
+  'fallback-rocket-ball': 'bolt', 'fallback-crate-crash': 'base',
 };
 
 const ITEMS: Item[] = [

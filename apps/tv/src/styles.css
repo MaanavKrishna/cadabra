@@ -426,8 +426,9 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 /* ================= ARCADE (library) ================= */
 .lib-head { position: absolute; left: var(--mx); top: 150px; z-index: 3; display: flex; align-items: baseline; gap: 30px; }
 .lib-count { font-size: 30px; color: var(--ink-3); }
+.lib-view { position: absolute; left: 0; right: 0; top: 236px; bottom: 150px; z-index: 3; overflow: hidden; }
 .lib-grid {
-  position: absolute; left: var(--mx); right: var(--mx); top: 300px; z-index: 3;
+  position: absolute; left: var(--mx); right: var(--mx); top: 64px;
   display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 36px; row-gap: 30px;
   transition: transform 0.35s var(--ease);
 }

@@ -55,6 +55,16 @@ const BUILT_IN: Record<string, IntroStep[]> = {
     { icon: g('gate'), text: 'JUMP the laser gates' },
     { icon: g('flag'), text: 'First to the finish' },
   ],
+  'fallback-rocket-ball': [
+    { icon: g('bolt'), text: 'BOOST into the ball' },
+    { icon: g('shove'), text: 'Bank it off the walls' },
+    { icon: g('base'), text: 'Score in their goal' },
+  ],
+  'fallback-crate-crash': [
+    { icon: g('base'), text: 'Guard your crate stack' },
+    { icon: g('shove'), text: 'DASH to smash rival crates' },
+    { icon: g('bomb'), text: 'Barrels go boom' },
+  ],
   // legacy cartoon games (old share codes)
   'fallback-ladoo-heist': [
     { icon: 'ladoo', text: 'Grab ladoos' },
@@ -69,6 +79,8 @@ const LINES: Record<string, string> = {
   'fallback-paint-wars': 'Paint the floor your team’s colour. Most tiles wins!',
   'fallback-core-rush': 'Carry cores to your base. Dash carriers to steal!',
   'fallback-neon-dash': 'Race to the finish. Time the laser gates!',
+  'fallback-rocket-ball': 'Two on two. Boost the giant ball into their goal!',
+  'fallback-crate-crash': 'Keep your crates standing. Knock everyone else’s off!',
 };
 
 const word = (s: unknown, d: string) => (typeof s === 'string' && s.trim() ? s.trim() : d);
@@ -85,6 +97,9 @@ function stepsFromBlocks(spec: GameSpec): IntroStep[] {
         else if (p.overload) out.push({ icon: g('bomb'), text: 'Pass the core before it blows' });
         else if (p.paint) out.push({ icon: g('paint'), text: 'Paint the most floor' });
         else if (p.dashButton) out.push({ icon: g('shove'), text: 'DASH to shove' });
+        break;
+      case 'ball-sport':
+        out.push({ icon: g('bolt'), text: 'Hit the ball' }, { icon: g('base'), text: 'Score in their goal' });
         break;
       case 'collect': {
         const it = word(p.itemSprite, 'item');

@@ -83,11 +83,29 @@ describe('local preset tweaks', () => {
     expect(none).toMatchObject({ source: 'none', spec: ring, changes: [] });
   });
 
+  test('faster and more chaos change every built-in game', () => {
+    for (const base of FALLBACK_SPECS) {
+      expect(presetTweak(base, [{ by: 'a', chip: 'faster' }], reg).source, base.id).toBe('preset');
+      expect(presetTweak(base, [{ by: 'a', chip: 'more-chaos' }], reg).source, base.id).toBe('preset');
+    }
+  });
+
   test('every built-in game takes every chip and still plays', () => {
     for (const base of FALLBACK_SPECS) {
       const r = presetTweak(base, [{ by: 'a', chip: 'more-chaos' }, { by: 'b', chip: 'faster' }, { by: 'a', chip: 'harder-for-leader' }], reg);
       expect(playtest(r.spec, reg, { players: 4 }).reasons, base.id).toEqual([]);
     }
+  });
+
+  test('physics games: low gravity floats, bouncier bounces, chaos knocks harder (clamped to the schema)', () => {
+    const phys: GameSpec = { ...ring, world: { physics: { restitution: 0.9 }, props: [{ kind: 'bumper', count: 4, layout: 'ring' }] } };
+    const low = presetTweak(phys, [{ by: 'a', chip: 'low-gravity' }], reg).spec.world!.physics!;
+    expect(low.linearDamping).toBeCloseTo(1.2 * 0.35);
+    const bounce = presetTweak(phys, [{ by: 'a', chip: 'bouncier' }], reg).spec.world!.physics!;
+    expect(bounce.restitution).toBe(1.2);
+    const chaos = presetTweak(phys, [{ by: 'a', chip: 'more-chaos' }], reg).spec.world!.physics!;
+    expect(chaos.knockback).toBe(1.5);
+    expect(phys.world!.physics).toEqual({ restitution: 0.9 });
   });
 
   test('remix titles fit the 40-char cap', () => {

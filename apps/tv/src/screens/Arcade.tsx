@@ -71,10 +71,12 @@ export function Arcade({ state, status, games, loadingId, onPlay, onRemix, onClo
         </div>
       ) : (
         <>
-          <div class="lib-grid" style={{ transform: `translate3d(0, ${-Math.max(0, row - 1) * 330}px, 0)` }}>
-            {list.map((x, i) => (
-              <GameCard key={x.id} g={x} i={i} loading={loadingId === x.id} onFocus={() => setFocused(i)} onSelect={() => onPlay(x.id)} />
-            ))}
+          <div class="lib-view">
+            <div class="lib-grid" style={{ transform: `translate3d(0, ${-Math.max(0, row - 1) * 330}px, 0)` }}>
+              {list.map((x, i) => (
+                <GameCard key={x.id} g={x} i={i} loading={loadingId === x.id} onFocus={() => setFocused(i)} onSelect={() => onPlay(x.id)} />
+              ))}
+            </div>
           </div>
           {g && (
             <div class="lib-hook" key={g.id}>

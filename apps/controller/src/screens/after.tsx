@@ -108,7 +108,7 @@ export function TweakScreen({ data, reply }: { data: ScreenData['tweak']; reply:
             </button>
           ))}
         </div>
-        <TextSend placeholder="Or type anything: giant players…" onSend={text} max={TWEAK_TEXT_MAX} />
+        <TextSend placeholder="Or type: giant players…" onSend={text} max={TWEAK_TEXT_MAX} />
         <p class="hint">The TV takes the first three ideas from the room.</p>
         <ul class="idea-list">{sent.map((s, i) => <li key={`${sent.length - i}`} class="idea">{s}</li>)}</ul>
       </section>
@@ -118,10 +118,10 @@ export function TweakScreen({ data, reply }: { data: ScreenData['tweak']; reply:
     return (
       <section class="screen screen-tweak screen-wait" data-screen="tweak" data-phase="done">
         <Eyebrow>What changed</Eyebrow>
-        <h1 class="display sm center">{data.summary ?? 'Same rules, round two!'}</h1>
-        {(data.changes?.length ?? 0) > 0 && (
-          <div class="tweak-tags">{data.changes!.map((c) => <span key={c} class="tweak-tag">{c}</span>)}</div>
-        )}
+        <h1 class="display sm center">{data.message ?? 'New rules'}</h1>
+        {(data.changes?.length ?? 0) > 0
+          ? <div class="tweak-tags">{data.changes!.map((c) => <span key={c} class="tweak-tag">{c}</span>)}</div>
+          : <p class="lede center">{data.summary ?? 'Same rules, round two!'}</p>}
         <p class="lede center">Get your thumbs ready. The new version starts on the TV.</p>
       </section>
     );

@@ -2,7 +2,7 @@
 // max 3), the backend request, and the local preset patches the TV applies when the backend
 // cannot answer (offline, timeout). The reducer lives in state/machine.ts (TweakInfo).
 import type { BlockRegistry } from '@cadabra/engine';
-import { TWEAK_CHIPS, TWEAK_CHIP_LABELS, type GameSpec, type TweakChip, type TweakRequest } from '@cadabra/spec';
+import { PHYSICS_DEFAULTS, TWEAK_CHIPS, TWEAK_CHIP_LABELS, type GameSpec, type TweakChip, type TweakRequest, type WorldPhysics } from '@cadabra/spec';
 import { tweakId } from '../fallback/lineage';
 
 /** Phones (and the TV's D-pad) send requests for this long. */
@@ -11,8 +11,11 @@ export const TWEAK_ASK_SEC = 10;
 export const MAX_TWEAKS = 3;
 /** Once MAX_TWEAKS are in, rebuild after this pause (the third chip gets its moment). */
 export const TWEAK_FULL_MS = 1200;
-/** No forge.tweaked this long after asking: apply the local presets instead. */
-export const TWEAK_TIMEOUT_MS = 15_000;
+/**
+ * No forge.tweaked this long after asking: apply the local presets instead. The backend's hard
+ * cap is 15 s (it answers with its own presets by then), so this only fires when it is gone.
+ */
+export const TWEAK_TIMEOUT_MS = 16_500;
 /** "Rebuilding…" shows at least this long, even for an instant answer. */
 export const REBUILD_MIN_MS = 1400;
 /** The "What changed" card holds this long before the replay. */
@@ -71,7 +74,6 @@ export interface TweakResult {
 }
 
 type Rec = Record<string, unknown>;
-const isRec = (x: unknown): x is Rec => !!x && typeof x === 'object' && !Array.isArray(x);
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -111,6 +113,18 @@ function editParams(spec: GameSpec, registry: BlockRegistry | undefined, key: st
   return changed;
 }
 
+/** editParams for every param whose name matches `re` (e.g. every *Speed, every *EverySec). */
+function editMatching(spec: GameSpec, registry: BlockRegistry | undefined, re: RegExp, f: (v: number) => number, skip: readonly string[] = []): boolean {
+  const keys = new Set<string>();
+  for (const use of [...spec.blocks, ...spec.modifiers]) {
+    const shape = (registry?.get(use.block)?.paramsSchema as { shape?: Rec } | undefined)?.shape;
+    for (const k of Object.keys(shape ?? use.params)) if (re.test(k) && !skip.includes(k)) keys.add(k);
+  }
+  let changed = false;
+  for (const k of keys) changed = editParams(spec, registry, k, f) || changed;
+  return changed;
+}
+
 function setBoolParam(spec: GameSpec, registry: BlockRegistry | undefined, key: string, v: boolean): boolean {
   let changed = false;
   for (const use of [...spec.blocks, ...spec.modifiers]) {
@@ -123,30 +137,29 @@ function setBoolParam(spec: GameSpec, registry: BlockRegistry | undefined, key: 
   return changed;
 }
 
-/** spec.world.physics (engine R2) when the spec has one. Only keys that already exist are edited. */
-function physicsOf(spec: GameSpec): Rec | undefined {
-  const w = (spec as unknown as Rec).world;
-  return isRec(w) && isRec(w.physics) ? w.physics : undefined;
+/** spec.world.physics when physics is on (absent fields read as PHYSICS_DEFAULTS). */
+function physicsOf(spec: GameSpec): WorldPhysics | undefined {
+  // props without a physics block still run on physics (resolvePhysics): give them one to edit
+  if (spec.world && !spec.world.physics && (spec.world.props?.length ?? 0) > 0) spec.world.physics = {};
+  const ph = spec.world?.physics;
+  return ph && ph.enabled !== false ? ph : undefined;
 }
 
-function scalePhys(ph: Rec | undefined, re: RegExp, f: (v: number) => number, lo = -Infinity, hi = Infinity): boolean {
+type NumKey = { [K in keyof WorldPhysics]-?: NonNullable<WorldPhysics[K]> extends number ? K : never }[keyof WorldPhysics];
+/** Ranges from WorldPhysicsSchema (packages/spec). */
+const PHYS_RANGE: Record<NumKey, [number, number]> = {
+  gravityX: [-1500, 1500], gravityY: [-1500, 1500], restitution: [0, 1.2], friction: [0, 1], linearDamping: [0, 10],
+  angularDamping: [0, 10], playerMass: [0.25, 4], knockback: [0.25, 4], bumperKick: [0, 1500], barrelPower: [0, 2500],
+};
+
+function editPhys(ph: WorldPhysics | undefined, key: NumKey, f: (v: number) => number): boolean {
   if (!ph) return false;
-  let changed = false;
-  for (const [k, v] of Object.entries(ph)) {
-    if (!re.test(k)) continue;
-    const clamp = (n: number) => round(Math.min(hi, Math.max(lo, n)));
-    if (typeof v === 'number') {
-      const n = clamp(f(v));
-      if (n !== v) { ph[k] = n; changed = true; }
-    } else if (isRec(v)) {
-      for (const [a, x] of Object.entries(v)) {
-        if (typeof x !== 'number') continue;
-        const n = round(f(x));
-        if (n !== x) { v[a] = n; changed = true; }
-      }
-    }
-  }
-  return changed;
+  const cur = ph[key] ?? PHYSICS_DEFAULTS[key];
+  const [lo, hi] = PHYS_RANGE[key];
+  const next = round(Math.min(hi, Math.max(lo, f(cur))));
+  if (next === cur) return false;
+  ph[key] = next;
+  return true;
 }
 
 const PRESET_TAG: Record<TweakChip, string> = {
@@ -160,36 +173,39 @@ function applyChip(spec: GameSpec, chip: TweakChip, reg: BlockRegistry | undefin
   switch (chip) {
     case 'low-gravity':
       return { chip, changed: any(
-        scalePhys(ph, /gravity/i, (v) => v * 0.4),
-        scalePhys(ph, /linearDamping|damping/i, (v) => v * 0.5, 0),
+        editPhys(ph, 'gravityX', (v) => v * 0.4),
+        editPhys(ph, 'gravityY', (v) => v * 0.4),
+        editPhys(ph, 'linearDamping', (v) => v * 0.35),
+        editPhys(ph, 'angularDamping', (v) => v * 0.5),
         editParams(spec, reg, 'friction', (v) => v * 0.35),
         editParams(spec, reg, 'accel', (v) => v * 0.6),
       ) };
     case 'faster':
       return { chip, changed: any(
-        editParams(spec, reg, 'speed', (v) => v * 1.3),
-        editParams(spec, reg, 'accel', (v) => v * 1.3),
-        editParams(spec, reg, 'dashCooldownSec', (v) => v * 0.75),
-        editParams(spec, reg, 'scrollSpeed', (v) => v * 1.3),
+        editMatching(spec, reg, /^(speed|accel|runSpeed|scrollSpeed|rampPerSec|startRate)$|Speed$/, (v) => v * 1.3, ['tiptoeSpeedFactor', 'overloadHolderSpeed']),
+        editMatching(spec, reg, /CooldownSec$|EverySec$/, (v) => v * 0.75),
       ) };
     case 'bigger-arena':
       return { chip, changed: any(
         editParams(spec, reg, 'ringRadius', (v) => v * 1.2),
         editParams(spec, reg, 'ringShrinkTo', (v) => v * 1.2),
         editParams(spec, reg, 'avatarScale', (v) => v * 0.8),
+        editMatching(spec, reg, /Radius$|^trackLength$/, (v) => v * 1.2, ['ringRadius', 'spawnRadius']),
       ) };
     case 'bouncier':
       return { chip, changed: any(
-        scalePhys(ph, /restitution|bounce/i, (v) => Math.max(v + 0.3, v * 1.5), 0, 1),
+        editPhys(ph, 'restitution', (v) => Math.max(v + 0.3, v * 1.5)),
+        editPhys(ph, 'bumperKick', (v) => v * 1.3),
         setBoolParam(spec, reg, 'bounceWalls', true),
         editParams(spec, reg, 'dashShove', (v) => v * 1.3),
       ) };
     case 'more-chaos':
       return { chip, changed: any(
-        scalePhys(ph, /knockback/i, (v) => v * 1.5, 0, 4),
+        editPhys(ph, 'knockback', (v) => v * 1.5),
+        editPhys(ph, 'barrelPower', (v) => v * 1.4),
         editParams(spec, reg, 'dashShove', (v) => v * 1.5),
-        editParams(spec, reg, 'dashCooldownSec', (v) => v * 0.6),
-        editParams(spec, reg, 'shoveStunSec', (v) => v * 1.5),
+        editMatching(spec, reg, /CooldownSec$|EverySec$/, (v) => v * 0.6),
+        editMatching(spec, reg, /StunSec$|^stunSec$|^stumbleSec$/, (v) => v * 1.5),
       ) };
     case 'harder-for-leader': {
       const before = JSON.stringify(spec.comeback);

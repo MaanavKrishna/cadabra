@@ -161,6 +161,11 @@ export function App() {
       dispatch({ type: 'forge', msg: m });
     } else if (m.t === 'error') {
       const phase = stateRef.current.phase;
+      const tw = stateRef.current.tweak;
+      if (phase === 'tweak' && tw?.stage === 'rebuilding' && (m.code === 'room.badRequest' || m.code === 'room.rateLimited' || m.code === 'forge.busy')) {
+        // the backend refused the tweak (or is an older build): the chip presets, right away
+        return finishTweak(tw.id, presetTweak(tw.base, tw.asks, registry()));
+      }
       if (m.code === 'forge.busy' && phase === 'pitching') {
         // the room's last forge still holds the lock: retry once, then a built-in game
         if (busyRetried.current) return forgeFallback();
