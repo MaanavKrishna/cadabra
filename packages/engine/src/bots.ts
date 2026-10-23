@@ -3,19 +3,10 @@ import type { Rng } from './rng';
 import type { GameRuntime } from './runtime';
 
 /**
- * Family-safe bot personalities. A bot's avatar key is `bot:<index in this list>`, so a
- * personality always wears the same face from the fallback avatar pack.
+ * Neon arcade bot handles (≤ 7 characters, they fit any name tag). A bot's avatar key is
+ * `bot:<index in this list>`, so a handle always wears the same face from the fallback avatar pack.
  */
-export const BOT_NAMES: readonly string[] = [
-  'Captain Crumbs',
-  'Professor Wobble',
-  'Sir Snacksalot',
-  'Dizzy Dumpling',
-  'Turbo Turnip',
-  'Lady Noodle',
-  'Baron Von Bounce',
-  'Pickle Rocket',
-];
+export const BOT_NAMES: readonly string[] = ['VOLT', 'NOVA', 'BLITZ', 'PIXEL', 'ECHO', 'FLUX', 'RAZE', 'ZERO'];
 
 /**
  * `n` bot players with distinct personalities (shuffled by `rng`; past the list, names get a

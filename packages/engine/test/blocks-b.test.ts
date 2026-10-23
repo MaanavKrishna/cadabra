@@ -424,7 +424,7 @@ describe('draw-judge', () => {
   });
 
   test('judgement entries flag bots so the backend can skip AI calls for them', () => {
-    const players = [...makePlayers(1), { id: 'b1', name: 'Captain Crumbs', avatar: 'bot:0', isBot: true, connected: true, score: 0 }];
+    const players = [...makePlayers(1), { id: 'b1', name: 'VOLT', avatar: 'bot:0', isBot: true, connected: true, score: 0 }];
     const rt = runtime(drawSpec(), players);
     rt.input('p0', { t: 0, draw: PNG });
     rt.input('b1', { t: 0, draw: PNG });
