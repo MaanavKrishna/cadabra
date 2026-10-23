@@ -426,21 +426,21 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 /* ================= ARCADE (library) ================= */
 .lib-head { position: absolute; left: var(--mx); top: 150px; z-index: 3; display: flex; align-items: baseline; gap: 30px; }
 .lib-count { font-size: 30px; color: var(--ink-3); }
-.lib-view { position: absolute; left: 0; right: 0; top: 236px; bottom: 150px; z-index: 3; overflow: hidden; }
+.lib-view { position: absolute; left: 0; right: 0; top: 266px; bottom: 150px; z-index: 3; overflow: hidden; }
 .lib-grid {
-  position: absolute; left: var(--mx); right: var(--mx); top: 64px;
+  position: absolute; left: var(--mx); right: var(--mx); top: 30px;
   display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 36px; row-gap: 30px;
   transition: transform 0.35s var(--ease);
 }
-.lib-card { animation: rise 0.4s var(--ease) both; }
+.lib-card { height: 300px; animation: rise 0.4s var(--ease) both; }
 .lib-art {
-  position: relative; height: 230px; border-radius: 22px; background-size: cover; background-position: center; background-color: #151827;
+  position: relative; height: 220px; border-radius: 22px; background-size: cover; background-position: center; background-color: #151827;
   box-shadow: 0 0 0 1px var(--line); transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
 .lib-card.is-focused .lib-art { transform: scale(1.05); box-shadow: var(--focus-ring); }
 .lib-new { position: absolute; left: 16px; top: 16px; padding: 4px 14px; border-radius: 999px; font-size: 22px; font-weight: 600; color: #0b0d16; background: #fff; }
 .lib-loading { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 22px; font-size: 30px; font-weight: 600; background: rgba(5, 6, 12, 0.65); }
-.lib-title { margin-top: 18px; font-size: 30px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-title { margin-top: 12px; font-size: 30px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib-sub { margin-top: 4px; font-size: 24px; color: var(--ink-3); }
 .lib-hook { position: absolute; left: var(--mx); right: var(--mx); bottom: 0; z-index: 4; padding: 30px 0 46px; display: flex; gap: 24px; align-items: baseline; font-size: 30px; color: var(--ink-2); background: linear-gradient(180deg, rgba(5, 6, 12, 0), rgba(5, 6, 12, 0.95) 40%); animation: fade-in 0.3s both; }
 .lib-hook b { color: #fff; font-weight: 600; white-space: nowrap; }
