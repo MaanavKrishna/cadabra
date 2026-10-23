@@ -87,6 +87,45 @@ Carry max 2; each carried core costs 15% speed (`loadMul`). 50 s "core-storm" fi
 
 Score reasons are the `race.*` codes (the renderer translates them).
 
+## Physics (planck.js): `spec.world.physics` / `spec.world.props`, `ball-sport`, arena-move `crates`
+
+Physics is on when the spec has `world.physics` (or `world.props`), or a block needs it (`ball-sport`,
+arena-move `crates`). Players become round bodies (player vs player bumps stay in arena-move, now
+with spin and `knockback`); props are rigid bodies.
+
+| type | player | data | meaning |
+|---|---|---|---|
+| **`explode`** | credited player (dasher / last toucher), if any | `{ x, y, by?, moment:'detonate' }` | A barrel went off (dashed into, or slammed ≥ 380 px/s): radial blast (`barrelPower`, 220 px), stuns players 0.45 s. The barrel is removed and respawns at its spawn point after `respawnSec`. |
+| `phys.bumper` | player kicked (if a player) | `{ x, y }` | Something hit a pinball bumper and got kicked (`bumperKick`). |
+| `phys.fall` | – | `{ kind, x, y }` | A prop slid off the platform (ring-out tiles) and left play. |
+
+### Theme looks
+`theme.look` ∈ `neon | toybox | cosmos | retro` (and the same id in `theme.sfxSet`); default palettes in
+`THEME_PALETTES` (@cadabra/spec). Lineup: RING OUT toybox, OVERLOAD cosmos, PAINT WARS retro,
+CORE RUSH cosmos, NEON DASH neon, ROCKET BALL neon, CRATE CRASH toybox.
+
+### sfx names (FxEvent `sfx`) added by physics
+`bumper`, `boom` (barrel), `kick` (ball hit / power shot), `crate` (crate impact / refill), `goal`.
+
+## ROCKET BALL: blocks `arena-move` + `ball-sport` (goals), ns `rocket`
+
+| type | player | data | meaning |
+|---|---|---|---|
+| **`rocket.goal`** | scorer | `{ side, own, team?, x, y, moment:'goal' }` | Ball centre inside a goal mouth. `side` = the net it went into (-1 left, 1 right); `team` = scoring team. Scorer +`goalPoints` "GOAL!" ("COMEBACK GOAL!" +`behindBonus` when the scoring side was behind; "OWN GOAL!" when no scoring-side player touched it), teammates +`assistPoints` "ASSIST". Kickoff reset: ball to centre, players to kickoff spots, frozen `kickoffSec`. |
+| **`rocket.multiball`** | – | `{ balls, moment:'multiball' }` | Timeline `multiballEventKind`: another ball drops in (max 3). |
+| `ball.goal` | scorer | same as above | bookkeeping twin |
+| `ball.kick` | kicker | `{ power }` | A dashing player power-shot the ball (+`kickPower`). |
+
+keepaway mode: "POSSESSION" points every `keepAwayEverySec` to whoever touched the ball last.
+
+## CRATE CRASH: block `arena-move` (`crates`) + barrels in `world.props`, ns `crate`
+
+| type | player | data | meaning |
+|---|---|---|---|
+| **`crate.crash`** | knocker (if credited) | `{ victim, x, y, credited, moment:'crash' }` | A crate left its owner's zone. Credited to whoever touched it (or the barrel / crate that hit it) within 4 s, if that's not the owner: +`crateKnockPoints` "CRATE CRASH!". The crate gets `props.out = broken = true` and is removed 0.7 s later. |
+| **`crate.tally`** / **`crate.tally.final`** | – | `{ standing: { [playerId]: n }, final, moment }` | Every `crateTallySec`: +`crateStandPoints` per crate still standing ("STANDING"); at the buzzer ×`crateFinalMul` ("FINAL TALLY"). |
+| **`crate.refill`** | – | `{ moment:'refill' }` | Timeline `crateRefillEventKind`: every zone back to full. Zones also regain a crate every `crateRefillSec` (the last-place zone gets two). |
+
 ## Legacy blocks (AI games can still use them)
 
 The `sneak` (guards, `heist`-style chase), `dodge` (hazards, near misses, `penguin`-style
@@ -110,6 +149,16 @@ crumble/knockout) and `tug` (rhythm tug of war) blocks are unchanged; their even
 
 | entity (kind) | prop | meaning |
 |---|---|---|
+| any physics body (`player`, `ball`, `crate`, `bumper`, `barrel`, loose `item`) | `angle` (rad), `av` (rad/s) | body rotation / angular velocity: rotate the sprite |
+| any physics body | `hitAt` (sim s), `impulse` (0..2, 1 ≈ a hard dash hit) | last impact: squash, sparks, dust, bumper flash |
+| any prop | `body` ('dynamic' \| 'static'), `shape` ('circle' \| 'box'), `hw`/`hh` (box half size), `size` | physics shape; draw boxes with hw/hh, circles with `r` |
+| `crate` | `out`, `broken`, `outAt`, `zone`, `slot`; entity `owner` | CRATE CRASH: tint by owner slot; `out` = knocked off (topple + debris, removed 0.7 s later) |
+| `barrel` | `exploded` | set just before removal (the `explode` event carries x/y) |
+| `ball` | `lastTouch` | player id of the last toucher (tint the trail) |
+| `goal` (sprite `net`) | `w`, `h` (mouth depth/height), `side` (-1 left, 1 right), `hitAt`; entity `team` | ROCKET BALL net; ripple on `hitAt` |
+| `base` (zone) | `zone: true`, `home: true`, `slot`, `hw`, `hh`; entity `owner` | CRATE CRASH platform zone; colour by owner |
+| `core` (OVERLOAD, physics on) | `flying`, `angle` | the core is airborne between passer and catcher (0.22 s) |
+| `item` (loose, physics) | `body`, `group: 'loot'`, `angle`, `av` | knocked-loose core rolling away (players drive through it to grab it) |
 | `player` | `carry` | items carried (collect carry mode) |
 | `player` | `loud` | 0..1 how loud right now (sneak): draw noise rings |
 | `player` | `tiptoe` | tiptoe held |
