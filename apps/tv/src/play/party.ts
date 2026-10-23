@@ -3,8 +3,10 @@
 // Pure: the app keeps a PartyRun and feeds it each round's ranking.
 
 export const PARTY_ROUNDS = 4;
-/** Round lengths cycle through these (35–45 s each). */
-export const PARTY_SECS = [40, 35, 45, 40] as const;
+/** Round length (Neon Dash needs at least 45 s to finish a race). */
+export const PARTY_SECS = [45] as const;
+/** Games that should not play back to back at short lengths. */
+export const PARTY_APART: readonly (readonly [string, string])[] = [['fallback-paint-wars', 'fallback-overload']];
 /** Team games: each member of the winning team / a drawn team / the losing team gets this. */
 export const TEAM_POINTS = { win: 3, draw: 2, lose: 1 } as const;
 
@@ -25,13 +27,14 @@ export interface PartyRun {
 export interface RoundResult { id: string; score: number; team?: number }
 
 /** Shuffle (seeded) and take `n` distinct games, repeating the list only when it is shorter than n. */
-export function newParty(gameIds: readonly string[], seed: number, n = PARTY_ROUNDS): PartyRun {
+export function newParty(gameIds: readonly string[], seed: number, n = PARTY_ROUNDS, apart = PARTY_APART): PartyRun {
   if (gameIds.length === 0) throw new Error('party needs at least one game');
   let s = (seed >>> 0) || 1;
   const rnd = () => {
     s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
     return (s >>> 0) / 0x1_0000_0000;
   };
+  const clash = (x?: string, y?: string) => !!x && !!y && (x === y || apart.some(([p, q]) => (x === p && y === q) || (x === q && y === p)));
   const rounds: PartyRound[] = [];
   let bag: string[] = [];
   while (rounds.length < n) {
@@ -41,10 +44,16 @@ export function newParty(gameIds: readonly string[], seed: number, n = PARTY_ROU
         const j = Math.floor(rnd() * (i + 1));
         [bag[i], bag[j]] = [bag[j]!, bag[i]!];
       }
-      // never the same game twice in a row across a refill
-      if (rounds.length && bag.length > 1 && bag[0] === rounds[rounds.length - 1]!.gameId) bag.push(bag.shift()!);
     }
-    rounds.push({ gameId: bag.shift()!, durationSec: PARTY_SECS[rounds.length % PARTY_SECS.length]! });
+    // the first game in the bag that may follow the previous one (any game if none fits)
+    const prev = rounds[rounds.length - 1]?.gameId;
+    const k = Math.max(0, bag.findIndex((id) => !clash(prev, id)));
+    let id = bag.splice(k, 1)[0]!;
+    if (clash(prev, id) && gameIds.length > 1) {
+      // the bag ran dry on a clash: take a fresh game from the full list instead
+      id = gameIds.find((x) => !clash(prev, x)) ?? id;
+    }
+    rounds.push({ gameId: id, durationSec: PARTY_SECS[rounds.length % PARTY_SECS.length]! });
   }
   return { rounds, index: 0, points: {}, last: {}, played: 0 };
 }

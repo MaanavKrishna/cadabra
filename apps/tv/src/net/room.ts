@@ -26,7 +26,7 @@ export class Room {
   private retry?: ReturnType<typeof setTimeout>;
   private attempt = 0;
 
-  constructor(private ev: RoomEvents, private household = 'tv') {}
+  constructor(private ev: RoomEvents, readonly household = 'tv') {}
 
   start(): void {
     this.setStatus('connecting');

@@ -60,6 +60,7 @@ describe('intro card', () => {
     const ring = introFor(FALLBACK_SPECS.find((s) => s.id === 'fallback-ring-out')!);
     expect(ring.controls.map((c) => c.kind)).toEqual(['stick', 'button']);
     expect(ring.steps.every((s) => s.icon?.startsWith('neon:'))).toBe(true);
+    for (const spec of FALLBACK_SPECS) expect(introFor(spec).line).toBeTruthy();
   });
 
   test('generated games get steps from their blocks', () => {

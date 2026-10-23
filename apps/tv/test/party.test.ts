@@ -10,10 +10,20 @@ describe('party mode', () => {
     expect(new Set(a.rounds.map((r) => r.gameId)).size).toBe(PARTY_ROUNDS);
     for (const r of a.rounds) {
       expect(GAMES).toContain(r.gameId);
-      expect(r.durationSec).toBeGreaterThanOrEqual(35);
-      expect(r.durationSec).toBeLessThanOrEqual(45);
+      expect(r.durationSec).toBe(45);
     }
     expect(newParty(GAMES, 7)).toEqual(a);
+  });
+
+  test('paint wars and overload never play back to back', () => {
+    const ids = ['fallback-ring-out', 'fallback-overload', 'fallback-paint-wars', 'fallback-core-rush', 'fallback-neon-dash'];
+    for (let seed = 1; seed < 300; seed++) {
+      const r = newParty(ids, seed).rounds.map((x) => x.gameId);
+      for (let i = 1; i < r.length; i++) {
+        expect([r[i - 1], r[i]].sort().join()).not.toBe(['fallback-overload', 'fallback-paint-wars'].sort().join());
+        expect(r[i]).not.toBe(r[i - 1]);
+      }
+    }
   });
 
   test('fewer games than rounds repeats, never back to back', () => {

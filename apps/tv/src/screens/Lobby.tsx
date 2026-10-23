@@ -15,11 +15,12 @@ export interface LobbyProps {
   onPlay: (spec: GameSpec) => void;
   onCreate: () => void;
   onParty: () => void;
+  onArcade: () => void;
   onFillBots: () => void;
   onSettings: () => void;
 }
 
-type Focused = { kind: 'game'; spec: GameSpec } | { kind: 'bots' } | { kind: 'settings' } | { kind: 'create' } | { kind: 'party' } | { kind: 'quick' } | { kind: 'back' };
+type Focused = { kind: 'game'; spec: GameSpec } | { kind: 'bots' } | { kind: 'settings' } | { kind: 'create' } | { kind: 'party' } | { kind: 'quick' } | { kind: 'back' } | { kind: 'arcade' };
 
 function QR({ url }: { url: string }) {
   const [svg, setSvg] = useState('');
@@ -47,7 +48,7 @@ function Seats({ state }: { state: PartyState }) {
   );
 }
 
-export function Lobby({ state, status, onPlay, onCreate, onParty, onFillBots, onSettings }: LobbyProps) {
+export function Lobby({ state, status, onPlay, onCreate, onParty, onArcade, onFillBots, onSettings }: LobbyProps) {
   const [mode, setMode] = useState<'home' | 'quick'>('home');
   const [focused, setFocused] = useState<Focused>({ kind: 'create' });
   const lastGame = useMemo(() => (focused.kind === 'game' ? focused.spec : undefined), [focused]);
@@ -87,6 +88,12 @@ export function Lobby({ state, status, onPlay, onCreate, onParty, onFillBots, on
     title = focused.kind === 'back' ? 'Back' : 'Quick Play';
     hook = focused.kind === 'back' ? 'Back to Create, Party and Settings.' : `Jump straight into one of ${QUICK_GAMES.length} built-in arcade games.`;
     meta = [`${QUICK_GAMES.length} games`, `${state.settings.roundSec} s rounds`];
+    cta = 'Open';
+  } else if (focused.kind === 'arcade') {
+    eyebrow = 'Saved games';
+    title = 'Arcade';
+    hook = 'Every game you forge is saved here. Play your family’s favourites again any time.';
+    meta = [online ? 'Saved online' : 'Needs internet'];
     cta = 'Open';
   } else if (focused.kind === 'bots') {
     eyebrow = 'Short on players?';
@@ -140,10 +147,13 @@ export function Lobby({ state, status, onPlay, onCreate, onParty, onFillBots, on
           <Tile col={2} label="Quick Play" sub="Pick a game" class="tile-action tile-hero-quick" autofocus={focused.kind === 'quick'} onFocus={() => setFocused({ kind: 'quick' })} onSelect={() => { setMode('quick'); setFocused({ kind: 'game', spec: QUICK_GAMES[0]! }); }}>
             <Icon name="grid" />
           </Tile>
-          <Tile col={3} label="Fill with bots" class="tile-action" disabled={!state.settings.bots || full} onFocus={() => setFocused({ kind: 'bots' })} onSelect={onFillBots}>
+          <Tile col={3} label="Arcade" sub="Saved games" class="tile-action" onFocus={() => setFocused({ kind: 'arcade' })} onSelect={onArcade}>
+            <Icon name="save" />
+          </Tile>
+          <Tile col={4} label="Fill with bots" class="tile-action" disabled={!state.settings.bots || full} onFocus={() => setFocused({ kind: 'bots' })} onSelect={onFillBots}>
             <Icon name="bots" />
           </Tile>
-          <Tile col={4} label="Settings" class="tile-action" onFocus={() => setFocused({ kind: 'settings' })} onSelect={onSettings}>
+          <Tile col={5} label="Settings" class="tile-action" onFocus={() => setFocused({ kind: 'settings' })} onSelect={onSettings}>
             <Icon name="gear" />
           </Tile>
         </nav>

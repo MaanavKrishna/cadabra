@@ -18,6 +18,8 @@ export interface IntroControl {
 }
 
 export interface Intro {
+  /** One punchy line under the title (built-in games). */
+  line?: string;
   steps: IntroStep[];
   controls: IntroControl[];
 }
@@ -59,6 +61,14 @@ const BUILT_IN: Record<string, IntroStep[]> = {
     { icon: 'goal-basket', text: 'Bank them in your basket' },
     { icon: 'bear-sleep', text: 'Tiptoe past the bear!' },
   ],
+};
+
+const LINES: Record<string, string> = {
+  'fallback-ring-out': 'Dash to shove rivals off the edge. The ring shrinks!',
+  'fallback-overload': 'Pass the unstable core before it blows!',
+  'fallback-paint-wars': 'Paint the floor your team’s colour. Most tiles wins!',
+  'fallback-core-rush': 'Carry cores to your base. Dash carriers to steal!',
+  'fallback-neon-dash': 'Race to the finish. Time the laser gates!',
 };
 
 const word = (s: unknown, d: string) => (typeof s === 'string' && s.trim() ? s.trim() : d);
@@ -119,5 +129,6 @@ export function introFor(spec: GameSpec): Intro {
     const hint = HINTS[(('id' in w && typeof w.id === 'string' ? w.id : '') || label).toLowerCase()];
     return hint && !label.toLowerCase().includes(hint) ? { kind, label, hint } : { kind, label };
   });
-  return { steps: steps.length ? steps : [{ text: spec.host.tutorial }], controls };
+  const line = LINES[spec.id];
+  return { ...(line ? { line } : {}), steps: steps.length ? steps : [{ text: spec.host.tutorial }], controls };
 }

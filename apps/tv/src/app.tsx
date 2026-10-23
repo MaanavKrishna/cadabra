@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'p
 import { setMusicVolume } from '@cadabra/render';
 import { loadMusicVolume } from './audio-prefs';
 import type { GameEvent, Judgement } from '@cadabra/engine';
-import { MAX_PLAYERS, type BackendToClient, type GameSpec, type PeerMsg } from '@cadabra/spec';
+import { MAX_PLAYERS, isSafeArtUrl, type ArcadeGameSummary, type BackendToClient, type GameSpec, type PeerMsg } from '@cadabra/spec';
 import { initialState, reduce, humans, type Action, type PartyState, type Settings as S } from './state/machine';
 import { Room } from './net/room';
 import { phoneAction } from './net/replies';
@@ -23,6 +23,7 @@ import { finishRound, isOver, newParty, nextRound, type PartyRun } from './play/
 import { ForgeBuild, Pitches, Storm } from './screens/Forge';
 import { PartyChampion, PartyStandings } from './screens/Party';
 import { Lobby } from './screens/Lobby';
+import { Arcade } from './screens/Arcade';
 import { Settings } from './screens/Settings';
 import { Play, type PlaySession } from './screens/Play';
 import { Results } from './screens/Results';
@@ -37,7 +38,11 @@ export function App() {
   const [state, dispatch] = useReducer(reduce, undefined, () => initialState());
   const stateRef = useRef<PartyState>(state);
   stateRef.current = state;
-  const [view, setView] = useState<'main' | 'settings'>('main');
+  const [view, setView] = useState<'main' | 'settings' | 'arcade'>('main');
+  const [arcadeGames, setArcadeGames] = useState<ArcadeGameSummary[] | undefined>();
+  const [arcadeLoading, setArcadeLoading] = useState<string | undefined>();
+  const arcadeTimer = useRef<ReturnType<typeof setTimeout>>();
+  const arcadeWant = useRef<string>();
   const [status, setStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [caption, setCaption] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -143,6 +148,18 @@ export function App() {
       } else if (m.code === 'room.rateLimited' && phase === 'pitching') {
         forgeFallback();
       }
+    } else if (m.t === 'arcade.items') {
+      setArcadeGames([...m.games].sort((a, b) => Number(b.unplayed) - Number(a.unplayed) || b.lastPlayed - a.lastPlayed));
+    } else if (m.t === 'arcade.game') {
+      if (!arcadeWant.current || stateRef.current.phase !== 'lobby') return;
+      clearTimeout(arcadeTimer.current);
+      arcadeWant.current = undefined;
+      setArcadeLoading(undefined);
+      const art: Record<string, string> = {};
+      if (m.art?.keyArt) art.keyArt = m.art.keyArt;
+      for (const [k, v] of Object.entries(m.art?.sprites ?? {})) art[k] = v;
+      setParty(undefined);
+      start(m.spec, art);
     } else if (m.t === 'judge.result') {
       session.current?.resolveJudgement(m.id, m.result);
     }
@@ -296,6 +313,13 @@ export function App() {
     const s = stateRef.current;
     setWinnerTeam(team);
     if (partyRef.current) setParty(finishRound(partyRef.current, ranking, team));
+    // a forged (or arcade) game was played: save it to the family arcade / bump its play count
+    if (s.spec && !QUICK_GAMES.some((g) => g.id === s.spec!.id)) {
+      const keyArt = s.art.keyArt;
+      const sprites = Object.fromEntries(Object.entries(s.art).filter(([k, v]) => k !== 'keyArt' && !k.startsWith('avatar:') && k.length <= 64 && v.startsWith('https:')));
+      const art = { ...(keyArt && keyArt.startsWith('https:') && isSafeArtUrl(keyArt) ? { keyArt } : {}), ...(Object.keys(sprites).length ? { sprites } : {}) };
+      room.send({ t: 'arcade.played', household: room.household, specId: s.spec.id, spec: s.spec, ...(Object.keys(art).length ? { art } : {}) });
+    }
     dispatch({ type: 'results', ranking });
     const names = new Map(s.players.map((p) => [p.id, p.name]));
     const winner = names.get(ranking[0]?.id ?? '') ?? 'Everyone';
@@ -377,6 +401,25 @@ export function App() {
     }
   }, [state.phase, state.votes, state.forge, state.players]);
 
+  const openArcade = () => {
+    if (room.status !== 'online') return showToast('The arcade needs the internet.');
+    setArcadeGames(undefined);
+    setArcadeLoading(undefined);
+    setView('arcade');
+    if (!room.send({ t: 'arcade.list', household: room.household })) setArcadeGames([]);
+    // no answer: show the empty arcade rather than a spinner forever
+    clearTimeout(arcadeTimer.current);
+    arcadeTimer.current = setTimeout(() => setArcadeGames((g) => g ?? []), 8000);
+  };
+  const playArcade = (id: string) => {
+    if (!room.send({ t: 'arcade.play', household: room.household, specId: id })) return showToast('Could not reach the arcade.');
+    setArcadeLoading(id);
+    arcadeWant.current = id;
+    clearTimeout(arcadeTimer.current);
+    arcadeTimer.current = setTimeout(() => { arcadeWant.current = undefined; setArcadeLoading(undefined); showToast('That game would not load. Try another!'); }, 9000);
+  };
+  const closeArcade = useCallback(() => setView('main'), []);
+
   const changeSettings = useCallback((p: Partial<S>) => dispatch({ type: 'settings', patch: p }), []);
   const closeSettings = useCallback(() => setView('main'), []);
   const toLobby = useCallback(() => actions.current.lobby(), []);
@@ -419,6 +462,8 @@ export function App() {
     );
   } else if (state.phase === 'results' && state.spec) {
     screen = <Results state={state} status={status} winnerTeam={winnerTeam} forged={!QUICK_GAMES.some((g) => g.id === state.spec?.id)} onAgain={() => actions.current.again()} onNext={() => actions.current.next()} onLobby={toLobby} />;
+  } else if (view === 'arcade') {
+    screen = <Arcade state={state} status={status} {...(arcadeGames ? { games: arcadeGames } : {})} {...(arcadeLoading ? { loadingId: arcadeLoading } : {})} onPlay={playArcade} onClose={closeArcade} />;
   } else if (view === 'settings') {
     screen = <Settings state={state} status={status} onChange={changeSettings} onClose={closeSettings} />;
   } else {
@@ -429,6 +474,7 @@ export function App() {
         onPlay={(spec) => { setParty(undefined); start(spec); }}
         onCreate={create}
         onParty={startParty}
+        onArcade={openArcade}
         onFillBots={() => dispatch({ type: 'fillBots' } satisfies Action)}
         onSettings={() => setView('settings')}
       />

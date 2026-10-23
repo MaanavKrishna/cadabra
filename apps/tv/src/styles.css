@@ -387,12 +387,10 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
     repeating-linear-gradient(90deg, rgba(0, 229, 255, 0.22) 0 2px, transparent 2px 120px),
     repeating-linear-gradient(0deg, rgba(0, 229, 255, 0.18) 0 2px, transparent 2px 90px);
   transform: perspective(700px) rotateX(62deg); transform-origin: 50% 100%;
-  -webkit-mask-image: linear-gradient(0deg, #000 30%, transparent 100%); mask-image: linear-gradient(0deg, #000 30%, transparent 100%);
-  animation: grid-run 6s linear infinite; }
-.neon-bg.is-quiet .neon-floor { animation: none; opacity: 0.6; }
+  -webkit-mask-image: linear-gradient(0deg, #000 30%, transparent 100%); mask-image: linear-gradient(0deg, #000 30%, transparent 100%); }
+/* static on purpose: a scrolling background-position repaints a third of the screen every frame on the stick */
+.neon-bg.is-quiet .neon-floor { opacity: 0.6; }
 .neon-horizon { position: absolute; left: 0; right: 0; top: 52%; height: 3px; background: linear-gradient(90deg, transparent, var(--n-magenta) 30%, var(--n-cyan) 70%, transparent); box-shadow: 0 0 24px 4px rgba(255, 43, 214, 0.45); opacity: 0.8; }
-@keyframes grid-run { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 0 90px; } }
-@media (prefers-reduced-motion: reduce) { .neon-floor { animation: none; } }
 
 .title { text-transform: uppercase; letter-spacing: -0.02em; text-shadow: 0 0 2px #fff, 0 0 26px color-mix(in srgb, var(--c-primary) 65%, transparent), 0 8px 40px rgba(0, 0, 0, 0.6); }
 .title em { font-style: normal; color: var(--n-magenta); text-shadow: 0 0 2px #fff, 0 0 30px rgba(255, 43, 214, 0.7); }
@@ -545,11 +543,11 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .forge-ings .chip-sm { font-size: 28px; }
 
 /* ---------- lobby home ---------- */
-.lobby.mode-home .tiles .tile { width: 250px; height: 250px; }
-.lobby.mode-home .tiles .tile.is-focused { width: 316px; height: 316px; }
-.lobby.mode-home .tile-hero-create, .lobby.mode-home .tile-hero-party, .lobby.mode-home .tile-hero-quick { width: 290px !important; }
-.lobby.mode-home .tile-hero-create.is-focused, .lobby.mode-home .tile-hero-party.is-focused, .lobby.mode-home .tile-hero-quick.is-focused { width: 370px !important; }
-.lobby.mode-home .tile-action .icon { width: 110px; height: 110px; }
+.lobby.mode-home .tiles .tile { width: 220px; height: 240px; }
+.lobby.mode-home .tiles .tile.is-focused { width: 280px; height: 306px; }
+.lobby.mode-home .tile-hero-create, .lobby.mode-home .tile-hero-party, .lobby.mode-home .tile-hero-quick { width: 264px !important; }
+.lobby.mode-home .tile-hero-create.is-focused, .lobby.mode-home .tile-hero-party.is-focused, .lobby.mode-home .tile-hero-quick.is-focused { width: 330px !important; }
+.lobby.mode-home .tile-action .icon { width: 100px; height: 100px; }
 .tiles-games .tile { width: 220px; height: 220px; }
 .tiles-games .tile.is-focused { width: 300px; height: 300px; }
 
@@ -606,3 +604,10 @@ body { color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antial
 .goal-step:nth-child(2) .neon-icon { stroke: var(--n-magenta); }
 .goal-step:nth-child(3) .neon-icon { stroke: var(--n-lime); }
 .goal-arrow { color: var(--n-cyan); }
+@media (prefers-reduced-motion: reduce) {
+  .cw, .chip, .pitch-card, .fstep, .srow, .srow-bar i, .team-panel, .champ, .pitch-shimmer, .caption-dot { animation: none !important; }
+}
+.party-champion ~ .caption { left: var(--mx); bottom: 200px; max-width: 640px; font-size: 32px; transform: translateY(30px); border-radius: 18px; }
+.party-champion ~ .caption.is-on { transform: none; }
+.intro-line { margin: -6px 0 26px; font-family: var(--display); font-size: 46px; font-weight: 800; line-height: 1.1; color: var(--n-lime); text-shadow: 0 0 22px rgba(182, 255, 59, 0.45); max-width: 1180px; }
+.results ~ .caption { top: 150px; max-width: 760px; font-size: 32px; }

@@ -118,6 +118,7 @@ function IntroCard({ state, spec, loaded }: { state: PartyState; spec: GameSpec;
       <div class="hero hero-intro">
         <div class="eyebrow">Round {state.round} · how to win</div>
         <h1 class="title">{spec.title}</h1>
+        {intro.line && <p class="intro-line">{intro.line}</p>}
         <div class="goal">
           {intro.steps.map((s, i) => (
             <div key={i} class="goal-step" style={{ animationDelay: `${0.15 + i * 0.18}s` }}>

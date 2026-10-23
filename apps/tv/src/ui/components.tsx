@@ -192,7 +192,7 @@ export function Toast({ text }: { text: string | null }) {
   return <div class={`toast ${text ? 'is-on' : ''}`}>{text}</div>;
 }
 
-export function Icon({ name }: { name: 'bots' | 'gear' | 'play' | 'again' | 'home' | 'next' | 'resume' | 'quit' | 'spark' | 'party' | 'grid' }) {
+export function Icon({ name }: { name: 'bots' | 'gear' | 'play' | 'again' | 'home' | 'next' | 'resume' | 'quit' | 'spark' | 'party' | 'grid' | 'save' }) {
   const paths: Record<string, JSX.Element> = {
     bots: (
       <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
@@ -223,6 +223,11 @@ export function Icon({ name }: { name: 'bots' | 'gear' | 'play' | 'again' | 'hom
       <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
         <path d="M18 54h28M32 54V40M20 10h24v10a12 12 0 0 1-24 0Z" />
         <path d="M20 14H10v4a8 8 0 0 0 10 8M44 14h10v4a8 8 0 0 1-10 8" />
+      </g>
+    ),
+    save: (
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M14 8h28l10 10v38H14z" /><path d="M22 8v14h18V8" /><rect x="22" y="34" width="20" height="14" rx="2" />
       </g>
     ),
     grid: (

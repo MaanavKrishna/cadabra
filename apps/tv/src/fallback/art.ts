@@ -146,14 +146,69 @@ function bearTug(p: Pal): KeyArt {
 }
 
 /** Any other (forged) game: an abstract palette scene. */
-function generic(p: Pal, seed: number): KeyArt {
+/** A neon line drawn twice: a wide faint stroke for the glow, a thin bright one on top (no SVG filters). */
+const glowPath = (d: string, c: string, w = 6) =>
+  `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w * 5}" stroke-opacity="0.12" stroke-linejoin="round" stroke-linecap="round"/>` +
+  `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w * 2.2}" stroke-opacity="0.28" stroke-linejoin="round" stroke-linecap="round"/>` +
+  `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"/>`;
+
+const circ = (cx: number, cy: number, r: number) => `M${cx - r} ${cy} a${r} ${r} 0 1 0 ${r * 2} 0 a${r} ${r} 0 1 0 ${-r * 2} 0`;
+const hex = (cx: number, cy: number, r: number) =>
+  `M${Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 6 + (i * Math.PI) / 3; return `${(cx + r * Math.cos(a)).toFixed(0)} ${(cy + r * Math.sin(a)).toFixed(0)}`; }).join(' L')} Z`;
+
+type Motif = 'ring' | 'core' | 'bomb' | 'paint' | 'gates' | 'prism';
+const MOTIF: Record<string, Motif> = {
+  'fallback-ring-out': 'ring', 'fallback-overload': 'bomb', 'fallback-paint-wars': 'paint',
+  'fallback-core-rush': 'core', 'fallback-neon-dash': 'gates',
+};
+
+function motif(m: Motif, p: Pal): string {
+  const [a, b, c] = [p.primary, p.accent, p.glow];
+  switch (m) {
+    case 'ring':
+      return glowPath(circ(1370, 470, 300), a, 8) + glowPath(circ(1370, 470, 190), b, 5) + glowPath('M1250 470 l60 0 M1490 470 l-60 0', c, 6)
+        + `<circle cx="1290" cy="420" r="34" fill="${b}"/><circle cx="1460" cy="520" r="34" fill="${a}"/>`;
+    case 'core':
+      return glowPath(hex(1380, 460, 220), a, 8) + glowPath(hex(1380, 460, 120), b, 6) + `<circle cx="1380" cy="460" r="46" fill="${c}"/>`
+        + glowPath('M1060 820 l120 -60 l120 60', a, 5) + glowPath('M1560 820 l120 -60 l120 60', b, 5);
+    case 'bomb':
+      return glowPath(circ(1360, 500, 210), b, 8) + glowPath('M1500 330 q60 -90 140 -70', c, 7) + glowPath('M1640 240 l30 -30 M1660 270 l40 0 M1640 220 l0 -40', c, 5)
+        + glowPath('M1300 500 l60 -90 l20 70 l60 -10 l-70 110 l-10 -60 z', a, 5);
+    case 'paint': {
+      let cells = '';
+      for (let y = 0; y < 5; y++) for (let x = 0; x < 7; x++) {
+        const own = (x * 7 + y * 3) % 5;
+        const col = own < 2 ? a : own < 4 ? b : '';
+        cells += `<rect x="${1040 + x * 104}" y="${230 + y * 104}" width="94" height="94" rx="6" fill="${col || 'none'}" fill-opacity="${col ? 0.55 : 0}" stroke="${col || a}" stroke-opacity="${col ? 0.9 : 0.3}" stroke-width="3"/>`;
+      }
+      return cells;
+    }
+    case 'gates':
+      return [0, 1, 2, 3].map((i) => glowPath(`M${1060 + i * 210} 200 L${1060 + i * 210} 760`, i % 2 ? b : a, 5)
+        + glowPath(`M${1060 + i * 210} ${300 + i * 90} l210 0`, c, 4)).join('')
+        + glowPath('M1000 860 L1820 860', a, 6);
+    case 'prism':
+    default:
+      return glowPath('M1380 200 L1640 680 L1120 680 Z', a, 8) + glowPath('M1380 330 L1540 620 L1220 620 Z', b, 5) + `<circle cx="1380" cy="520" r="30" fill="${c}"/>`;
+  }
+}
+
+/** Neon key art: navy sky, horizon glow, a perspective grid floor and the game's motif in neon line art. */
+function neon(spec: Pick<GameSpec, 'id'>, p: Pal, seed: number): KeyArt {
   const defs = `
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${p.bg}"/><stop offset="1" stop-color="#05060d"/></linearGradient>
-    <radialGradient id="a" cx="0.72" cy="0.35" r="0.5"><stop offset="0" stop-color="${p.primary}" stop-opacity="0.7"/><stop offset="1" stop-color="${p.primary}" stop-opacity="0"/></radialGradient>
-    <radialGradient id="b" cx="0.9" cy="0.8" r="0.4"><stop offset="0" stop-color="${p.accent}" stop-opacity="0.6"/><stop offset="1" stop-color="${p.accent}" stop-opacity="0"/></radialGradient>`;
-  const body = `<rect width="1920" height="1080" fill="url(#bg)"/><rect width="1920" height="1080" fill="url(#a)"/><rect width="1920" height="1080" fill="url(#b)"/>
-    <path d="M1100 -50 L1350 -50 L900 1130 L650 1130 Z" fill="${p.glow}" opacity="0.08"/>
-    ${dots(80, seed, [700, 0, 1920, 1080], [2, 7], p.glow, [0.2, 0.8])}`;
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#070a1f"/><stop offset="0.6" stop-color="#0a0e27"/><stop offset="1" stop-color="#120a33"/></linearGradient>
+    <radialGradient id="ga" cx="0.72" cy="0.42" r="0.45"><stop offset="0" stop-color="${p.primary}" stop-opacity="0.32"/><stop offset="1" stop-color="${p.primary}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="gb" cx="0.95" cy="0.95" r="0.5"><stop offset="0" stop-color="${p.accent}" stop-opacity="0.3"/><stop offset="1" stop-color="${p.accent}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e27" stop-opacity="1"/><stop offset="0.5" stop-color="#0a0e27" stop-opacity="0"/></linearGradient>`;
+  let grid = '';
+  for (let i = -12; i <= 12; i++) grid += `<line x1="${960 + i * 40}" y1="760" x2="${960 + i * 260}" y2="1080" stroke="${p.primary}" stroke-opacity="0.35" stroke-width="2"/>`;
+  for (let j = 0; j < 7; j++) { const y = 760 + Math.pow(j / 6, 1.8) * 320; grid += `<line x1="0" y1="${y.toFixed(0)}" x2="1920" y2="${y.toFixed(0)}" stroke="${p.primary}" stroke-opacity="0.3" stroke-width="2"/>`; }
+  const m = MOTIF[spec.id] ?? (['ring', 'core', 'prism', 'gates'] as const)[seed % 4]!;
+  const body = `<rect width="1920" height="1080" fill="url(#sky)"/><rect width="1920" height="1080" fill="url(#ga)"/><rect width="1920" height="1080" fill="url(#gb)"/>
+    ${dots(70, seed, [0, 0, 1920, 700], [1, 3], '#ffffff', [0.15, 0.6])}
+    <rect x="0" y="757" width="1920" height="6" fill="${p.accent}" opacity="0.8"/><rect x="0" y="740" width="1920" height="40" fill="${p.accent}" opacity="0.12"/>
+    ${grid}<rect x="0" y="760" width="1920" height="320" fill="url(#fade)"/>
+    ${motif(m, p)}`;
   return { backdrop: svgUrl(body, defs), sprites: [] };
 }
 
@@ -172,10 +227,10 @@ export function keyArtFor(spec: Pick<GameSpec, 'id' | 'theme' | 'arena'>, genera
   const k = `${spec.id}|${JSON.stringify(spec.theme.palette)}`;
   let art = cache.get(k);
   if (!art) {
-    const make = BY_ID[spec.id] ?? (spec.arena.kind === 'tug' ? bearTug : undefined);
+    const make = BY_ID[spec.id];
     let seed = 0;
     for (const ch of spec.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-    art = make ? make(spec.theme.palette) : generic(spec.theme.palette, seed);
+    art = make ? make(spec.theme.palette) : neon(spec, spec.theme.palette, seed);
     cache.set(k, art);
   }
   return art;

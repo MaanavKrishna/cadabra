@@ -11,7 +11,7 @@ export const NEON_DEMO_THEME: Theme = {
   artStyle: 'neon arcade',
   keyArtPrompt: 'neon arcade arena',
   sprites: {},
-  sfxSet: 'arcade',
+  sfxSet: 'neon',
 };
 
 function variant(blocks: BlockUse[], kind: GameSpec['arena']['kind'], over: Partial<GameSpec> = {}): GameSpec {
