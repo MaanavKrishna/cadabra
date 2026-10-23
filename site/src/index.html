@@ -22,6 +22,7 @@
 <meta name="twitter:image" content="https://maanavkrishna.github.io/cadabra/media/og.jpg">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/figtree-300.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" as="image" href="media/hero-poster.jpg" imagesrcset="media/hero-poster-640.jpg 640w, media/hero-poster.jpg 1280w" imagesizes="100vw" fetchpriority="high">
 <link rel="stylesheet" href="site.css">
 <link rel="stylesheet" href="motion.css">
 <script>(function(){var d=document.documentElement,r=matchMedia("(prefers-reduced-motion: reduce)").matches;if(!r){d.classList.add("m");if(innerWidth>=1024&&innerHeight>=820)d.classList.add("pin");}})();</script>
@@ -45,8 +46,9 @@
 
 <main id="main">
 <section class="hero" aria-labelledby="hero-title">
-  <img class="hero-still" src="media/hero-poster.jpg" alt="" width="1280" height="720" fetchpriority="high">
-  <video id="hero-video" autoplay muted loop playsinline preload="auto" poster="media/hero-poster.jpg" aria-hidden="true">
+  <img class="hero-still" src="media/hero-poster.jpg" srcset="media/hero-poster-640.jpg 640w, media/hero-poster.jpg 1280w" sizes="100vw" alt="" width="1280" height="720" fetchpriority="high">
+  <video id="hero-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true">
+    <source src="media/hero-640.mp4" type="video/mp4" media="(max-width: 767px)">
     <source src="media/hero.mp4" type="video/mp4">
   </video>
   <div class="orbs" aria-hidden="true"><i class="orb a"></i><i class="orb b"></i><i class="grain"></i></div>
@@ -140,6 +142,7 @@
   <div class="wrap tweak">
     <div class="tweak-media">
       <video id="tweak-video" muted loop playsinline preload="none" poster="media/tv-tweak-changed.jpg" aria-label="The AI rebuilds Magnet Lava Pinball with low gravity and more bounce, then the new version plays">
+        <source src="media/tweak-640.mp4" type="video/mp4" media="(max-width: 767px)">
         <source src="media/tweak.mp4" type="video/mp4">
       </video>
       <img class="phone" src="media/phone-tweak.jpg" alt="Phone tweak screen with chips like Low gravity and More chaos" width="468" height="600" loading="lazy">
