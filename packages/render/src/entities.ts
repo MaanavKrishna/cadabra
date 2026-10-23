@@ -450,9 +450,9 @@ export class EntityLayer {
   /** Paint colour of a tile: team, owner's colour, or none (unpainted). */
   private paintOf(t: Entity, c: FrameCtx): number | undefined {
     const p = t.props;
-    const team = typeof p.team === 'number' ? p.team : typeof p.paint === 'number' ? p.paint : t.team;
+    const team = typeof p.paintTeam === 'number' ? p.paintTeam : typeof p.team === 'number' ? p.team : t.team;
     if (team === 0 || team === 1) return NEON_TEAMS[team];
-    const owner = typeof p.owner === 'string' && p.owner ? p.owner : typeof p.paint === 'string' && p.paint ? p.paint : t.owner;
+    const owner = typeof p.paintedBy === 'string' && p.paintedBy ? p.paintedBy : typeof p.owner === 'string' && p.owner ? p.owner : t.owner;
     if (owner) {
       const pl = c.players.get(owner);
       return this.colorOf(pl?.team, c.playerIndex.get(owner) ?? 0, c);
@@ -752,6 +752,7 @@ export class EntityLayer {
       case 'base':
         return this.nx ? this.neonGoal(v, e, x, y, c) : this.goal(v, e, x, y, c);
       case 'item':
+      case 'core':
         return this.item(v, e, x, y, c);
       default:
         return this.nx ? this.neonGeneric(v, e, x, y, c) : this.generic(v, e, x, y, c);
@@ -805,11 +806,18 @@ export class EntityLayer {
     const pop = this.popScale(v, c);
     const bx = x + anim.ox * AVATAR_SCALE, by = y + anim.oy * AVATAR_SCALE;
     const anchorY = N ? 0.5 : 0.72;
+    const outK = N && e.props.out === true ? Math.min(1, Math.max(0, (c.time - num(e.props.outAt, c.time)) / 0.6)) : 0;
     const k = this.place(v, bx, by - hop, size, tex, anchorY) * pop;
+    if (N) {
+      v.root.scale.set(1 - outK * 0.85);
+      v.root.alpha = 1 - outK;
+    }
     v.root.zIndex = depthKey(y, v.id);
     v.body.scale.set(k * v.face * anim.sx, k * anim.sy * (tiptoe ? 0.9 : 1));
     v.body.rotation = fx.wobble + (e.props.pulling === true ? (e.team === 0 ? -0.22 : 0.22) + Math.sin(c.vt * 9 + e.id) * 0.04 : anim.rot);
     v.body.alpha = fx.alpha * (tiptoe ? 0.82 : 1) * (e.kind === 'runner' && e.props.leg !== undefined ? 0.75 : 1);
+    if (outK > 0) v.body.rotation += outK * 6;
+    v.over.alpha = v.floor.alpha = 1 - outK;
 
     // white hit flash: additive copy of the body for two frames
     if (anim.flash || v.flashS?.visible) {
@@ -1349,7 +1357,7 @@ export class EntityLayer {
       const lanes = Math.max(1, Math.round(num(e.props.lanes, this.laneCount || 4)));
       const len = lane ? (this.arenaH / lanes) * 0.86 : Math.max(120, num(e.props.len, e.r * 8));
       const ang = lane ? Math.PI / 2 : num(e.props.angle, c.vt * num(e.props.spin, 1.2) + e.id);
-      const on = e.props.on !== false && e.props.active !== false && e.props.open !== true;
+      const on = e.props.on !== false && e.props.active !== false && e.props.open !== true && e.props.armed !== false;
       return this.neonLaser(v, e, x, y, c, len, ang, on);
     }
     const col = key === 'hole' ? NEON.magenta : key === 'spike' ? NEON.red : key === 'core-unstable' ? NEON.red : key === 'core' ? NEON.amber
@@ -1358,6 +1366,13 @@ export class EntityLayer {
     if (v.tex !== tex) {
       v.tex = tex;
       v.body.texture = tex;
+    }
+    if (key === 'finish' && typeof e.props.hh === 'number') {
+      // a full-height finish line: the lane renderer draws the checkered strip at its x
+      this.finishX = x;
+      v.body.visible = false;
+      v.shadow.visible = false;
+      return;
     }
     const size = Math.max(36, e.r * (key === 'hole' ? 2.5 : 3));
     const pop = this.popScale(v, c);
@@ -1787,7 +1802,7 @@ export class EntityLayer {
   // ---------- collect / misc ----------
 
   private item(v: View, e: Entity, x: number, y: number, c: FrameCtx): void {
-    const carried = typeof e.props.carriedBy === 'string' && e.props.carriedBy !== '';
+    const carried = (typeof e.props.carriedBy === 'string' && e.props.carriedBy !== '') || (typeof e.props.holder === 'string' && e.props.holder !== '');
     const golden = e.props.golden === true || e.tags.has('golden');
     let tex: Texture;
     let nk: NeonKey | undefined;
@@ -1801,13 +1816,15 @@ export class EntityLayer {
       }
     } else tex = this.texFor(v, this.source(e.sprite, c, 'item'), c, 'item');
     const bob = carried ? Math.sin(c.vt * 9 + e.id) * 2 : Math.sin(c.vt * 3.2 + e.id * 1.7) * 5;
-    const size = e.r * 2.6 * ITEM_SCALE * (carried ? 0.75 : 1) * (golden ? 1.3 : 1);
+    const held = e.kind === 'core' && carried;
+    const size = e.r * 2.6 * ITEM_SCALE * (held ? 1.25 : carried ? 0.75 : 1) * (golden ? 1.3 : 1) * (e.props.critical === true ? 1.15 : 1);
+    if (held) y -= e.r * 3.2;
     const pop = this.popScale(v, c);
     const k = this.place(v, x, y - 8 + bob, size * pop, tex);
     // slow coin-like spin + wobble
     const spin = 0.72 + 0.28 * Math.abs(Math.cos(c.vt * 1.8 + e.id));
     // unstable cores pulse faster as the fuse runs out
-    const hz = nk === 'core-unstable' ? fusePulseHz(fuseLeft(e.props, c.time)) : 0;
+    const hz = nk === 'core-unstable' ? (typeof e.props.pulseHz === 'number' && e.props.pulseHz > 0 ? e.props.pulseHz : fusePulseHz(fuseLeft(e.props, c.time))) : 0;
     const beat = hz ? 1 + 0.14 * Math.sin(c.vt * hz * TAU) : 1;
     if (nk && nk !== 'gem') {
       v.body.scale.set(k * beat, k * beat);
@@ -1821,7 +1838,7 @@ export class EntityLayer {
     else this.shadowAt(v, x, y + e.r * 0.6, e.r * 1.8 * (1 - bob / 30) * pop, e.r * 0.55 * pop, carried ? 0 : 0.3);
     v.top = y - size;
     const gl = this.glowOf(v);
-    gl.visible = !carried;
+    gl.visible = !carried || held;
     gl.tint = golden || nk === 'core' ? NEON.amber : nk === 'core-unstable' ? NEON.red : hexToNum(c.palette.glow);
     if (hz) {
       gl.position.set(x, y - 8 + bob);
@@ -1974,11 +1991,13 @@ export class EntityLayer {
   }
 
   private laneCount = 0;
+  /** x of a finish-line entity (race), else the default end pad. */
+  private finishX = -1;
 
   /** Neon race track: dark lanes, glowing dashed dividers, a start line and a checkered neon finish. */
   private neonLanes(lanes: number, c: FrameCtx): void {
     const W = this.arenaW, H = this.arenaH;
-    const fx = W - 60;
+    const fx = this.finishX > 0 ? this.finishX + 7 : W - 60;
     // the finish strip glows (sprites, so it can shimmer); the rest is one static Graphics
     for (let i = 0; i < this.finishS.length; i++) this.finishS[i]!.visible = lanes > 0;
     if (lanes > 0) {
@@ -1998,7 +2017,7 @@ export class EntityLayer {
         s.alpha = 0.85 + 0.15 * Math.sin(c.vt * 4 + i * 0.7);
       }
     }
-    const key = `n|${lanes}|${c.palette.primary}|${W}x${H}`;
+    const key = `n|${lanes}|${c.palette.primary}|${W}x${H}|${Math.round(fx)}`;
     if (key === this.laneKey) return;
     this.laneKey = key;
     const g = this.lanes;

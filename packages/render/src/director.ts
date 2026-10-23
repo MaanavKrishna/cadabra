@@ -42,7 +42,10 @@ export function comboForEvent(type: string, moment?: string): ComboKind | null {
     case 'boom': return 'blast';
     case 'chase.start': return 'chase';
     case 'splash': return 'splash';
-    case 'surge': return 'steal';
+    case 'surge':
+    case 'core.pass': return 'steal';
+    case 'core.critical': return 'chase';
+    case 'core.spawn': return 'pickup';
     default: return null;
   }
 }

@@ -718,7 +718,7 @@ export class GameView {
     f.x = x;
     // stack popups that land on the same spot at the same time
     let dy = 0;
-    for (const o of this.floats) if (o !== f && o.live && Math.abs(o.x - x) < 80 && this.vt - o.at < 0.3) dy += 46 * this.hudScale;
+    for (const o of this.floats) if (o !== f && o.live && Math.abs(o.x - x) < 80 && this.vt - o.at < 0.3) dy += (this.neon ? 58 : 46) * this.hudScale;
     f.y = y - dy;
     f.pid = pid;
     f.big = big;
