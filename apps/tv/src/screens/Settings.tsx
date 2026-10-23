@@ -27,7 +27,6 @@ export const ROWS: RowDef[] = [
   { label: 'Family-safe mode', help: 'Screens ideas, names and generated text for all ages.', value: (s) => (s.familySafe ? 'On' : 'Off'), step: (s) => ({ familySafe: !s.familySafe }) },
   { label: 'Bots', help: 'AI players can fill empty seats.', value: (s) => (s.bots ? 'On' : 'Off'), step: (s) => ({ bots: !s.bots }) },
   { label: 'Round length', help: 'A surprise mid-round, a twist in the last 10 s.', value: (s) => `${s.roundSec} s`, step: (s, d) => ({ roundSec: cycle(ROUND_SECS, s.roundSec, d) }) },
-  { label: 'Rounds per game night', help: 'How many games before the grand finale.', value: (s) => `${s.rounds}`, step: (s, d) => ({ rounds: Math.max(1, Math.min(10, s.rounds + d)) }) },
   { label: 'Host personality', help: 'The tone of the on-screen host captions.', value: (s) => PERSONALITY_LABEL[s.hostPersonality], step: (s, d) => ({ hostPersonality: cycle(PERSONALITIES, s.hostPersonality, d) }) },
 ];
 
