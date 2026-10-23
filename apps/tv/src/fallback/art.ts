@@ -1,5 +1,6 @@
 // Fallback key art: procedural SVG scenes per theme (no network, no AI), composed with a few
 // sprites from the default art pack as hero characters. Rasterised once as a CSS background.
+import { rootId } from './lineage';
 import type { GameSpec } from '@cadabra/spec';
 import { gameStill } from '../ui/hero';
 
@@ -222,9 +223,11 @@ const BY_ID: Record<string, (p: Pal) => KeyArt> = {
 const cache = new Map<string, KeyArt>();
 
 /** Key art for a game: the fallback scenes by id (or arena), else an abstract palette scene. */
-export function keyArtFor(spec: Pick<GameSpec, 'id' | 'theme' | 'arena'>, generated?: string): KeyArt {
+export function keyArtFor(given: Pick<GameSpec, 'id' | 'theme' | 'arena'> & { origin?: GameSpec['origin'] }, generated?: string): KeyArt {
   // generated key art (forge.art 'keyArt') wins; CSS-safe because it passed ArtUrlSchema
   if (generated) return { backdrop: generated, sprites: [] };
+  // tweaks and remixes look like the game they came from
+  const spec = { ...given, id: rootId(given) };
   // built-in games: the still baked from the real game view
   const still = gameStill(spec.id);
   if (still) return { backdrop: still, sprites: [] };

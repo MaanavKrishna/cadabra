@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks';
 import { setMusicVolume } from '@cadabra/render';
 import { loadMusicVolume } from './audio-prefs';
-import type { GameEvent, Judgement } from '@cadabra/engine';
+import { BlockRegistry, registerBuiltins, type GameEvent, type Judgement } from '@cadabra/engine';
 import { MAX_PLAYERS, isSafeArtUrl, type ArcadeGameSummary, type BackendToClient, type GameSpec, type PeerMsg } from '@cadabra/spec';
 import { initialState, reduce, humans, type Action, type PartyState, type Settings as S } from './state/machine';
 import { Room } from './net/room';
@@ -30,12 +30,25 @@ import { Arcade } from './screens/Arcade';
 import { Settings } from './screens/Settings';
 import { Play, type PlaySession } from './screens/Play';
 import { Results } from './screens/Results';
+import { Tweak } from './screens/Tweak';
+import {
+  CHANGED_HOLD_MS, MAX_TWEAKS, REBUILD_MIN_MS, TWEAK_ASK_SEC, TWEAK_FULL_MS, TWEAK_TIMEOUT_MS,
+  presetTweak, toRequests, type TweakChip, type TweakResult,
+} from './tweak/tweak';
+import { noteLineage, rootId } from './fallback/lineage';
 
 const SAY_TIMEOUT_MS = 4500;
 /** "Game ready" stays on the forge screen this long before the intro card. */
 const READY_HOLD_MS = 900;
 const FORGE_PHASES = ['storm', 'pitching', 'voting', 'forge'] as const;
 const inForge = (p: string) => (FORGE_PHASES as readonly string[]).includes(p);
+const isQuick = (spec: GameSpec | undefined) => !!spec && QUICK_GAMES.some((g) => g.id === rootId(spec));
+/** Block schemas for the local tweak presets (clamping params to their ranges). */
+let presetRegistry: BlockRegistry | undefined;
+const registry = () => {
+  if (!presetRegistry) { presetRegistry = new BlockRegistry(); registerBuiltins(presetRegistry); }
+  return presetRegistry;
+};
 
 export function App() {
   const [state, dispatch] = useReducer(reduce, undefined, () => initialState());
@@ -46,6 +59,13 @@ export function App() {
   const [arcadeLoading, setArcadeLoading] = useState<string | undefined>();
   const arcadeTimer = useRef<ReturnType<typeof setTimeout>>();
   const arcadeWant = useRef<string>();
+  /** What the pending arcade.play is for: play it, or open the Remix screen with it. */
+  const arcadeMode = useRef<'play' | 'remix'>('play');
+  // ---- tweak / remix timers ----
+  const tweakTimer = useRef<ReturnType<typeof setTimeout>>();
+  const tweakFullTimer = useRef<ReturnType<typeof setTimeout>>();
+  const rebuildAt = useRef(0);
+  const [playAt, setPlayAt] = useState<number | undefined>();
   const [status, setStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [caption, setCaption] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -151,6 +171,11 @@ export function App() {
       } else if (m.code === 'room.rateLimited' && phase === 'pitching') {
         forgeFallback();
       }
+    } else if (m.t === 'forge.tweakProgress') {
+      dispatch({ type: 'tweakProgress', id: m.id, step: m.step });
+    } else if (m.t === 'forge.tweaked') {
+      if (m.blocked) showToast('Some ideas were skipped by family-safe mode.');
+      finishTweak(m.id, { spec: m.spec, summary: m.summary, changes: m.changes, source: m.source });
     } else if (m.t === 'arcade.items') {
       setArcadeGames([...m.games].sort((a, b) => Number(b.unplayed) - Number(a.unplayed) || b.lastPlayed - a.lastPlayed));
     } else if (m.t === 'arcade.game') {
@@ -162,7 +187,9 @@ export function App() {
       if (m.art?.keyArt) art.keyArt = m.art.keyArt;
       for (const [k, v] of Object.entries(m.art?.sprites ?? {})) art[k] = v;
       setParty(undefined);
-      start(m.spec, art);
+      noteLineage(m.spec.id, m.spec.origin.parentId);
+      if (arcadeMode.current === 'remix') openTweak(m.spec, art, 'remix');
+      else start(m.spec, art);
     } else if (m.t === 'judge.result') {
       session.current?.resolveJudgement(m.id, m.result);
     }
@@ -177,11 +204,16 @@ export function App() {
     } else if (a.type === 'pick') {
       const s = stateRef.current;
       if (s.phase !== 'results' || partyRef.current) return;
+      // any phone can open the Tweak screen; the room fills it in together
+      if (a.action === 'remix') return actions.current.tweak();
       if (a.action === 'again') again.current.add(id);
       const want = humans(s).filter((p) => p.connected).length;
       if (want > 0 && again.current.size * 2 > want) actions.current.again();
-    } else if (a.type === 'ingredient' || a.type === 'vote') {
+    } else if (a.type === 'ingredient' || a.type === 'vote' || a.type === 'tweakAsk') {
       dispatch(a);
+    } else if (a.type === 'remix') {
+      // an older phone build: remix.add text is a tweak request too
+      dispatch({ type: 'tweakAsk', ask: { by: id, text: a.text } });
     }
   }
 
@@ -192,12 +224,15 @@ export function App() {
     const seats = humans(s).length === 0 ? MAX_PLAYERS : card.seats;
     let next = s;
     if (s.players.length < seats) {
-      if (!s.settings.bots) {
+      // 1-4 players: a lone phone (or none) always gets bots to play against
+      const solo = humans(s).length < 2;
+      if (!s.settings.bots && !solo) {
         showToast(`${spec.title} needs ${seats} players. Join on your phone, or turn bots on.`);
         return;
       }
-      next = reduce(next, { type: 'fillBots' });
-      dispatch({ type: 'fillBots' });
+      const fill: Action = { type: 'fillBots', force: solo };
+      next = reduce(next, fill);
+      dispatch(fill);
     }
     if (next.players.length < seats) return showToast(`${spec.title} needs ${seats} players.`);
     again.current.clear();
@@ -278,6 +313,65 @@ export function App() {
     forgeTimer.current = setTimeout(endStorm, STORM_SEC * 1000);
   }
 
+  // ---- Tweak / Remix: ask (10 s) -> rebuilding -> "What changed" -> replay ----
+  const clearTweakTimers = () => {
+    clearTimeout(tweakTimer.current);
+    clearTimeout(tweakFullTimer.current);
+    tweakFullTimer.current = undefined;
+    setPlayAt(undefined);
+  };
+
+  function openTweak(base: GameSpec, art: Record<string, string>, mode: 'tweak' | 'remix') {
+    clearForgeTimers();
+    clearTweakTimers();
+    voice.clear();
+    setCaption(null);
+    setParty(undefined);
+    dispatch({ type: 'tweakOpen', id: `tw-${Date.now().toString(36)}-${++sayId.current}`, base, art, mode });
+    setEndsAt(performance.now() + TWEAK_ASK_SEC * 1000);
+    tweakTimer.current = setTimeout(() => rebuild(), TWEAK_ASK_SEC * 1000);
+  }
+
+  function rebuild() {
+    const s = stateRef.current;
+    const t = s.tweak;
+    if (s.phase !== 'tweak' || !t || t.stage !== 'ask') return;
+    clearTweakTimers();
+    setEndsAt(undefined);
+    rebuildAt.current = performance.now();
+    if (t.asks.length === 0) return finishTweak(t.id, { spec: t.base, summary: 'Same rules, round two!', changes: [], source: 'none' });
+    dispatch({ type: 'tweakRebuild' });
+    const seats = Math.min(MAX_PLAYERS, Math.max(1, s.players.length, isQuick(t.base) ? cardFor(t.base).seats : 1));
+    const ok = !!s.code && room.send({
+      t: 'forge.tweak', code: s.code, id: t.id, spec: t.base, requests: toRequests(t.asks),
+      familySafe: s.settings.familySafe, seats, mode: t.mode,
+    });
+    const local = () => finishTweak(t.id, presetTweak(t.base, t.asks, registry()));
+    // offline: the chip presets, right away; online: the AI, with the presets as the safety net
+    tweakTimer.current = setTimeout(local, ok ? TWEAK_TIMEOUT_MS : 0);
+  }
+
+  /** A result for tweak `id` (backend or local): hold "Rebuilding…" briefly, show what changed, replay. */
+  function finishTweak(id: string, result: TweakResult) {
+    const t = stateRef.current.tweak;
+    if (stateRef.current.phase !== 'tweak' || !t || t.id !== id || t.stage === 'done') return;
+    clearTimeout(tweakTimer.current);
+    if (result.source !== 'none') noteLineage(result.spec.id, t.base.id);
+    const wait = Math.max(0, REBUILD_MIN_MS - (performance.now() - rebuildAt.current));
+    tweakTimer.current = setTimeout(() => {
+      const cur = stateRef.current.tweak;
+      if (stateRef.current.phase !== 'tweak' || cur?.id !== id) return;
+      dispatch({ type: 'tweakDone', id, result });
+      setPlayAt(performance.now() + CHANGED_HOLD_MS);
+      tweakTimer.current = setTimeout(() => {
+        const s = stateRef.current;
+        if (s.phase !== 'tweak' || s.tweak?.id !== id) return;
+        setPlayAt(undefined);
+        start(result.spec, s.tweak.art);
+      }, CHANGED_HOLD_MS);
+    }, wait);
+  }
+
   // ---- Party: 4 quick rounds ----
   const playPartyRound = (run: PartyRun) => {
     const r = run.rounds[run.index]!;
@@ -290,7 +384,7 @@ export function App() {
     playPartyRound(run);
   }
 
-  const actions = useRef({ again: () => {}, next: () => {}, lobby: () => {} });
+  const actions = useRef({ again: () => {}, next: () => {}, lobby: () => {}, tweak: () => {} });
   actions.current = {
     again: () => {
       const spec = stateRef.current.spec;
@@ -300,14 +394,21 @@ export function App() {
       if (run) return start(base, undefined, run.rounds[run.index]?.durationSec);
       start(base, stateRef.current.art);
     },
+    tweak: () => {
+      const s = stateRef.current;
+      if (s.phase !== 'results' || !s.spec || partyRef.current) return;
+      openTweak(s.spec, s.art, 'tweak');
+    },
     next: () => {
-      const i = QUICK_GAMES.findIndex((g) => g.id === stateRef.current.spec?.id);
+      const cur = stateRef.current.spec;
+      const i = cur ? QUICK_GAMES.findIndex((g) => g.id === rootId(cur)) : -1;
       if (i < 0) return create(); // after a forged game: forge another
       start(QUICK_GAMES[(i + 1) % QUICK_GAMES.length]!);
     },
     lobby: () => {
       voice.clear();
       clearForgeTimers();
+      clearTweakTimers();
       setParty(undefined);
       dispatch({ type: 'lobby' });
     },
@@ -417,6 +518,13 @@ export function App() {
     }
   }, [state.phase, state.votes, state.forge, state.players]);
 
+  // three requests in: rebuild after a beat (the third chip gets its moment on screen)
+  useEffect(() => {
+    const t = state.tweak;
+    if (state.phase !== 'tweak' || !t || t.stage !== 'ask' || t.asks.length < MAX_TWEAKS || tweakFullTimer.current) return;
+    tweakFullTimer.current = setTimeout(() => { tweakFullTimer.current = undefined; rebuild(); }, TWEAK_FULL_MS);
+  }, [state.phase, state.tweak]);
+
   const openArcade = () => {
     if (room.status !== 'online') return showToast('The arcade needs the internet.');
     setArcadeGames(undefined);
@@ -427,8 +535,9 @@ export function App() {
     clearTimeout(arcadeTimer.current);
     arcadeTimer.current = setTimeout(() => setArcadeGames((g) => g ?? []), 8000);
   };
-  const playArcade = (id: string) => {
+  const playArcade = (id: string, mode: 'play' | 'remix' = 'play') => {
     if (!room.send({ t: 'arcade.play', household: room.household, specId: id })) return showToast('Could not reach the arcade.');
+    arcadeMode.current = mode;
     setArcadeLoading(id);
     arcadeWant.current = id;
     clearTimeout(arcadeTimer.current);
@@ -439,6 +548,16 @@ export function App() {
   const changeSettings = useCallback((p: Partial<S>) => dispatch({ type: 'settings', patch: p }), []);
   const closeSettings = useCallback(() => setView('main'), []);
   const toLobby = useCallback(() => actions.current.lobby(), []);
+  const tweakChip = useCallback((chip: TweakChip) => dispatch({ type: 'tweakAsk', ask: { by: 'tv', chip } }), []);
+  const tweakNow = useCallback(() => rebuild(), []);
+  /** Back on the ask stage: a tweak returns to results, a remix to home. */
+  const tweakCancel = useCallback(() => {
+    const t = stateRef.current.tweak;
+    clearTweakTimers();
+    setEndsAt(undefined);
+    if (t?.mode === 'tweak' && stateRef.current.spec && stateRef.current.ranking.length) dispatch({ type: 'phase', phase: 'results' });
+    else actions.current.lobby();
+  }, []);
 
   let screen;
   const nextPartySpec = party && !isOver(party) ? QUICK_GAMES.find((g) => g.id === party.rounds[Math.min(party.rounds.length - 1, party.played)]?.gameId) : undefined;
@@ -454,6 +573,13 @@ export function App() {
     );
   } else if (state.phase === 'forge') {
     screen = <ForgeBuild state={state} status={status} />;
+  } else if (state.phase === 'tweak' && state.tweak) {
+    screen = (
+      <Tweak
+        state={state} status={status} endsAt={endsAt} total={TWEAK_ASK_SEC} {...(playAt !== undefined ? { playAt } : {})}
+        onChip={tweakChip} onRebuild={tweakNow} onCancel={tweakCancel}
+      />
+    );
   } else if (state.phase === 'results' && state.spec && party) {
     screen = isOver(party)
       ? <PartyChampion state={state} status={status} run={party} onAgain={startParty} onLobby={toLobby} />
@@ -477,9 +603,9 @@ export function App() {
       />
     );
   } else if (state.phase === 'results' && state.spec) {
-    screen = <Results state={state} status={status} winnerTeam={winnerTeam} forged={!QUICK_GAMES.some((g) => g.id === state.spec?.id)} onAgain={() => actions.current.again()} onNext={() => actions.current.next()} onLobby={toLobby} />;
+    screen = <Results state={state} status={status} winnerTeam={winnerTeam} forged={!isQuick(state.spec)} onAgain={() => actions.current.again()} onTweak={() => actions.current.tweak()} onNext={() => actions.current.next()} onLobby={toLobby} />;
   } else if (view === 'arcade') {
-    screen = <Arcade state={state} status={status} {...(arcadeGames ? { games: arcadeGames } : {})} {...(arcadeLoading ? { loadingId: arcadeLoading } : {})} onPlay={playArcade} onClose={closeArcade} />;
+    screen = <Arcade state={state} status={status} {...(arcadeGames ? { games: arcadeGames } : {})} {...(arcadeLoading ? { loadingId: arcadeLoading } : {})} onPlay={(id) => playArcade(id)} onRemix={(id) => playArcade(id, 'remix')} onClose={closeArcade} />;
   } else if (view === 'settings') {
     screen = <Settings state={state} status={status} onChange={changeSettings} onClose={closeSettings} />;
   } else {
@@ -488,6 +614,7 @@ export function App() {
         state={state}
         status={status}
         onPlay={(spec) => { setParty(undefined); start(spec); }}
+        onRemix={(spec) => openTweak(spec, {}, 'remix')}
         onCreate={create}
         onParty={startParty}
         onArcade={openArcade}

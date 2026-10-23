@@ -1,8 +1,9 @@
 // Arcade: the household's saved games (forged games are saved after they are played). Tiles along
-// the bottom like the lobby; OK plays the focused game, Back returns home.
+// the bottom like the lobby; OK plays the focused game, Down reaches Play / Remix for it, Back
+// returns home.
 import { useEffect, useState } from 'preact/hooks';
 import type { ArcadeGameSummary, GameSpec } from '@cadabra/spec';
-import { NeonBg, TopBar, focus, useFocusable } from '../ui/components';
+import { NeonBg, Pill, TopBar, focus, useFocusable } from '../ui/components';
 import { HERO } from '../ui/hero';
 import { keyArtFor } from '../fallback';
 import type { PartyState } from '../state/machine';
@@ -14,6 +15,8 @@ export interface ArcadeProps {
   games?: ArcadeGameSummary[];
   loadingId?: string;
   onPlay: (id: string) => void;
+  /** Remix the focused game: the Tweak flow, saved as a new Arcade entry (the original stays). */
+  onRemix?: (id: string) => void;
   onClose: () => void;
 }
 
@@ -42,7 +45,7 @@ function GameCard({ g, i, loading, onFocus, onSelect }: { g: ArcadeGameSummary; 
   );
 }
 
-export function Arcade({ state, status, games, loadingId, onPlay, onClose }: ArcadeProps) {
+export function Arcade({ state, status, games, loadingId, onPlay, onRemix, onClose }: ArcadeProps) {
   const [focused, setFocused] = useState(0);
   useEffect(() => {
     focus.setBack(() => { onClose(); return true; });
@@ -73,7 +76,15 @@ export function Arcade({ state, status, games, loadingId, onPlay, onClose }: Arc
               <GameCard key={x.id} g={x} i={i} loading={loadingId === x.id} onFocus={() => setFocused(i)} onSelect={() => onPlay(x.id)} />
             ))}
           </div>
-          {g && <div class="lib-hook" key={g.id}><b>{g.title}</b><span>{g.hook}</span></div>}
+          {g && (
+            <div class="lib-hook" key={g.id}>
+              <div class="lib-hook-text"><b>{g.title}</b><span>{g.hook}</span></div>
+              <div class="lib-actions">
+                <Pill row={100} col={0} label="Play" icon="play" onSelect={() => onPlay(g.id)} />
+                {onRemix && <Pill row={100} col={1} label="Remix" icon="tweak" onSelect={() => onRemix(g.id)} />}
+              </div>
+            </div>
+          )}
         </>
       )}
     </section>

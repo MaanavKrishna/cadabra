@@ -16,6 +16,8 @@ export interface ResultsProps {
   /** A game from the AI forge: "Next game" forges another. */
   forged?: boolean;
   onAgain: () => void;
+  /** Open the Tweak screen (change the rules, replay). Hidden when undefined. */
+  onTweak?: () => void;
   onNext: () => void;
   onLobby: () => void;
 }
@@ -23,7 +25,7 @@ export interface ResultsProps {
 const PLACE = ['1st', '2nd', '3rd', '4th'];
 const CONFETTI = Array.from({ length: 28 }, (_, i) => i);
 
-export function Results({ state, status, winnerTeam, forged, onAgain, onNext, onLobby }: ResultsProps) {
+export function Results({ state, status, winnerTeam, forged, onAgain, onTweak, onNext, onLobby }: ResultsProps) {
   const spec = state.spec!;
   useEffect(() => {
     focus.setBack(() => { onLobby(); return true; });
@@ -112,8 +114,9 @@ export function Results({ state, status, winnerTeam, forged, onAgain, onNext, on
       )}
       <nav class="actions">
         <Pill row={0} col={0} label="Play again" icon="again" primary autofocus onSelect={onAgain} />
-        <Pill row={0} col={1} label={forged ? 'Create another' : 'Next game'} icon={forged ? 'spark' : 'next'} onSelect={onNext} />
-        <Pill row={0} col={2} label="Home" icon="home" onSelect={onLobby} />
+        {onTweak && <Pill row={0} col={1} label="Tweak it" icon="tweak" onSelect={onTweak} />}
+        <Pill row={0} col={2} label={forged ? 'Create another' : 'Next game'} icon={forged ? 'spark' : 'next'} onSelect={onNext} />
+        <Pill row={0} col={3} label="Home" icon="home" onSelect={onLobby} />
       </nav>
     </section>
   );

@@ -15,7 +15,7 @@ export const paletteVars = (p: Palette): JSX.CSSProperties =>
   ({ '--c-bg': p.bg, '--c-primary': p.primary, '--c-accent': p.accent, '--c-glow': p.glow, '--c-text': p.text }) as JSX.CSSProperties;
 
 /** Seconds left until `endsAt` (ms, performance.now clock), refreshed 4x a second. */
-function useSecondsLeft(endsAt: number | undefined): number | undefined {
+export function useSecondsLeft(endsAt: number | undefined): number | undefined {
   const calc = () => (endsAt === undefined ? undefined : Math.max(0, Math.ceil((endsAt - performance.now()) / 1000)));
   const [s, setS] = useState(calc);
   useEffect(() => {
@@ -27,7 +27,7 @@ function useSecondsLeft(endsAt: number | undefined): number | undefined {
   return s;
 }
 
-function Ring({ endsAt, total }: { endsAt?: number; total: number }) {
+export function Ring({ endsAt, total }: { endsAt?: number; total: number }) {
   const left = useSecondsLeft(endsAt);
   const r = 92;
   const c = 2 * Math.PI * r;

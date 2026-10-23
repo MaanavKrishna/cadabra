@@ -4,7 +4,7 @@ import { Btn } from './kit';
 export const TEXT_MAX = 40;
 
 /** 40-char text box with a send button. Dictation comes from the OS keyboard mic. */
-export function TextSend({ placeholder, onSend, cta = 'Send' }: { placeholder: string; onSend(v: string): void; cta?: string }) {
+export function TextSend({ placeholder, onSend, cta = 'Send', max = TEXT_MAX }: { placeholder: string; onSend(v: string): void; cta?: string; max?: number }) {
   const [v, setV] = useState('');
   const [pulse, setPulse] = useState(0);
   const submit = () => {
@@ -21,12 +21,12 @@ export function TextSend({ placeholder, onSend, cta = 'Send' }: { placeholder: s
           class="text-field"
           value={v}
           placeholder={placeholder}
-          maxLength={TEXT_MAX}
+          maxLength={max}
           enterKeyHint="send"
           autoCapitalize="sentences"
-          onInput={(e) => setV((e.currentTarget as HTMLInputElement).value.slice(0, TEXT_MAX))}
+          onInput={(e) => setV((e.currentTarget as HTMLInputElement).value.slice(0, max))}
         />
-        <span class="text-count">{v.length}/{TEXT_MAX}</span>
+        <span class="text-count">{v.length}/{max}</span>
       </div>
       <Btn type="submit" class={v.trim() ? '' : 'is-idle'} aria-label={cta}>{cta}</Btn>
     </form>

@@ -8,7 +8,7 @@ const OCEAN = { '--c-bg': '#03101a', '--c-primary': '#1fb6ff', '--c-accent': '#5
 export const DEMO_SCREENS: Record<string, { name: ScreenName; data: Record<string, unknown> }> = {
   avatar: { name: 'avatar', data: { taken: ['dragon', 'robot'] } },
   wait: { name: 'wait', data: {} },
-  storm: { name: 'storm', data: { seconds: 20 } },
+  storm: { name: 'storm', data: { seconds: 30 } },
   vote: {
     name: 'vote',
     data: {
@@ -36,7 +36,9 @@ export const DEMO_SCREENS: Record<string, { name: ScreenName; data: Record<strin
     ], themeVars: LAVA },
   },
   remix: { name: 'remix', data: {} },
-  tweak: { name: 'tweak', data: {} },
+  tweak: { name: 'tweak', data: { phase: 'ask', message: 'Ring Out', seconds: 10 } },
+  'tweak-rebuilding': { name: 'tweak', data: { phase: 'rebuilding', message: 'Patching the rules…' } },
+  'tweak-done': { name: 'tweak', data: { phase: 'done', summary: 'Gravity ×0.4 · Bounce ↑', changes: ['Gravity ×0.4', 'Bounce ↑'] } },
   blocked: { name: 'blocked', data: {} },
 };
 

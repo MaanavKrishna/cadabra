@@ -1,6 +1,7 @@
 // The intro card's content: the goal as icon steps ("[ladoo] Grab ladoos -> [basket] bank them ->
 // [bear] tiptoe past the bear") and the controls as phone-button glyphs. Hand-tuned lines for the
 // built-in games, derived from the blocks for generated ones.
+import { rootId } from '../fallback/lineage';
 import type { GameSpec } from '@cadabra/spec';
 
 export interface IntroStep {
@@ -120,13 +121,14 @@ function stepsFromBlocks(spec: GameSpec): IntroStep[] {
 const HINTS: Record<string, string> = { tiptoe: 'quiet', dash: 'bump', slide: 'bump', pull: 'on the beat', grab: '', jump: '' };
 
 export function introFor(spec: GameSpec): Intro {
-  const steps = BUILT_IN[spec.id] ?? stepsFromBlocks(spec);
+  const root = rootId(spec);
+  const steps = BUILT_IN[root] ?? stepsFromBlocks(spec);
   const controls: IntroControl[] = spec.controller.slice(0, 3).map((w) => {
     const label = 'label' in w && typeof w.label === 'string' && w.label ? w.label : w.kind === 'joystick' ? 'Move' : cap(w.kind);
     const kind: IntroControl['kind'] = w.kind === 'joystick' ? 'stick' : w.kind === 'button' ? 'button' : w.kind === 'hold' ? 'hold' : w.kind === 'tilt' ? 'tilt' : w.kind === 'swipe' ? 'swipe' : 'other';
     const hint = HINTS[(('id' in w && typeof w.id === 'string' ? w.id : '') || label).toLowerCase()];
     return hint && !label.toLowerCase().includes(hint) ? { kind, label, hint } : { kind, label };
   });
-  const line = LINES[spec.id];
+  const line = LINES[root];
   return { ...(line ? { line } : {}), steps: steps.length ? steps : [{ text: spec.host.tutorial }], controls };
 }

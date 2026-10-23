@@ -189,7 +189,7 @@ function renderScreen(s: ParsedScreen, c: Ctx) {
     case 'play': return <PlayScreen data={s.data} onFrame={c.onFrame} />;
     case 'results': return <ResultsScreen data={s.data} reply={c.reply} />;
     case 'remix': return <RemixScreen data={s.data} reply={c.reply} />;
-    case 'tweak': return <TweakScreen data={s.data} />;
+    case 'tweak': return <TweakScreen data={s.data} reply={c.reply} />;
     case 'blocked': return <BlockedScreen data={s.data} />;
     case 'wait': return <WaitScreen data={s.data} name={c.name} avatar={c.avatar} />;
     default: return <WaitScreen data={{}} name={c.name} avatar={c.avatar} />;

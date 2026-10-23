@@ -3,7 +3,8 @@
 // forgeId filter, the vote tally and tie-break, and the forge screen's step list.
 import type { BackendToClient, GameSpec, Pitch } from '@cadabra/spec';
 
-export const STORM_SEC = 20;
+/** The Idea Storm: 30 s of typing on the phones (R2: was 20 s). */
+export const STORM_SEC = 30;
 export const VOTE_SEC = 15;
 /** No pitches this long after the storm ends: play a built-in game instead. */
 export const PITCH_TIMEOUT_MS = 15_000;

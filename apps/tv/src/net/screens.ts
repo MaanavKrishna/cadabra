@@ -4,6 +4,7 @@ import type { ScreenData, ScreenName, Standing } from '@cadabra/spec';
 import { isSafeArtUrl } from '@cadabra/spec';
 import { AVATAR_KEYS, type PartyState } from '../state/machine';
 import { STORM_SEC, VOTE_SEC, shownPct } from '../forge/forge';
+import { TWEAK_ASK_SEC, TWEAK_CHIPS } from '../tweak/tweak';
 
 export type PhoneScreen = { [K in ScreenName]: { name: K; data: Partial<ScreenData[K]> } }[ScreenName];
 
@@ -69,6 +70,27 @@ export function phoneScreen(s: PartyState, id: string, picked: boolean): PhoneSc
           }),
         },
       };
+    case 'tweak': {
+      const t = s.tweak;
+      if (!t) break;
+      const tb = themeVars(t.base.theme);
+      const title = t.base.title.slice(0, 60);
+      if (t.stage === 'ask') {
+        return { name: 'tweak', data: { themeVars: tb, phase: 'ask', message: title, chips: [...TWEAK_CHIPS], seconds: TWEAK_ASK_SEC } };
+      }
+      if (t.stage === 'rebuilding') {
+        return { name: 'tweak', data: { themeVars: tb, phase: 'rebuilding', message: (t.step ?? `Rebuilding ${title}…`).slice(0, 200) } };
+      }
+      const r = t.result;
+      return {
+        name: 'tweak',
+        data: {
+          themeVars: tb, phase: 'done', message: title,
+          summary: (r?.summary ?? 'Same rules, round two!').slice(0, 120),
+          changes: (r?.changes ?? []).slice(0, 6).map((c) => c.slice(0, 40)),
+        },
+      };
+    }
     case 'forge': {
       const w = s.forge.winner ?? '';
       const ready = !!s.forge.ready[w];

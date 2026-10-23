@@ -17,6 +17,8 @@ export interface LobbyProps {
   state: PartyState;
   status: string;
   onPlay: (spec: GameSpec) => void;
+  /** Remix a built-in game: the Tweak flow, then it plays and saves as a new Arcade entry. */
+  onRemix?: (spec: GameSpec) => void;
   onCreate: () => void;
   onParty: () => void;
   onArcade: () => void;
@@ -88,20 +90,20 @@ function copyFor(item: Item, state: PartyState, online: boolean): HeroCopy {
       return {
         title: 'Create', cta: online ? 'Create' : 'Needs internet', ctaIcon: 'spark',
         pitch: 'Throw ideas in from your phones. The AI pitches three new games and builds the winner.',
-        meta: ['2–4 players', '20 s idea storm', online ? 'AI forge' : 'Offline'],
-        steps: ['Everyone types ideas on their phone for 20 s', 'Vote for one of three AI pitches', 'The game is built in seconds, then you play'],
+        meta: ['1–4 players', '30 s idea storm', online ? 'AI forge' : 'Offline'],
+        steps: ['Everyone types ideas on their phone for 30 s', 'Vote for one of three AI pitches', 'The game is built in seconds, then tweak it and play again'],
       };
     case 'party':
       return {
         title: 'Party', cta: 'Start Party', ctaIcon: 'play',
         pitch: 'Four quick rounds back to back. Points carry over and one champion takes the crown.',
-        meta: ['2–4 players', '4 × 45 s', 'FFA + Teams'],
+        meta: ['1–4 players', '4 × 45 s', 'FFA + Teams'],
         steps: ['Four built-in games, picked at random', 'Points for every place, every round', 'Standings after each round, a champion at the end'],
       };
     case 'arcade':
       return {
         title: 'Arcade', cta: 'Open', ctaIcon: 'grid',
-        pitch: 'Every game you create is saved here. Replay the family favourites any time.',
+        pitch: 'Every game you create or remix is saved here. Replay or remix the family favourites any time.',
         meta: [online ? 'Saved online' : 'Needs internet', 'Your games'],
         steps: ['Games you create land here after you play them', 'New ones are marked, most recent first'],
       };
@@ -119,14 +121,14 @@ function copyFor(item: Item, state: PartyState, online: boolean): HeroCopy {
       return {
         title: item.label, cta: 'Play', ctaIcon: 'play',
         pitch: intro.line ?? spec.hook,
-        meta: [team ? '4 players' : '2–4 players', `${s.roundSec} s`, team ? 'Teams' : 'FFA'],
+        meta: [team ? '1–4 players · bots fill teams' : '1–4 players', `${s.roundSec} s`, team ? 'Teams' : 'FFA'],
         steps: [...intro.steps.map((x) => x.text), `On your phone: ${intro.controls.map((c) => (c.kind === 'hold' ? `hold ${c.label}` : c.label)).join(', ')}`],
       };
     }
   }
 }
 
-export function Lobby({ state, status, onPlay, onCreate, onParty, onArcade, onFillBots, onSettings }: LobbyProps) {
+export function Lobby({ state, status, onPlay, onRemix, onCreate, onParty, onArcade, onFillBots, onSettings }: LobbyProps) {
   const [fi, setFi] = useState(Math.min(lastIndex, ITEMS.length - 1));
   const [info, setInfo] = useState(false);
   const item = ITEMS[fi]!;
@@ -190,6 +192,9 @@ export function Lobby({ state, status, onPlay, onCreate, onParty, onArcade, onFi
           <Pill col={fi} label={copy.cta} icon={copy.ctaIcon} primary onSelect={() => act(item)} />
           <RoundBtn col={fi + 1} label={info ? 'Hide' : 'How to play'} icon="info" onSelect={() => setInfo((v) => !v)} />
           <RoundBtn col={fi + 2} label={full ? 'Seats full' : 'Fill with bots'} icon="bots" disabled={!state.settings.bots || full} onSelect={onFillBots} />
+          {item.kind === 'game' && item.spec && onRemix && (
+            <RoundBtn col={fi + 3} label="Remix" icon="tweak" onSelect={() => { lastIndex = fi; onRemix(item.spec!); }} />
+          )}
         </div>
       </div>
 
@@ -205,7 +210,7 @@ export function Lobby({ state, status, onPlay, onCreate, onParty, onArcade, onFi
           {state.code ? <QR url={joinUrl(state.code)} /> : <div class="qr qr-empty">{status === 'offline' ? 'Offline' : '…'}</div>}
           <div class="join-text">
             <h2>Join on your phone</h2>
-            <p>Scan with the camera, no app needed. Up to {MAX_PLAYERS} players.</p>
+            <p>Scan with the camera, no app needed. 1 to {MAX_PLAYERS} players: bots fill the empty seats.</p>
             <div class="join-code">{(state.code || '····').split('').map((c, i) => <b key={i}>{c}</b>)}</div>
           </div>
         </aside>

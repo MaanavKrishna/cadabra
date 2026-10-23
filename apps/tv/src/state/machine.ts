@@ -4,8 +4,24 @@
 import { makeBots, Rng, type Player } from '@cadabra/engine';
 import { DEFAULT_SETTINGS, MAX_PLAYERS, type BackendToClient, type GameSpec, type Pitch, type RoomSettings } from '@cadabra/spec';
 import { addProgress, belongs, emptyForge, type ForgeInfo } from '../forge/forge';
+import { addAsk, type TweakAsk, type TweakResult } from '../tweak/tweak';
 
-export type Phase = 'lobby' | 'storm' | 'pitching' | 'voting' | 'forge' | 'tutorial' | 'play' | 'results' | 'remix' | 'arcade';
+export type Phase = 'lobby' | 'storm' | 'pitching' | 'voting' | 'forge' | 'tutorial' | 'play' | 'results' | 'remix' | 'arcade' | 'tweak';
+
+/** Tweak / Remix between rounds (R2): ask (10 s of chips) -> rebuilding -> done ("What changed"). */
+export interface TweakInfo {
+  /** Request id sent in forge.tweak; forge.tweaked must echo it. */
+  id: string;
+  /** 'remix': a game picked from Arcade or Home (saved as a new Arcade entry after it is played). */
+  mode: 'tweak' | 'remix';
+  base: GameSpec;
+  art: Record<string, string>;
+  asks: TweakAsk[];
+  stage: 'ask' | 'rebuilding' | 'done';
+  /** Latest forge.tweakProgress step. */
+  step?: string;
+  result?: TweakResult;
+}
 export type Settings = RoomSettings;
 export type { Player };
 
@@ -36,6 +52,8 @@ export interface PartyState {
   ranking: RankEntry[];
   /** The AI forge in progress (storm -> pitches -> vote -> forge). */
   forge: ForgeInfo;
+  /** The tweak in progress (phase 'tweak'). */
+  tweak?: TweakInfo;
 }
 
 export type Action =
@@ -43,7 +61,8 @@ export type Action =
   | { type: 'join'; id: string; name: string; avatar?: string }
   | { type: 'left'; id: string }
   | { type: 'avatar'; id: string; avatar: string }
-  | { type: 'fillBots' }
+  /** `force`: fill even with bots off (a solo phone always gets rivals). */
+  | { type: 'fillBots'; force?: boolean }
   | { type: 'clearBots' }
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'phase'; phase: Phase }
@@ -62,7 +81,15 @@ export type Action =
   /** The TV's own vote (D-pad Select), used to break ties. */
   | { type: 'tvVote'; vote: number }
   /** The vote closed: this pitch is being built. */
-  | { type: 'winner'; pitchId: string };
+  | { type: 'winner'; pitchId: string }
+  /** Open the Tweak screen for `base` (after results, or a Remix from Arcade/Home). */
+  | { type: 'tweakOpen'; id: string; base: GameSpec; art?: Record<string, string>; mode: 'tweak' | 'remix' }
+  /** A request from a phone (`by` = player id) or the TV (`by` = 'tv'). */
+  | { type: 'tweakAsk'; ask: TweakAsk }
+  | { type: 'tweakRebuild' }
+  | { type: 'tweakProgress'; id: string; step: string }
+  /** The tweaked spec (backend, local presets or unchanged); ignored unless `id` is current. */
+  | { type: 'tweakDone'; id: string; result: TweakResult };
 
 export function initialState(code = '', settings: Settings = DEFAULT_SETTINGS): PartyState {
   return {
@@ -107,8 +134,8 @@ function promote(s: PartyState): PartyState {
   return { ...s, players, spectators: left };
 }
 
-function fillBots(s: PartyState): PartyState {
-  if (!s.settings.bots) return s;
+function fillBots(s: PartyState, force = false): PartyState {
+  if (!s.settings.bots && !force) return s;
   const need = MAX_PLAYERS - s.players.length;
   if (need <= 0) return s;
   const usedIds = new Set(s.players.map((p) => p.id));
@@ -162,7 +189,7 @@ export function reduce(s: PartyState, a: Action): PartyState {
     }
 
     case 'fillBots':
-      return fillBots(s);
+      return fillBots(s, a.force);
 
     case 'clearBots':
       return { ...s, players: s.players.filter((p) => !p.isBot) };
@@ -233,7 +260,31 @@ export function reduce(s: PartyState, a: Action): PartyState {
       return s;
     }
 
+    case 'tweakOpen':
+      return { ...s, phase: 'tweak', tweak: { id: a.id, mode: a.mode, base: a.base, art: a.art ?? {}, asks: [], stage: 'ask' } };
+
+    case 'tweakAsk': {
+      const t = s.tweak;
+      if (s.phase !== 'tweak' || !t || t.stage !== 'ask') return s;
+      const known = a.ask.by === 'tv' || s.players.some((p) => p.id === a.ask.by) || s.spectators.includes(a.ask.by);
+      if (!known) return s;
+      const asks = addAsk(t.asks, a.ask);
+      return asks.length === t.asks.length ? s : { ...s, tweak: { ...t, asks } };
+    }
+
+    case 'tweakRebuild':
+      if (s.phase !== 'tweak' || s.tweak?.stage !== 'ask') return s;
+      return { ...s, tweak: { ...s.tweak, stage: 'rebuilding' } };
+
+    case 'tweakProgress':
+      if (s.phase !== 'tweak' || s.tweak?.id !== a.id || s.tweak.stage !== 'rebuilding') return s;
+      return { ...s, tweak: { ...s.tweak, step: a.step.slice(0, 60) } };
+
+    case 'tweakDone':
+      if (s.phase !== 'tweak' || s.tweak?.id !== a.id || s.tweak.stage === 'done') return s;
+      return { ...s, tweak: { ...s.tweak, stage: 'done', result: a.result } };
+
     case 'lobby':
-      return promote({ ...s, phase: 'lobby', ingredients: [], pitches: [], votes: {} });
+      return promote({ ...s, phase: 'lobby', ingredients: [], pitches: [], votes: {}, tweak: undefined });
   }
 }

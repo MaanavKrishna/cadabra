@@ -241,7 +241,7 @@ export function Toast({ text }: { text: string | null }) {
   return <div class={`toast ${text ? 'is-on' : ''}`}>{text}</div>;
 }
 
-export type IconName = 'bots' | 'gear' | 'play' | 'again' | 'home' | 'next' | 'resume' | 'quit' | 'spark' | 'party' | 'grid' | 'save' | 'info' | 'phone' | 'trophy';
+export type IconName = 'bots' | 'gear' | 'play' | 'again' | 'home' | 'next' | 'resume' | 'quit' | 'spark' | 'party' | 'grid' | 'save' | 'info' | 'phone' | 'trophy' | 'tweak';
 
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<string, JSX.Element> = {
@@ -290,6 +290,11 @@ export function Icon({ name }: { name: IconName }) {
     info: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><circle cx="32" cy="32" r="24" /><path d="M32 29v15" /><circle cx="32" cy="20" r="1.5" fill="currentColor" /></g>,
     phone: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"><rect x="18" y="6" width="28" height="52" rx="6" /><path d="M28 49h8" /></g>,
     trophy: <path d="M20 8h24v6h10v6a12 12 0 0 1-11 12a12 12 0 0 1-8 6v8h9v8H20v-8h9v-8a12 12 0 0 1-8-6A12 12 0 0 1 10 20v-6h10z" fill="currentColor" />,
+    tweak: (
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round">
+        <path d="M10 18h26M48 18h6M10 46h6M28 46h26" /><circle cx="42" cy="18" r="6" /><circle cx="22" cy="46" r="6" />
+      </g>
+    ),
     quit: <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><path d="M18 18l28 28M46 18L18 46" /></g>,
   };
   return <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">{paths[name]}</svg>;
