@@ -111,6 +111,8 @@ export function NeonIcon({ name }: { name: string }) {
     splash: <><circle cx="32" cy="32" r="8" /><path d="M32 8v10M32 46v10M8 32h10M46 32h10M15 15l7 7M42 42l7 7M15 49l7-7M42 22l7-7" /></>,
     base: <><path d="M10 50h44M16 50V26l16-12 16 12v24" /><path d="M26 50V36h12v14" /></>,
     bolt: <path d="M36 6L14 36h16l-4 22 24-32H34z" />,
+    ball: <><circle cx="32" cy="32" r="22" /><path d="M32 10v44M10 32h44" /><path d="M16 16q16 16 0 32M48 16q-16 16 0 32" /></>,
+    crate: <><rect x="10" y="10" width="44" height="44" rx="4" /><path d="M10 10l44 44M54 10L10 54" /><path d="M10 22h44M10 42h44" /></>,
     gate: <><path d="M14 10v44M50 10v44" /><path d="M14 22h36M14 32h36M14 42h36" stroke-dasharray="4 4" /></>,
     flag: <><path d="M14 56V8" /><path d="M14 10h32l-6 9 6 9H14" /></>,
     star: <path d="M32 6l7 17 18 1-14 11 5 18-16-10-16 10 5-18L7 24l18-1z" />,
