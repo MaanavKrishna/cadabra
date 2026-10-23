@@ -54,7 +54,7 @@ Cadabra also ships **seven built-in games** (Ring Out, Overload, Paint Wars, Cor
 
 ## How we built it
 
-- **Fire TV app.** A Kotlin leanback shell hosts a full-screen WebView running a TypeScript app: a PS5-style React UI, a deterministic game engine, planck physics, and a PixiJS renderer. Phones talk to it over couchpad.
+- **Fire TV app.** A Kotlin leanback shell hosts a full-screen WebView running a TypeScript app: a PS5-style Preact UI, a deterministic game engine, planck physics, and a PixiJS renderer. Phones talk to it over couchpad.
 - **The engine.** Games are not code. They are a `GameSpec` that composes **9 tested blocks** (sneak, collect, dodge, race, tug, arena-move, trivia, draw-judge, ball-sport) with physics props and a world config: gravity, bounce, knockback and so on. The engine is seeded and deterministic, so a full 4-bot round simulates in milliseconds, which makes it a cheap gate for AI output.
 - **The AI designer.** A tool-calling agent (`list_blocks`, `get_block_schema`, `patch_spec`, `playtest_spec`) runs in Lambda. The playtest returns reasons such as "only 1 of 4 bots scored; the hazard penalised them", and the model fixes the spec in its next call. A passing playtest is the submission, so a typical design is one model reply.
 - **Tweak.** The same agent and tools, with a patch brief. If the AI misses its deadline, deterministic chip presets run instead, still playtest-checked, so the room never waits.
@@ -96,7 +96,7 @@ Cadabra also ships **seven built-in games** (Ring Out, Overload, Paint Wars, Cor
 
 ## Built with
 
-TypeScript, React, PixiJS, planck.js, Zod, Vite, Vitest, Kotlin, Android WebView (Fire OS), WebRTC, WebAudio, Amazon Bedrock (Converse, tool use), Amazon Bedrock Guardrails, AWS Lambda, Amazon API Gateway WebSocket, Amazon DynamoDB, Amazon S3, Amazon CloudFront, AWS Secrets Manager, AWS CDK, Claude Sonnet 5.5, Claude Haiku 5.5, couchpad.
+TypeScript, Preact, PixiJS, planck.js, Zod, Vite, Vitest, Kotlin, Android WebView (Fire OS), WebRTC, WebAudio, Amazon Bedrock (Converse, tool use), Amazon Bedrock Guardrails, AWS Lambda, Amazon API Gateway WebSocket, Amazon DynamoDB, Amazon S3, Amazon CloudFront, AWS Secrets Manager, AWS CDK, Claude Sonnet 5.5, Claude Haiku 5.5, couchpad.
 
 ## Pre-submission checklist
 
