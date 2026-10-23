@@ -1,7 +1,8 @@
 // Shared 10-foot UI pieces: wordmark, top bar, backdrop, avatars, focusable tiles, captions.
 import type { ComponentChildren, JSX } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { AVATAR_ART, DEFAULT_ART_URLS, avatarArtFor, playerColor } from '@cadabra/render';
+import { DEFAULT_ART_URLS, playerColor } from '@cadabra/render';
+import { ORB_KEYS, isOrbKey, orbFor, orbUrl } from './orbs';
 import type { Player } from '@cadabra/engine';
 import { FOCUS_CLASS, FocusManager, type FocusHandlers } from './focus';
 import type { KeyArt } from '../fallback';
@@ -16,10 +17,12 @@ export const art = (key: string): string | undefined => DEFAULT_ART_URLS[key];
 /** A phone's on-device stylized selfie (data:image/jpeg|webp). */
 export const isSelfie = (a: string | undefined): a is string => !!a && a.startsWith('data:image/');
 
-export function avatarUrl(p: { id: string; avatar?: string }): string | undefined {
+/** A selfie stays a selfie; every other avatar is a glossy glyph orb (bots wear bot:<k> = ORB_KEYS[k]). */
+export function avatarUrl(p: { id: string; avatar?: string }): string {
   if (isSelfie(p.avatar)) return p.avatar;
-  const name = avatarArtFor({ id: p.id, avatar: p.avatar ?? '' }, DEFAULT_ART_URLS);
-  return name ? DEFAULT_ART_URLS[name] : DEFAULT_ART_URLS[AVATAR_ART[0]!];
+  const a = p.avatar ?? '';
+  const bot = /^bot:(\d+)$/.exec(a);
+  return orbUrl(isOrbKey(a) ? a : bot ? ORB_KEYS[Number(bot[1]) % ORB_KEYS.length]! : orbFor(a || p.id));
 }
 
 export const colorOf = (i: number) => `#${playerColor(i).toString(16).padStart(6, '0')}`;

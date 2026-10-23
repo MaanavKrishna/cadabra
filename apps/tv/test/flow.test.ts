@@ -80,7 +80,7 @@ describe('headline moments', () => {
     expect(momentCallout({ type: 'play.golden', data: { moment: 'golden', phase: 'spawn' } }, name, 'LADOO')?.title).toBe('GOLDEN LADOO!');
     expect(momentCallout({ type: 'heist.golden', data: { moment: 'golden', phase: 'bank' } }, name, 'LADOO')).toBeUndefined();
     expect(momentCallout({ type: 'penguin.knockout', player: 'a', data: { moment: 'knockout', victim: 'b' } }, name, 'FISH')?.sub).toBe('A shoved B in');
-    expect(momentCallout({ type: 'tug.splash', data: { moment: 'splash', winners: 1 } }, name, '')?.sub).toBe('Blue team pulls them in!');
+    expect(momentCallout({ type: 'tug.splash', data: { moment: 'splash', winners: 1 } }, name, '')?.sub).toBe('Magenta team pulls them in!');
     expect(momentCallout({ type: 'heist.bank', player: 'a', data: { moment: 'bank' } }, name, 'LADOO')).toBeUndefined();
     expect(momentCallout({ type: 'tug.surge', data: { moment: 'surge' } }, name, '')).toBeUndefined();
   });

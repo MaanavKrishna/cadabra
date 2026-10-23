@@ -173,7 +173,14 @@ export function Pitches({ state, status, endsAt, total, onTvVote, onFocusPitch, 
       </div>
       {cooking ? (
         <div class="pitch-row">
-          {[0, 1, 2].map((i) => <div key={i} class="pitch-card is-blank" style={{ animationDelay: `${i * 0.12}s` }}><div class="pitch-shimmer" /></div>)}
+          {[0, 1, 2].map((i) => (
+            <div key={i} class="pitch-card is-blank" style={{ animationDelay: `${i * 0.12}s`, ['--sd' as string]: `${i * 0.25}s` }} aria-hidden="true">
+              <div class="sk-art"><i class="sk-chip" /><i class="sk-chip" /></div>
+              <div class="sk-body"><i class="sk-title" /><i class="sk-line" /><i class="sk-line" /><i class="sk-line is-short" /></div>
+              <div class="sk-foot"><i class="sk-bar" /></div>
+              <div class="pitch-shimmer" />
+            </div>
+          ))}
           <div class="cook-chips">{state.ingredients.slice(-8).map((g, i) => <span key={i} class="chip chip-sm">{g.text}</span>)}</div>
         </div>
       ) : (

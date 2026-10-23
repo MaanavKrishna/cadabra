@@ -13,7 +13,8 @@ export const FINAL_SEC = 10;
 /** At most one lead-change banner per this many seconds. */
 export const LEAD_GAP_SEC = 6;
 
-export const TEAM_NAME = ['Red', 'Blue'] as const;
+/** Matches the neon team colours (render TEAM_COLORS: cyan 0, magenta 1). */
+export const TEAM_NAME = ['Cyan', 'Magenta'] as const;
 
 export type FlowPhase = 'intro' | 'countdown' | 'play' | 'final' | 'time' | 'winner' | 'done';
 

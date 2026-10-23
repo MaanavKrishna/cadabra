@@ -22,6 +22,7 @@ import {
   fallbackGame, isForgeMsg, pickWinner,
 } from './forge/forge';
 import { finishRound, isOver, newParty, nextRound, type PartyRun } from './play/party';
+import { TEAM_NAME } from './play/flow';
 import { ForgeBuild, Pitches, Storm } from './screens/Forge';
 import { PartyChampion, PartyStandings } from './screens/Party';
 import { Lobby } from './screens/Lobby';
@@ -326,7 +327,7 @@ export function App() {
     dispatch({ type: 'results', ranking });
     const names = new Map(s.players.map((p) => [p.id, p.name]));
     const winner = names.get(ranking[0]?.id ?? '') ?? 'Everyone';
-    const fallback = team !== undefined ? `Team ${team === 0 ? 'Red' : 'Blue'} pulls it off!` : `${winner} takes the crown!`;
+    const fallback = team !== undefined ? `Team ${TEAM_NAME[team]} pulls it off!` : `${winner} takes the crown!`;
     const id = `roast-${++sayId.current}`;
     const ok = s.code && s.spec && room.send({
       t: 'host.roast', code: s.code, id,

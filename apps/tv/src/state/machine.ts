@@ -12,10 +12,9 @@ export type { Player };
 /** Phases where a game is being built or played: newcomers watch until results. */
 export const LATE_PHASES: readonly Phase[] = ['forge', 'tutorial', 'play'];
 
-/** The 12 premade characters (avatar keys shared with the controller and the render pack). */
-export const AVATAR_KEYS = [
-  'penguin', 'cat', 'robot', 'astronaut', 'dragon', 'fox', 'panda', 'bunny', 'monkey', 'chef', 'ninja', 'unicorn',
-] as const;
+/** The 12 premade avatars: glyph orbs (ui/orbs.ts; the phone has the same keys). */
+export { ORB_KEYS as AVATAR_KEYS } from '../ui/orbs';
+import { ORB_KEYS as AVATAR_KEYS } from '../ui/orbs';
 
 export interface RankEntry { id: string; score: number; team?: number }
 

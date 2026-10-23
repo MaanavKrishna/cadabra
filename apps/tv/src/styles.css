@@ -199,7 +199,8 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .cw { display: inline-block; white-space: pre; animation: rise 0.3s var(--ease) both; }
 .home ~ .toast { left: auto; right: var(--mx); top: 372px; transform: translateY(-16px); }
 .home ~ .toast.is-on { transform: none; }
-.home ~ .caption, .settings ~ .caption, .library ~ .caption { bottom: auto; top: 470px; left: auto; right: var(--mx); transform: translateY(-12px); font-size: 28px; max-width: 760px; border-radius: 26px; }
+.home ~ .caption, .settings ~ .caption, .library ~ .caption { bottom: auto; top: 470px; left: auto; right: var(--mx); transform: translateY(-12px); font-size: 28px; max-width: 1060px; border-radius: 26px; }
+.home ~ .caption .caption-text, .settings ~ .caption .caption-text, .library ~ .caption .caption-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .home ~ .caption.is-on, .settings ~ .caption.is-on, .library ~ .caption.is-on { transform: none; }
 .results ~ .caption { bottom: 170px; }
 .party-champion ~ .caption { left: var(--mx); bottom: 330px; max-width: 520px; font-size: 28px; transform: translateY(24px); border-radius: 26px; }
@@ -292,12 +293,23 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .pitch-count { font-size: 28px; font-weight: 600; animation: fade-in 0.3s both; }
 .pitch-tv { padding: 6px 16px; border-radius: 999px; font-size: 22px; font-weight: 600; color: #0b0d16; background: #fff; }
 .pitch-card.is-blank { animation: rise 0.45s var(--ease) both; }
-.pitch-shimmer {
-  position: absolute; inset: 0;
-  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0) 70%);
-  background-size: 200% 100%; animation: shimmer 1.6s linear infinite;
+.sk-art { position: relative; height: 230px; flex: none; background: linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)); }
+.sk-chip { position: absolute; bottom: 20px; width: 54px; height: 54px; border-radius: 14px; background: rgba(255, 255, 255, 0.08); }
+.sk-chip:first-child { left: 26px; } .sk-chip + .sk-chip { left: 92px; }
+.sk-body { flex: 1; padding: 32px 32px 0; display: flex; flex-direction: column; gap: 16px; }
+.sk-body i, .sk-bar { display: block; border-radius: 10px; background: rgba(255, 255, 255, 0.09); }
+.sk-title { width: 72%; height: 40px; margin-bottom: 10px; }
+.sk-line { width: 100%; height: 22px; }
+.sk-line.is-short { width: 58%; }
+.sk-foot { padding: 0 32px 34px; }
+.sk-bar { height: 8px; border-radius: 4px; }
+.pitch-shimmer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.pitch-shimmer::before {
+  content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 45%;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0) 100%);
+  transform: translateX(-120%) skewX(-12deg); animation: sweep 2.2s var(--ease) var(--sd, 0s) infinite;
 }
-@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@keyframes sweep { from { transform: translateX(-120%) skewX(-12deg); } 70%, to { transform: translateX(260%) skewX(-12deg); } }
 .cook-chips { position: absolute; left: 0; right: 0; top: 600px; display: flex; flex-wrap: wrap; gap: 14px; }
 .pitches-hint { position: absolute; left: var(--mx); bottom: 54px; z-index: 3; }
 
@@ -363,8 +375,8 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 .team-panel.is-win { box-shadow: 0 0 0 2px rgba(240, 205, 120, 0.7), 0 30px 60px rgba(0, 0, 0, 0.4); }
 .team-head { display: flex; align-items: center; gap: 18px; }
 .team-name { font-size: 44px; font-weight: 400; }
-.team-0 .team-name { color: #ff8f9a; }
-.team-1 .team-name { color: #8fb8ff; }
+.team-0 .team-name { color: #7fefff; }
+.team-1 .team-name { color: #ff8fe6; }
 .team-badge { padding: 6px 16px; border-radius: 999px; font-size: 22px; font-weight: 600; color: #2a1d0a; background: var(--gold); }
 .team-total { margin-left: auto; font-size: 72px; font-weight: 300; }
 .team-members { display: flex; gap: 36px; margin-top: 30px; }
@@ -544,5 +556,5 @@ body { color: var(--ink); font-family: var(--ui); font-weight: 400; -webkit-font
 
 @media (prefers-reduced-motion: reduce) {
   .cw, .chip, .pitch-card, .srow, .srow-bar i, .team-panel, .champ, .pitch-shimmer, .hero-text > *, .hrow-name,
-  .hero-img.is-in, .lib-card, .podium-col, .trophy, .forge-bg .hero-layers { animation: none !important; }
+  .hero-img.is-in, .lib-card, .podium-col, .trophy, .forge-bg .hero-layers, .pitch-shimmer::before { animation: none !important; }
 }

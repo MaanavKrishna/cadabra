@@ -1,13 +1,14 @@
 import { isSelfieAvatar } from '@cadabra/spec';
+import { ORB_KEYS, isOrbKey, orbFor, orbUrl } from './orbs';
 
-// The 12 premade characters, shared with the TV renderer.
-const files = import.meta.glob('../../../packages/render/assets/default/avatar-*.png', {
-  eager: true, query: '?url', import: 'default',
-}) as Record<string, string>;
+// The 12 premade avatars: glossy glyph orbs, the same keys and look as on the TV.
+export const AVATARS: { key: string; url: string }[] = ORB_KEYS.map((key) => ({ key, url: orbUrl(key) }));
 
-export const AVATARS: { key: string; url: string }[] = Object.entries(files)
-  .map(([path, url]) => ({ key: /avatar-([a-z]+)\.png$/.exec(path)![1]!, url }))
-  .sort((a, b) => a.key.localeCompare(b.key));
-
-/** A premade key, or an on-phone toon selfie (a small data: URL) which is its own image url. */
-export const avatarUrl = (key?: string) => (isSelfieAvatar(key) ? key : AVATARS.find((a) => a.key === key)?.url);
+/** A premade key (older animal keys map to an orb), or an on-phone toon selfie which is its own image url. */
+export function avatarUrl(key?: string): string | undefined {
+  const k: string = key ?? '';
+  if (!key) return undefined;
+  if (isSelfieAvatar(key)) return key as string;
+  if (k.startsWith('selfie:')) return undefined; // someone else's selfie: the TV never sends it
+  return orbUrl(isOrbKey(k) ? k : orbFor(k));
+}

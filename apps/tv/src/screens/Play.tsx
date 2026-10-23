@@ -244,7 +244,7 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
     };
     const leadText = (player?: string, team?: number) =>
       team === 0 || team === 1
-        ? { title: `${TEAM_NAME[team].toUpperCase()} TEAM`, sub: 'takes the lead!', color: team === 0 ? '#ff4d5e' : '#3d8bff' }
+        ? { title: `${TEAM_NAME[team].toUpperCase()} TEAM`, sub: 'takes the lead!', color: team === 0 ? '#00e5ff' : '#ff2bd6' }
         : { title: (names.get(player ?? '') ?? 'Someone').toUpperCase(), sub: 'takes the lead!', color: colorOf(Math.max(0, players.findIndex((p) => p.id === player))) };
 
     // ---- pause shifts the whole flow clock ----
@@ -317,7 +317,7 @@ export function Play({ state, session, judge, say, onDone, onQuit, onRestart }: 
           const top = team !== undefined ? res.ranking.find((p) => p.team === team) : res.ranking[0];
           view.celebrate(top?.id);
           sfx('win');
-          if (team !== undefined) show({ kind: 'winner', title: `${TEAM_NAME[team].toUpperCase()} TEAM WINS!`, color: team === 0 ? '#ff4d5e' : '#3d8bff' }, now, true);
+          if (team !== undefined) show({ kind: 'winner', title: `${TEAM_NAME[team].toUpperCase()} TEAM WINS!`, color: team === 0 ? '#00e5ff' : '#ff2bd6' }, now, true);
           else if (top) show({ kind: 'winner', title: `${top.name.toUpperCase()} WINS!`, sub: `${top.score} points`, color: colorOf(Math.max(0, players.findIndex((p) => p.id === top.id))) }, now, true);
         }
         if (f.phase === 'done') {
