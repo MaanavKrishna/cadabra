@@ -175,6 +175,10 @@ export class GameView {
   /** Ring-out style arena (floor tiles over a drop): the floor is baked as a pit. */
   private pit = false;
   private pitChecked = false;
+  /** First snapshot after loadTheme: compile / upload what play will need (see `prewarm`). */
+  private warmed = false;
+  private warmTexts: Text[] = [];
+  private warmFrames = 0;
   private destroyed = false;
   private started = false;
 
@@ -395,6 +399,7 @@ export class GameView {
     this.director.reset();
     this.snap = undefined;
     this.pitChecked = false;
+    this.warmed = false;
     this.scores.clear();
     this.eventPopups = false;
     this.itemSprite = '';
@@ -499,6 +504,10 @@ export class GameView {
     if (!this.started) return;
     if (events) for (const e of events) this.onEvent(e, snap);
     if (fresh) this.scoreJuice(snap);
+    if (fresh && !this.warmed) {
+      this.warmed = true;
+      this.prewarm(snap);
+    }
     if (fresh && !this.pitChecked && this.neon) {
       this.pitChecked = true;
       const pit = snap.entities.some((e) => e.kind === 'tile' && ('ring' in e.props || 'crumbling' in e.props));
@@ -788,10 +797,27 @@ export class GameView {
     return p.team !== undefined ? L.teams[p.team] : L.players[i % L.players.length];
   }
 
-  /** A big centred banner (GOAL!), cached per string, popped in and dropped out by frame(). */
-  bigBanner(text: string, color?: number): void {
-    if (!this.started) return;
-    const col = color ?? LOOKS[this.look].c.amber;
+  /**
+   * Done once on the first snapshot of a game (behind the intro card): the first particle of each
+   * blend compiles its shader, and a goal game rasterises and uploads its GOAL! banners. On the
+   * Fire TV Stick each of those cost 80-150 ms the first time it happened mid-play.
+   */
+  private prewarm(snap: Snapshot): void {
+    const o = { life: 0.05, s0: 0.01, a0: 0, vx: 0, vy: 0, grow: 0, spin: 0, rot: 0, gravity: 0, drag: 0, tint: 0xffffff, aspect: 1 };
+    this.particles.one('dot', -50, -50, { ...o, add: true });
+    this.particles.one('dot', -50, -50, { ...o, add: false });
+    if (snap.entities.some((e) => e.sprite === 'net' || e.kind === 'goal')) {
+      for (const col of LOOKS[this.look].teams) {
+        const t = this.bannerText('GOAL!', col);
+        t.visible = true;
+        t.alpha = 0;
+        this.warmTexts.push(t);
+      }
+      this.warmFrames = 2;
+    }
+  }
+
+  private bannerText(text: string, col: number): Text {
     const key = `${text}|${col}`;
     let t = this.banners.get(key);
     if (!t) {
@@ -800,6 +826,14 @@ export class GameView {
       this.popLayer.addChild(t);
       this.banners.set(key, t);
     }
+    return t;
+  }
+
+  /** A big centred banner (GOAL!), cached per string, popped in and dropped out by frame(). */
+  bigBanner(text: string, color?: number): void {
+    if (!this.started) return;
+    const col = color ?? LOOKS[this.look].c.amber;
+    const t = this.bannerText(text, col);
     if (this.bannerT && this.bannerT !== t) this.bannerT.visible = false;
     this.bannerT = t;
     this.bannerAt = this.rt;
@@ -1161,6 +1195,11 @@ export class GameView {
     const vdt = frozen ? 0 : dt * this.juice.timeScale;
     this.vt += vdt;
 
+    // prewarmed banners have been drawn once (texture uploaded): hide them again
+    if (this.warmTexts.length && --this.warmFrames <= 0) {
+      for (const t of this.warmTexts) if (t !== this.bannerT) t.visible = false;
+      this.warmTexts.length = 0;
+    }
     // the static background is re-rendered only after a theme / palette / scene change
     this.bake.ensure();
     const snap = this.snap;
@@ -1230,7 +1269,8 @@ export class GameView {
     this.particles.update(vdt);
     this.animateFloats();
     this.animateBanner();
-    if (this.sweep) this.sweep.visible = false;
+    // (visibility is written once per frame: every visible flip rebuilds the stage's draw list)
+    if (this.sweep && this.look !== 'neon') this.sweep.visible = false;
     if (this.sweep && this.look === 'neon') {
       // a faint band rolls down the arena every 6 s (the "pulsing scanlines")
       const r = this.rect, ph = (this.rt / 6) % 1;
