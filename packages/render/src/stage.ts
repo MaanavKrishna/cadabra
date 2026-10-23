@@ -9,7 +9,7 @@ import { CameraRig, capShake } from './camera';
 import { FxDirector, comboForEvent, comboForPreset, type ComboKind } from './director';
 import { arch, easeInOutSine, easeOutBack, easeOutCubic } from './ease';
 import { EntityLayer, label, setTextResolution, type FrameCtx } from './entities';
-import { Hud } from './hud';
+import { HUD_STRIP, Hud } from './hud';
 import { FxBudget, JuiceState, MAX_PARTICLES } from './juice';
 import { ParticleSystem } from './particles';
 import { itemNoun, popupText, popupTone } from './popups';
@@ -103,7 +103,23 @@ interface Float {
   live: boolean;
   /** Stack slot (0 = at the head): concurrent popups near one spot take different slots. */
   slot: number;
+  /** Merge key (player + reason): repeats within POP_MERGE_SEC update this popup instead. */
+  key: string;
+  sum: number;
+  count: number;
+  /** vt of the last merge (the merge window runs from here). */
+  last: number;
+  reason: string;
+  mult: number;
+  color: number;
 }
+
+/** Repeat popups for one player and reason within this many seconds merge into one. */
+const POP_MERGE_SEC = 0.8;
+/** At most this many popups on screen; the oldest gives way. */
+const POP_MAX = 4;
+/** Popups stay inside this fraction of the screen edge (TV safe area). */
+const SAFE = 0.05;
 
 /** Pulls only the new GameEvents from a runtime each frame (hosts: `feed.next(rt)`). */
 export class EventFeed {
@@ -330,6 +346,14 @@ export class GameView {
 
   private layout(): void {
     this.rect = arenaRect(this.W, this.H, this.arenaW, this.arenaH);
+    if (this.showHud) {
+      // fit the arena between the timer and the score-chip strip, so chips never cover zones or goals
+      const top = this.H * 0.06, bottom = HUD_STRIP * this.hudScale;
+      const availH = this.H - top - bottom;
+      const k = Math.min(this.rect.k, availH / this.arenaH);
+      const w = this.arenaW * k, h = this.arenaH * k;
+      this.rect = { x: (this.W - w) / 2, y: top + (availH - h) / 2, w, h, k };
+    }
     this.world.scale.set(this.rect.k);
     this.world.position.set(this.rect.x, this.rect.y);
     // neon bodies are at least ~72 px across on a 1080p screen, whatever the engine radius
@@ -499,7 +523,7 @@ export class GameView {
         this.goal(e.player, snap);
         return;
       }
-      this.popupFor(e.player, popupText(delta, reason, itemNoun(this.itemSprite), mult), popupTone(delta, reason), snap);
+      this.popupFor(e.player, popupText(delta, reason, itemNoun(this.itemSprite), mult), popupTone(delta, reason), snap, { delta, reason, mult });
       return;
     }
     if (typeof e.data?.phase === 'string' && e.data.phase === 'spawn') return;
@@ -875,11 +899,28 @@ export class GameView {
       const d = p.score - before;
       const av = this.avatarOf(snap, p.id);
       if (av && d > 0) this.entities.cheer(av.id);
-      if (!this.eventPopups) this.popupFor(p.id, popupText(d, undefined), popupTone(d, undefined), snap);
+      if (!this.eventPopups) this.popupFor(p.id, popupText(d, undefined), popupTone(d, undefined), snap, { delta: d, reason: '', mult: 1 });
     }
   }
 
-  private popupFor(pid: string, text: string, tone: 'gain' | 'loss' | 'big', snap: Snapshot): void {
+  private popupFor(pid: string, text: string, tone: 'gain' | 'loss' | 'big', snap: Snapshot, src: { delta: number; reason: string; mult: number }): void {
+    // a repeat for the same player and reason (crate after crate) updates the live popup: "+6 CRATE CRASH! ×3"
+    const key = `${pid}|${src.reason}|${src.delta > 0 ? 1 : 0}`;
+    for (const f of this.floats) {
+      if (!f.live || f.key !== key || this.vt - f.last > POP_MERGE_SEC) continue;
+      f.sum += src.delta;
+      f.count++;
+      f.last = this.vt;
+      let str = `${popupText(f.sum, f.reason, itemNoun(this.itemSprite), 1)} ×${f.count}`;
+      if (this.neon) str = str.toUpperCase();
+      f.t.visible = false;
+      f.t = this.textFor(str, f.color, f.big);
+      f.str = str;
+      f.t.visible = true;
+      // keep it up for a full life from now, past the pop-in, so it reads as one growing popup
+      f.at = this.vt - 0.12;
+      return;
+    }
     const av = this.avatarOf(snap, pid);
     const head = this.tmpA;
     if (!(av && this.entities.headOf(av.id, head))) head.set(av?.x ?? this.arenaW / 2, (av?.y ?? this.arenaH / 2) - (av ? av.r * 6 : 0));
@@ -889,7 +930,14 @@ export class GameView {
     const color = this.neon ? (tone === 'loss' ? LC.red : big ? LC.amber : this.look === 'neon' ? hexToNum(this.palette.glow) : this.look === 'toybox' ? 0xffffff : this.look === 'retro' ? LC.white : LC.cyan)
       : tone === 'loss' ? 0xff6b6b : big ? 0xffffff : hexToNum(this.palette.glow);
     if (this.neon) text = text.toUpperCase();
-    this.spawnFloat(text, color, this.tmpB.x, this.tmpB.y, big && this.showHud ? pid : '', big);
+    const f = this.spawnFloat(text, color, this.tmpB.x, this.tmpB.y, big && this.showHud ? pid : '', big);
+    f.key = key;
+    f.sum = src.delta;
+    f.count = 1;
+    f.last = this.vt;
+    f.reason = src.reason;
+    f.mult = src.mult;
+    f.color = color;
   }
 
   /** A ready Text for `str` (rasterised once per distinct string, kept in a small cache). */
@@ -989,18 +1037,27 @@ export class GameView {
     return (this.neon ? 60 : 46) * this.hudScale;
   }
 
-  private spawnFloat(text: string, color: number, x: number, y: number, pid: string, big: boolean): void {
+  private spawnFloat(text: string, color: number, x: number, y: number, pid: string, big: boolean): Float {
     let f: Float | undefined;
-    for (const o of this.floats) if (!o.live) f = o;
-    if (!f) {
-      if (this.floats.length >= 12) {
-        f = this.floats[0]!;
-        for (const o of this.floats) if (o.at < f.at) f = o;
-        f.t.visible = false;
-      } else {
-        f = { t: undefined as unknown as Text, str: '', at: 0, x: 0, y: 0, pid: '', big: false, live: false, slot: 0 };
-        this.floats.push(f);
+    let live = 0;
+    for (const o of this.floats) {
+      if (!o.live) f = o;
+      else live++;
+    }
+    if (live >= POP_MAX || (!f && this.floats.length >= POP_MAX)) {
+      // full: the oldest popup gives way
+      let old: Float | undefined;
+      for (const o of this.floats) if (o.live && (!old || o.at < old.at)) old = o;
+      if (old) {
+        old.t.visible = false;
+        old.live = false;
+        if (old.pid) this.hud.bump(old.pid, this.vt);
+        f = old;
       }
+    }
+    if (!f) {
+      f = { t: undefined as unknown as Text, str: '', at: 0, x: 0, y: 0, pid: '', big: false, live: false, slot: 0, key: '', sum: 0, count: 1, last: 0, reason: '', mult: 1, color };
+      this.floats.push(f);
     }
     f.t = this.textFor(text, color, big);
     f.str = text;
@@ -1021,6 +1078,20 @@ export class GameView {
     f.pid = pid;
     f.big = big;
     f.live = true;
+    f.key = '';
+    // start inside the safe area (the fly-to-chip path starts from here)
+    const hw = (f.t.getLocalBounds().width * 1.15) / 2;
+    f.x = Math.min(this.W * (1 - SAFE) - hw, Math.max(this.W * SAFE + hw, f.x));
+    return f;
+  }
+
+  /** Keep a popup's text inside the TV safe area (5% margins). */
+  private clampSafe(t: Text): void {
+    const hw = t.width / 2, hh = t.height / 2;
+    const x0 = this.W * SAFE + hw, x1 = this.W * (1 - SAFE) - hw;
+    const y0 = this.H * SAFE + hh, y1 = this.H * (1 - SAFE) - hh;
+    t.x = x0 > x1 ? this.W / 2 : Math.min(x1, Math.max(x0, t.x));
+    t.y = y0 > y1 ? this.H / 2 : Math.min(y1, Math.max(y0, t.y));
   }
 
   // ---------- match-flow cues (the TV app drives these) ----------
@@ -1218,6 +1289,7 @@ export class GameView {
         f.t.position.set(f.x, f.y - easeOutCubic(k) * 70 * this.hudScale);
         f.t.scale.set(pop);
         f.t.alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+        this.clampSafe(f.t);
         continue;
       }
       // big score: pop, hang, then fly into the player's HUD chip and bump it
@@ -1226,6 +1298,7 @@ export class GameView {
       if (q < 0) {
         f.t.position.set(f.x, f.y - rise);
         f.t.scale.set(pop * 1.15);
+        this.clampSafe(f.t);
         continue;
       }
       const to = this.tmpC;

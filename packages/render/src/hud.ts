@@ -27,6 +27,12 @@ interface Chip {
 const SAFE_X = 64; // 5% title-safe of 1280
 const SAFE_Y = 30; // 5% of 720 (less the timer pill's own padding)
 const CHIP_H = 60;
+/** Height of the bottom chip strip in 1280x720 HUD units (the arena is fitted above it). */
+export const HUD_STRIP = SAFE_Y + CHIP_H + 12;
+/** Chip gap: wide enough that a bumped (scaled) chip never touches its neighbour. */
+const CHIP_GAP = 16;
+/** Peak scale of a chip punched by a flown-in popup (w 230 -> 6 px each side, < CHIP_GAP / 2). */
+const CHIP_HIT = 0.05;
 /** Room kept for the score digits when fitting a name (fixed: refitting on every score change re-rasterised text). */
 const SCORE_ROOM = 58;
 
@@ -163,10 +169,12 @@ export class Hud {
   private updateChips(players: Player[], vt: number, avatarTex: (p: Player) => Texture): void {
     const n = players.length;
     if (n === 0) return;
-    const gap = 10;
+    const gap = CHIP_GAP;
     const w = Math.min(230, (this.W - SAFE_X * 2 - gap * (n - 1)) / n);
     const order = [...players].sort((a, b) => b.score - a.score);
     const top = order[0]!.score > 0 && (order.length < 2 || order[0]!.score > order[1]!.score) ? order[0]!.id : '';
+    // chips keep their seat order (the leader is marked, not moved): sliding chips past each
+    // other during a lead change covered a neighbour's name
     const total = n * w + (n - 1) * gap;
     const y = this.H - SAFE_Y - CHIP_H;
     const live = new Set<string>();
@@ -229,12 +237,12 @@ export class Hud {
       c.name.position.set(60, CHIP_H / 2);
       c.score.position.set(w - 12, CHIP_H / 2);
       c.name.visible = w >= 110;
-      const target = (this.W - total) / 2 + order.indexOf(p) * (w + gap);
+      const target = (this.W - total) / 2 + idx * (w + gap);
       c.x += (target - c.x) * 0.18;
       // chips rise in with a little overshoot, staggered left to right
       const rise = easeOutBack((vt - c.born - idx * 0.06) / 0.45);
       const hb = vt - c.hitAt;
-      const hit = hb < 0.3 ? 1 + 0.12 * Math.sin((hb / 0.3) * Math.PI) : 1;
+      const hit = hb < 0.3 ? 1 + CHIP_HIT * Math.sin((hb / 0.3) * Math.PI) : 1;
       c.root.pivot.set(w / 2, CHIP_H / 2);
       c.root.position.set(c.x + w / 2, y + CHIP_H / 2 + (1 - rise) * 80);
       c.root.scale.set(hit);
