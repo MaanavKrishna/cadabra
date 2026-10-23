@@ -78,6 +78,7 @@ let voices = 0;
 const MAX_VOICES = 10;
 const MIN_GAP_MS = 35;
 let muted = false;
+let sfxVol = 1;
 
 /** Pick the sound flavour for the current game (Theme.sfxSet). */
 export function setSfxSet(name: string): void {
@@ -91,6 +92,26 @@ export function setSfxMuted(m: boolean): void {
   muted = m;
 }
 
+/** Sfx loudness 0..1 (the host-voice duck lowers it instead of muting). */
+export function setSfxVolume(v: number): void {
+  sfxVol = Math.max(0, Math.min(1, v));
+  try {
+    if (master && ctx) master.gain.setTargetAtTime(0.55 * sfxVol, ctx.currentTime, 0.08);
+  } catch {
+    if (master) master.gain.value = 0.55 * sfxVol;
+  }
+}
+
+/** The shared AudioContext (music uses it too); null without WebAudio. */
+export function audioContext(): AudioContext | null {
+  return audio();
+}
+
+/** Current sfx set name (music follows it). */
+export function sfxSetName(): string {
+  return setName;
+}
+
 function audio(): AudioContext | null {
   if (ctx !== undefined) return ctx;
   try {
@@ -99,7 +120,7 @@ function audio(): AudioContext | null {
     ctx = AC ? new AC() : null;
     if (ctx) {
       master = ctx.createGain();
-      master.gain.value = 0.55;
+      master.gain.value = 0.55 * sfxVol;
       master.connect(ctx.destination);
     }
   } catch {
