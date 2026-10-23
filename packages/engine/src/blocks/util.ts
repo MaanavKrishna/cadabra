@@ -16,6 +16,19 @@ import type { Entity } from '../world';
  * - `invulnUntil`: sim seconds; hazards can't hurt the avatar until then.
  * - `speedMul`: per-step top-speed multiplier set by a non-mover block (sneak's tiptoe);
  *   movers multiply their top speed by it. Absent = 1.
+ * - `loadMul`: top-speed multiplier from what the avatar carries (collect); multiplies with
+ *   speedMul. Absent = 1.
+ * - `noiseMul`: how much louder than normal the avatar is (collect: carried loot); sneak's
+ *   guards hear noise × noiseMul. Absent = 1.
+ * - `carry`: number of items the avatar carries (collect), for renderers and other bots.
+ * - `loud`: 0..1 how loud the avatar is right now (sneak), for renderers.
+ * - `fumbleAt`: sim seconds; any block sets it to make the avatar drop everything it carries
+ *   (sneak's chasing guard on a catch). Carrying blocks honour each new value once.
+ * - `shovedBy` / `shovedAt`: last hard shove (dash bump) on this avatar, recorded by the
+ *   mover; hazard blocks credit knockouts to the shover.
+ * - Floor tiles: entities of kind 'tile' (dodge's crumbling floor). When any exist, a point
+ *   is only on solid floor if a tile covers it (see onFloor); `props.crumbling` tiles are
+ *   about to drop.
  */
 
 /** Base avatar radius in px at avatarScale 1. */
@@ -85,8 +98,46 @@ export function boostOf(e: Entity): number {
 
 /** Top-speed multiplier another block requests for this avatar (e.g. tiptoe). */
 export function speedMulOf(e: Entity): number {
-  const m = e.props.speedMul;
-  return typeof m === 'number' ? m : 1;
+  const m = e.props.speedMul, l = e.props.loadMul;
+  return (typeof m === 'number' ? m : 1) * (typeof l === 'number' ? l : 1);
+}
+
+/** Popup label from a sprite key: 'golden_fish' -> 'Golden fish'. */
+export function labelOf(key: string): string {
+  const t = key.replace(/[_-]+/g, ' ').trim();
+  return t ? t[0]!.toUpperCase() + t.slice(1) : 'Item';
+}
+
+/**
+ * Headline moment for the TV to call out: emits `<ns>.<moment>` with data.moment = moment,
+ * so the TV can match on the moment whatever namespace a spec picked. '' ns = off.
+ */
+export function callout(ctx: BlockCtx<unknown>, ns: string, moment: string, player?: string, data: Record<string, unknown> = {}): void {
+  if (!ns) return;
+  const e: { type: string; player?: string; data: Record<string, unknown> } = { type: `${ns}.${moment}`, data: { ...data, moment } };
+  if (player !== undefined) e.player = player;
+  ctx.emit(e);
+}
+
+/** Half-extents of a floor tile entity (props.hw / props.hh, else its radius). */
+function tileHalf(t: Entity): Vec {
+  const hw = typeof t.props.hw === 'number' ? t.props.hw : t.r;
+  const hh = typeof t.props.hh === 'number' ? t.props.hh : t.r;
+  return { x: hw, y: hh };
+}
+
+/**
+ * Is (x, y) on solid floor? True when the world has no floor tiles at all; otherwise a tile
+ * must cover the point (and, with `stable`, must not be crumbling).
+ */
+export function onFloor(ctx: BlockCtx<unknown>, x: number, y: number, stable = false): boolean {
+  let any = false;
+  for (const t of ctx.world.byKind('tile')) {
+    any = true;
+    const h = tileHalf(t);
+    if (Math.abs(x - t.x) <= h.x && Math.abs(y - t.y) <= h.y) return !(stable && t.props.crumbling === true);
+  }
+  return !any;
 }
 
 /** Stun contract shared by all blocks: props.stunUntil holds sim time in seconds. */
@@ -186,6 +237,9 @@ export function keepInArena(e: Entity, w: number, h: number, bounce: number): bo
   return hit;
 }
 
+/** Velocity decay per second of a stunned (tumbling) avatar under fallbackMove. */
+const TUMBLE_FRICTION = 5;
+
 /**
  * Simple movement for avatars a block spawned itself (no arena-move in the spec):
  * velocity = intent * speed * boost, clamped to the arena after integration.
@@ -198,9 +252,16 @@ export function fallbackMove(ctx: BlockCtx<unknown>, blockId: string, intents: M
     e.props.topSpeed = FALLBACK_SPEED;
     e.props.accel = INSTANT_ACCEL;
     const d = intents.get(p.id);
-    const s = isStunned(ctx, e) || !d ? 0 : FALLBACK_SPEED * boostOf(e) * speedMulOf(e);
-    e.vx = (d?.x ?? 0) * s;
-    e.vy = (d?.y ?? 0) * s;
+    if (isStunned(ctx, e)) {
+      // a stunned avatar tumbles: knockback slides out instead of stopping dead
+      const k = Math.exp(-TUMBLE_FRICTION * dt);
+      e.vx *= k;
+      e.vy *= k;
+    } else {
+      const s = !d ? 0 : FALLBACK_SPEED * boostOf(e) * speedMulOf(e);
+      e.vx = (d?.x ?? 0) * s;
+      e.vy = (d?.y ?? 0) * s;
+    }
     // pre-clamp the coming integration so the avatar never leaves the arena
     const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
     if (nx < e.r || nx > w - e.r) e.vx = 0;

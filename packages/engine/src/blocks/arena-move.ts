@@ -18,6 +18,7 @@ export const arenaMoveSchema = z.object({
   input: z.enum(['joystick', 'tilt']).describe('Steering source: phone joystick or phone tilt.'),
   tiltSensitivity: z.number().min(0.5).max(4).describe('Tilt gain: phones are rarely tilted fully, so a modest tilt reaches top speed.'),
   avatarScale: z.number().min(0.5).max(2.5).describe('Avatar size multiplier (bigger = easier to bump, harder to dodge).'),
+  dashShove: z.number().min(1).max(4).describe('A dashing avatar hits others this many times harder (shove rivals into hazards: knockouts).'),
 });
 export type ArenaMoveParams = z.infer<typeof arenaMoveSchema>;
 
@@ -50,6 +51,8 @@ function ps(s: State, id: string): PlayerState {
 
 const BUMP_RESTITUTION = 0.6;
 const HARD_BUMP = 380;
+/** A dash-bumped victim can't steer for this long (it slides: the shove is the joke). */
+const SHOVE_STUN_SEC = 0.3;
 
 function collide(ctx: BlockCtx<ArenaMoveParams>): void {
   const ps = ctx.players;
@@ -71,12 +74,26 @@ function collide(ctx: BlockCtx<ArenaMoveParams>): void {
       if (rel <= 0) continue; // already separating
       // record who rammed whom before the impulse swaps velocities (collect's steal reads it)
       const aIn = a.vx * nx + a.vy * ny, bIn = -(b.vx * nx + b.vy * ny);
-      if (aIn >= bIn) markRam(a, b, ctx.time);
-      else markRam(b, a, ctx.time);
+      const [hitter, victim] = aIn >= bIn ? [a, b] : [b, a];
+      markRam(hitter, victim, ctx.time);
+      const dashing = hitter.props.dashing === true;
       const imp = rel * (1 + BUMP_RESTITUTION) / 2;
-      a.vx -= imp * nx; a.vy -= imp * ny;
-      b.vx += imp * nx; b.vy += imp * ny;
-      if (rel > HARD_BUMP) {
+      // a dash shoves: the victim takes dashShove times the impulse
+      const vk = dashing ? ctx.params.dashShove : 1;
+      const sign = victim === b ? 1 : -1;
+      victim.vx += sign * imp * vk * nx; victim.vy += sign * imp * vk * ny;
+      hitter.vx -= sign * imp * nx; hitter.vy -= sign * imp * ny;
+      if (dashing || rel > HARD_BUMP) {
+        if (hitter.owner !== undefined) {
+          victim.props.shovedBy = hitter.owner;
+          victim.props.shovedAt = ctx.time;
+        }
+        if (dashing && ctx.params.dashShove > 1) {
+          victim.props.stunUntil = Math.max(typeof victim.props.stunUntil === 'number' ? victim.props.stunUntil : 0, ctx.time + SHOVE_STUN_SEC);
+          ctx.emit({ type: 'arena.shove', player: hitter.owner, data: { victim: victim.owner } });
+        }
+      }
+      if (rel > HARD_BUMP || dashing) {
         ctx.fx({ kind: 'particles', preset: 'burst', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
         ctx.fx({ kind: 'shake', strength: 0.15 });
         ctx.fx({ kind: 'sfx', name: 'hit' });
@@ -103,6 +120,7 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     input: 'joystick',
     tiltSensitivity: 1.5,
     avatarScale: 1,
+    dashShove: 1,
   },
   controls: ['joystick', 'tilt', 'button'],
   arenaKinds: ['topdown'],
@@ -211,8 +229,23 @@ export const arenaMove: BlockDef<ArenaMoveParams> = {
     const axes = steer(ctx as BlockCtx<unknown>, m, e, m.tx, m.ty, skill);
     const key = ctx.params.dashButton;
     const frame: { t: number; axes: Vec; buttons?: Record<string, boolean> } = { t: 0, axes };
-    // occasional dash; better bots dash a little more deliberately
-    if (key) frame.buttons = { [key]: ctx.rng.next() < 0.004 + 0.01 * clamp(skill, 0, 1) };
+    if (!key) return frame;
+    // shove: a rival close ahead (along our motion) is worth a dash when dashes hit hard
+    const sk = clamp(skill, 0, 1);
+    let shove = false;
+    const p = ps(s, playerId);
+    if (ctx.params.dashShove > 1 && ctx.time >= p.dashReadyAt) {
+      for (const o of ctx.players) {
+        const oe = o.id === playerId ? undefined : ctx.entityOf(o.id);
+        if (!oe) continue;
+        const dx = oe.x - e.x, dy = oe.y - e.y, d = len(dx, dy);
+        if (d > 150 || d < 1) continue;
+        const ahead = (dx * p.face.x + dy * p.face.y) / d;
+        if (ahead > 0.85 && ctx.rng.next() < 0.04 + 0.12 * sk) shove = true;
+      }
+    }
+    // otherwise an occasional dash; better bots dash a little more deliberately
+    frame.buttons = { [key]: shove || ctx.rng.next() < 0.004 + 0.01 * sk };
     return frame;
   },
 };

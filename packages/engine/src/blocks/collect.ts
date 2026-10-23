@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { BlockCtx, BlockDef } from '../block';
 import type { Entity } from '../world';
 import {
-  type BotMem, type Vec, botMem, clamp, consumeRam, ensureAvatars, fallbackMove, inputDir, len, rammer, stateOf, steer,
+  type BotMem, type Vec, botMem, callout, clamp, consumeRam, ensureAvatars, fallbackMove, inputDir, isStunned, labelOf, len,
+  onFloor, rammer, stateOf, steer,
 } from './util';
 
 export const collectSchema = z.object({
@@ -20,12 +21,33 @@ export const collectSchema = z.object({
   stealCooldownSec: z.number().min(0.3).max(10).describe("After a steal the thief can't steal again, and can't be robbed, for this long."),
   goldenChance: z.number().min(0).max(1).describe('Chance (0..1) that a spawned item is golden.'),
   goldenMultiplier: z.number().min(1).max(10).describe('Golden items are worth this many times pointsPerItem.'),
+  spawnArea: z.enum(['anywhere', 'centre']).describe("Where items appear: anywhere, or within spawnRadius of the arena centre (e.g. around a sleeping guard: the risky zone)."),
+  spawnRadius: z.number().min(60).max(800).describe("Max distance of a spawn from the arena centre when spawnArea is 'centre', px."),
+  homeBases: z.boolean().describe("Carry mode: every player gets their own basket (kind 'base', in their colour, spread along the edges); loot banks only at your own basket."),
+  bankBonus: z.number().int().min(0).max(5).describe('Carry mode: extra points per item beyond the first banked in one trip (1 => 1, 3, 6 for 1, 2, 3 items): rewards greedy trips.'),
+  carrySlowdown: z.number().min(0).max(0.3).describe('Carry mode: top speed lost per carried item, as a fraction (0.12 => 3 items = 64% speed).'),
+  carryNoise: z.number().min(0).max(2).describe('Carry mode: extra noise per carried item, as a multiple of normal (guards hear you better: 0.6 => 3 items = 2.8x as loud).'),
+  callout: z.string().max(24).describe("Namespace for the headline events the TV calls out (<callout>.bank, .steal, .golden); '' = off."),
 });
 export type CollectParams = z.infer<typeof collectSchema>;
+
+interface CBot extends BotMem {
+  /** Personality: items to gather before heading home (1..carryMax). */
+  greed: number;
+  /** Personality: 0..1 appetite for stealing. */
+  aggro: number;
+  /** Intercept target while stealing, until `huntUntil`. */
+  prey?: string;
+  huntUntil: number;
+}
 
 interface State {
   items: number[];
   goalId?: number;
+  /** Home basket entity per player (homeBases). */
+  bases: Map<string, number>;
+  /** Last fumbleAt honoured per player. */
+  fumbled: Map<string, number>;
   lastSpawn: number;
   /** Avatar pairs in contact last step: one bump = one steal attempt. */
   touching: Set<string>;
@@ -33,16 +55,66 @@ interface State {
   stealReadyAt: Map<string, number>;
   immuneUntil: Map<string, number>;
   intents: Map<string, Vec>;
-  bots: Map<string, BotMem>;
+  bots: Map<string, CBot>;
 }
 
 const states = new WeakMap<object, State>();
 const S = (ctx: object) =>
   stateOf<State>(states, ctx, () => ({
-    items: [], lastSpawn: 0, touching: new Set(), pickSeq: 0, stealReadyAt: new Map(), immuneUntil: new Map(), intents: new Map(), bots: new Map(),
+    items: [], bases: new Map(), fumbled: new Map(), lastSpawn: 0, touching: new Set(), pickSeq: 0, stealReadyAt: new Map(), immuneUntil: new Map(), intents: new Map(), bots: new Map(),
   }));
 
 const TOUCH_SLACK = 6;
+/** A robbed carrier tumbles: stunned this long, knocked away at this speed. */
+const STEAL_STUN_SEC = 0.35;
+const STEAL_KNOCK = 260;
+/** Fumbled loot scatters this far from the carrier, px. */
+const FUMBLE_MIN = 50;
+const FUMBLE_MAX = 110;
+
+/** Where a player's home basket sits: corners first, then edge midpoints. */
+function basePos(ctx: BlockCtx<CollectParams>, i: number): Vec {
+  const { width: w, height: h } = ctx.world;
+  const m = ctx.params.goalRadius + 10;
+  const spots: Vec[] = [
+    { x: m, y: m }, { x: w - m, y: h - m }, { x: w - m, y: m }, { x: m, y: h - m },
+    { x: w / 2, y: m }, { x: w / 2, y: h - m }, { x: m, y: h / 2 }, { x: w - m, y: h / 2 },
+  ];
+  return spots[i % spots.length]!;
+}
+
+function useBases(P: CollectParams): boolean {
+  return P.carryToGoal && P.homeBases;
+}
+
+/** Keep one basket per player in step with params (homeBases may be toggled live). */
+function syncBases(ctx: BlockCtx<CollectParams>, s: State): void {
+  if (!useBases(ctx.params)) {
+    for (const id of s.bases.values()) ctx.world.remove(id);
+    s.bases.clear();
+    return;
+  }
+  ctx.players.forEach((p, i) => {
+    let b = s.bases.has(p.id) ? ctx.world.get(s.bases.get(p.id)!) : undefined;
+    if (!b) {
+      const at = basePos(ctx, i);
+      const opts: Parameters<typeof ctx.world.spawn>[3] = { owner: p.id, sprite: 'base', r: ctx.params.goalRadius, props: { home: true, slot: i } };
+      if (p.team !== undefined) opts.team = p.team;
+      b = ctx.world.spawn('base', at.x, at.y, opts);
+      s.bases.set(p.id, b.id);
+    }
+    b.r = ctx.params.goalRadius;
+  });
+}
+
+/** Where `id` banks: its own basket, else the shared goal. */
+function bankSpot(ctx: BlockCtx<CollectParams>, s: State, id: string): Entity | undefined {
+  if (useBases(ctx.params)) {
+    const b = s.bases.get(id);
+    return b !== undefined ? ctx.world.get(b) : undefined;
+  }
+  return s.goalId !== undefined ? ctx.world.get(s.goalId) : undefined;
+}
 
 function goalPos(ctx: BlockCtx<CollectParams>): Vec {
   return { x: ctx.params.goalX * ctx.world.width, y: ctx.params.goalY * ctx.world.height };
@@ -51,7 +123,7 @@ function goalPos(ctx: BlockCtx<CollectParams>): Vec {
 /** Keep the goal entity in step with params (Tweak panel may toggle carryToGoal live). */
 function syncGoal(ctx: BlockCtx<CollectParams>, s: State): Entity | undefined {
   let goal = s.goalId !== undefined ? ctx.world.get(s.goalId) : undefined;
-  if (!ctx.params.carryToGoal) {
+  if (!ctx.params.carryToGoal || ctx.params.homeBases) {
     if (goal) ctx.world.remove(goal.id);
     s.goalId = undefined;
     return undefined;
@@ -73,20 +145,36 @@ function spawnItem(ctx: BlockCtx<CollectParams>, s: State): void {
   const m = 40 + P.itemRadius;
   const g = goalPos(ctx);
   let x = w / 2, y = h / 2;
-  // a few tries to avoid the goal and players' feet; deterministic via ctx.rng
-  for (let tries = 0; tries < 10; tries++) {
-    x = ctx.rng.range(m, w - m);
-    y = ctx.rng.range(m, h - m);
-    if (P.carryToGoal && len(x - g.x, y - g.y) < P.goalRadius + P.itemRadius + 40) continue;
+  const guards = ctx.world.byKind('guard');
+  // a few tries to avoid goals, guards, players' feet and missing floor; deterministic via ctx.rng
+  for (let tries = 0; tries < 12; tries++) {
+    if (P.spawnArea === 'centre') {
+      const a = ctx.rng.range(0, Math.PI * 2);
+      const r = Math.sqrt(ctx.rng.next()) * P.spawnRadius;
+      x = clamp(w / 2 + Math.cos(a) * r, m, w - m);
+      y = clamp(h / 2 + Math.sin(a) * r, m, h - m);
+    } else {
+      x = ctx.rng.range(m, w - m);
+      y = ctx.rng.range(m, h - m);
+    }
+    if (P.carryToGoal && !P.homeBases && len(x - g.x, y - g.y) < P.goalRadius + P.itemRadius + 40) continue;
+    if ([...s.bases.values()].some((id) => { const b = ctx.world.get(id); return b && len(b.x - x, b.y - y) < b.r + P.itemRadius + 30; })) continue;
+    if (guards.some((gd) => len(gd.x - x, gd.y - y) < gd.r + P.itemRadius + 24)) continue;
+    if (!onFloor(ctx as BlockCtx<unknown>, x, y, true)) continue;
     if (ctx.players.some((p) => { const e = ctx.entityOf(p.id); return e && len(e.x - x, e.y - y) < e.r + 60; })) continue;
     break;
   }
-  const golden = ctx.rng.next() < P.goldenChance;
+  spawnAt(ctx, s, x, y, ctx.rng.next() < P.goldenChance);
+}
+
+function spawnAt(ctx: BlockCtx<CollectParams>, s: State, x: number, y: number, golden: boolean): Entity {
+  const P = ctx.params;
   const it = ctx.world.spawn('item', x, y, {
     sprite: P.itemSprite, r: P.itemRadius, props: { golden, carriedBy: '', seq: 0 },
   });
   if (golden) it.tags.add('golden');
   s.items.push(it.id);
+  return it;
 }
 
 function itemValue(P: CollectParams, it: Entity): number {
@@ -129,13 +217,20 @@ function steal(ctx: BlockCtx<CollectParams>, s: State, thief: Entity, victim: En
     const vp = ctx.players.find((p) => p.id === vid);
     const n = Math.min(P.pointsPerItem, vp?.score ?? 0);
     if (n <= 0) return;
-    ctx.score(vid, -n, 'collect.stolen');
-    ctx.score(tid, n, 'collect.steal');
+    ctx.score(vid, -n, 'Robbed!');
+    ctx.score(tid, n, 'Stole!');
     data.points = n;
   }
   s.stealReadyAt.set(tid, t + P.stealCooldownSec);
   s.immuneUntil.set(tid, t + P.stealCooldownSec);
+  // the victim tumbles away (comedy, and it breaks contact)
+  const dx = victim.x - thief.x, dy = victim.y - thief.y;
+  const d = len(dx, dy) || 1;
+  victim.vx = (dx / d) * STEAL_KNOCK;
+  victim.vy = (dy / d) * STEAL_KNOCK;
+  victim.props.stunUntil = Math.max(typeof victim.props.stunUntil === 'number' ? victim.props.stunUntil : 0, t + STEAL_STUN_SEC);
   ctx.emit({ type: 'collect.stolen', player: tid, data });
+  callout(ctx as BlockCtx<unknown>, P.callout, 'steal', tid, data);
   ctx.fx({ kind: 'particles', preset: 'burst', x: (thief.x + victim.x) / 2, y: (thief.y + victim.y) / 2 });
   ctx.fx({ kind: 'shake', strength: 0.35 });
   ctx.fx({ kind: 'sfx', name: 'hit' });
@@ -147,6 +242,7 @@ function pickup(ctx: BlockCtx<CollectParams>, s: State, id: string, it: Entity):
   ctx.emit({ type: 'collect.picked', player: id, data: { golden, item: it.id } });
   if (golden) {
     ctx.emit({ type: 'collect.golden', player: id });
+    callout(ctx as BlockCtx<unknown>, P.callout, 'golden', id, { phase: 'grab' });
     ctx.fx({ kind: 'flash', color: '#ffd84a' });
     ctx.fx({ kind: 'particles', preset: 'confetti', x: it.x, y: it.y });
   }
@@ -157,7 +253,7 @@ function pickup(ctx: BlockCtx<CollectParams>, s: State, id: string, it: Entity):
     ctx.fx({ kind: 'sfx', name: 'coin' });
     return;
   }
-  ctx.score(id, itemValue(P, it), golden ? 'collect.golden' : 'collect.item');
+  ctx.score(id, itemValue(P, it), golden ? 'Golden!' : labelOf(P.itemSprite));
   ctx.fx({ kind: 'particles', preset: 'sparkle', x: it.x, y: it.y });
   ctx.fx({ kind: 'sfx', name: golden ? 'score' : 'coin' });
   removeItem(ctx, s, it);
@@ -165,21 +261,44 @@ function pickup(ctx: BlockCtx<CollectParams>, s: State, id: string, it: Entity):
 
 function bank(ctx: BlockCtx<CollectParams>, s: State, id: string, at: Vec, loot: Entity[]): void {
   if (loot.length === 0) return;
-  let pts = 0;
+  const n = loot.length;
+  let pts = (ctx.params.bankBonus * n * (n - 1)) / 2;
+  let golden = false;
   for (const it of loot) {
     pts += itemValue(ctx.params, it);
+    if (it.props.golden) golden = true;
     removeItem(ctx, s, it);
   }
-  ctx.score(id, pts, 'collect.banked');
-  ctx.emit({ type: 'collect.banked', player: id, data: { count: loot.length, points: pts } });
+  ctx.score(id, pts, 'Banked!');
+  ctx.emit({ type: 'collect.banked', player: id, data: { count: n, points: pts } });
+  callout(ctx as BlockCtx<unknown>, ctx.params.callout, 'bank', id, { count: n, points: pts, golden });
+  if (golden) callout(ctx as BlockCtx<unknown>, ctx.params.callout, 'golden', id, { phase: 'bank' });
   ctx.fx({ kind: 'particles', preset: 'confetti', x: at.x, y: at.y });
   ctx.fx({ kind: 'sfx', name: 'score' });
 }
 
+/** Drop everything `id` carries, scattered around (x, y). */
+function fumble(ctx: BlockCtx<CollectParams>, s: State, id: string, e: Entity): void {
+  const loot = carriedBy(ctx, s, id);
+  if (loot.length === 0) return;
+  const { width: w, height: h } = ctx.world;
+  for (const it of loot) {
+    const a = ctx.rng.range(0, Math.PI * 2), r = ctx.rng.range(FUMBLE_MIN, FUMBLE_MAX);
+    it.props.carriedBy = '';
+    it.x = clamp(e.x + Math.cos(a) * r, it.r, w - it.r);
+    it.y = clamp(e.y + Math.sin(a) * r, it.r, h - it.r);
+  }
+  ctx.emit({ type: 'collect.dropped', player: id, data: { count: loot.length } });
+  ctx.fx({ kind: 'particles', preset: 'burst', x: e.x, y: e.y });
+}
+
+/** Timeline kinds collect reacts to: '*golden*' drops one golden item near the centre; '*frenzy*' / '*rain*' / '*loot*' fill the field. */
+export const COLLECT_TIMELINE = { golden: /golden|jackpot/i, frenzy: /frenzy|rain|loot|tray/i } as const;
+
 export const collect: BlockDef<CollectParams> = {
   id: 'collect',
   name: 'Collect',
-  summary: 'Items pop up around the arena; grab them for points, or carry them to a goal. Golden items and bump-to-steal.',
+  summary: 'Items pop up; grab them for points, or carry them home to bank (own baskets, carry limits that slow you and make noise, combo bonus for full trips). Golden items, bump-to-steal.',
   paramsSchema: collectSchema,
   defaults: {
     itemSprite: 'item',
@@ -196,6 +315,13 @@ export const collect: BlockDef<CollectParams> = {
     stealCooldownSec: 1.5,
     goldenChance: 0.08,
     goldenMultiplier: 3,
+    spawnArea: 'anywhere',
+    spawnRadius: 300,
+    homeBases: false,
+    bankBonus: 0,
+    carrySlowdown: 0,
+    carryNoise: 0,
+    callout: 'play',
   },
   controls: ['joystick'],
   arenaKinds: ['topdown'],
@@ -205,6 +331,18 @@ export const collect: BlockDef<CollectParams> = {
     const s = S(ctx);
     ensureAvatars(ctx as BlockCtx<unknown>, 'collect');
     syncGoal(ctx, s);
+    syncBases(ctx, s);
+    // everyone starts at their own basket
+    if (useBases(ctx.params)) {
+      const { width: w, height: h } = ctx.world;
+      for (const p of ctx.players) {
+        const e = ctx.entityOf(p.id), b = bankSpot(ctx, s, p.id);
+        if (!e || !b) continue;
+        const dx = w / 2 - b.x, dy = h / 2 - b.y, d = len(dx, dy) || 1;
+        e.x = b.x + (dx / d) * (b.r * 0.5);
+        e.y = b.y + (dy / d) * (b.r * 0.5);
+      }
+    }
     const n = Math.ceil(ctx.params.maxItems / 2);
     for (let i = 0; i < n; i++) spawnItem(ctx, s);
     s.lastSpawn = 0;
@@ -219,15 +357,48 @@ export const collect: BlockDef<CollectParams> = {
     inputDir(input, 'joystick', 1.5, d);
   },
 
+  onTimeline(ctx, ev) {
+    const s = S(ctx);
+    const P = ctx.params;
+    const { width: w, height: h } = ctx.world;
+    if (COLLECT_TIMELINE.golden.test(ev.kind)) {
+      // the jackpot lands in the risky middle (next to a guard if there is one)
+      const g = ctx.world.byKind('guard')[0];
+      const cx = g ? g.x : w / 2, cy = g ? g.y : h / 2;
+      const a = ctx.rng.range(0, Math.PI * 2), r = (g ? g.r : 0) + P.itemRadius + 40;
+      const it = spawnAt(ctx, s, clamp(cx + Math.cos(a) * r, 40, w - 40), clamp(cy + Math.sin(a) * r, 40, h - 40), true);
+      callout(ctx as BlockCtx<unknown>, P.callout, 'golden', undefined, { phase: 'spawn', item: it.id, x: it.x, y: it.y });
+      ctx.fx({ kind: 'flash', color: '#ffd84a' });
+      ctx.fx({ kind: 'sfx', name: 'score' });
+    } else if (COLLECT_TIMELINE.frenzy.test(ev.kind)) {
+      // fill the field (a little past the cap: it is a frenzy)
+      const cap = Math.min(40, P.maxItems + 6);
+      while (s.items.length < cap) spawnItem(ctx, s);
+      ctx.fx({ kind: 'sfx', name: 'whoosh' });
+    }
+  },
+
   update(ctx, dt) {
     const s = S(ctx);
     const P = ctx.params;
     const goal = syncGoal(ctx, s);
+    syncBases(ctx, s);
+    // items another block removed (or that sank) no longer count against the cap
+    s.items = s.items.filter((id) => ctx.world.get(id) !== undefined);
 
     // spawn on a timer up to maxItems; derived from the last spawn so live tweaks apply at once
     if (ctx.time >= s.lastSpawn + P.spawnEverySec) {
       if (s.items.length < P.maxItems) spawnItem(ctx, s);
       s.lastSpawn = ctx.time;
+    }
+
+    // fumbles requested by other blocks (a guard's catch): drop everything once per request
+    for (const p of ctx.players) {
+      const e = ctx.entityOf(p.id);
+      const f = e?.props.fumbleAt;
+      if (!e || typeof f !== 'number' || f <= (s.fumbled.get(p.id) ?? -1)) continue;
+      s.fumbled.set(p.id, f);
+      fumble(ctx, s, p.id, e);
     }
 
     // bump-to-steal (before movement rewrites velocities). Only the first step of a contact
@@ -251,11 +422,12 @@ export const collect: BlockDef<CollectParams> = {
       }
     }
 
-    // pickups (players in join order; the grid is fresh because nothing moved yet)
+    // pickups (players in join order; the grid is fresh because nothing moved yet).
+    // A tumbling (stunned) avatar can't grab anything.
     ctx.world.invalidate();
     for (const p of ctx.players) {
       const e = ctx.entityOf(p.id);
-      if (!e) continue;
+      if (!e || isStunned(ctx as BlockCtx<unknown>, e)) continue;
       let held = P.carryToGoal ? carriedBy(ctx, s, p.id).length : 0;
       for (const it of ctx.world.query(e.x, e.y, e.r)) {
         if (it.kind !== 'item' || it.props.carriedBy !== '' || !s.items.includes(it.id)) continue;
@@ -265,10 +437,15 @@ export const collect: BlockDef<CollectParams> = {
       }
     }
 
-    // carried items trail their carrier; bank at the goal; drop if the carrier is gone
+    // carried items trail their carrier; bank at the goal; drop if the carrier is gone;
+    // loose items with no floor under them sink
     for (const iid of s.items.slice()) {
       const it = ctx.world.get(iid);
-      if (!it || it.props.carriedBy === '') continue;
+      if (!it) continue;
+      if (it.props.carriedBy === '') {
+        if (!onFloor(ctx as BlockCtx<unknown>, it.x, it.y)) removeItem(ctx, s, it);
+        continue;
+      }
       const owner = it.props.carriedBy as string;
       if (!P.carryToGoal) {
         // carry mode switched off live: carried items pay out
@@ -277,24 +454,31 @@ export const collect: BlockDef<CollectParams> = {
       }
       if (!ctx.entityOf(owner)) it.props.carriedBy = '';
     }
-    if (P.carryToGoal) {
-      for (const p of ctx.players) {
-        const e = ctx.entityOf(p.id);
-        if (!e) continue;
-        const loot = carriedBy(ctx, s, p.id);
-        if (goal && loot.length > 0 && len(e.x - goal.x, e.y - goal.y) <= goal.r) {
-          bank(ctx, s, p.id, goal, loot);
-          continue;
-        }
-        const sp = len(e.vx, e.vy);
-        const bx = sp > 1 ? -e.vx / sp : 0, by = sp > 1 ? -e.vy / sp : -1;
-        loot.forEach((it, k) => {
-          const off = e.r + it.r + k * (it.r * 1.4);
-          it.x = e.x + bx * off;
-          it.y = e.y + by * off;
-          it.vx = it.vy = 0;
-        });
+    for (const p of ctx.players) {
+      const e = ctx.entityOf(p.id);
+      if (!e) continue;
+      const loot = P.carryToGoal ? carriedBy(ctx, s, p.id) : [];
+      // publish load for movers (speed), guards (noise) and renderers (count)
+      e.props.carry = loot.length;
+      e.props.loadMul = Math.max(0.2, 1 - P.carrySlowdown * loot.length);
+      e.props.noiseMul = 1 + P.carryNoise * loot.length;
+      if (!P.carryToGoal) continue;
+      const spot = useBases(P) ? bankSpot(ctx, s, p.id) : goal;
+      if (spot && loot.length > 0 && len(e.x - spot.x, e.y - spot.y) <= spot.r) {
+        bank(ctx, s, p.id, spot, loot);
+        e.props.carry = 0;
+        e.props.loadMul = 1;
+        e.props.noiseMul = 1;
+        continue;
       }
+      const sp = len(e.vx, e.vy);
+      const bx = sp > 1 ? -e.vx / sp : 0, by = sp > 1 ? -e.vy / sp : -1;
+      loot.forEach((it, k) => {
+        const off = e.r + it.r + k * (it.r * 1.4);
+        it.x = e.x + bx * off;
+        it.y = e.y + by * off;
+        it.vx = it.vy = 0;
+      });
     }
 
     fallbackMove(ctx as BlockCtx<unknown>, 'collect', s.intents, dt);
@@ -305,37 +489,123 @@ export const collect: BlockDef<CollectParams> = {
     const P = ctx.params;
     const e = ctx.entityOf(playerId);
     if (!e) return { t: 0 };
-    const m = botMem(s.bots, playerId);
     const sk = clamp(skill, 0, 1);
+    let m = s.bots.get(playerId);
+    if (!m) {
+      // personality: how greedy a trip is, how much it likes to rob people
+      m = { ...botMem(new Map(), playerId), greed: ctx.rng.range(0, 1), aggro: ctx.rng.range(0, 1), huntUntil: 0 };
+      s.bots.set(playerId, m);
+    }
+    const go = (x: number, y: number) => ({ t: 0, axes: steer(ctx as BlockCtx<unknown>, m!, e, x, y, sk) });
+
+    // guards (sneak) are read from their published props: run from a chase, freeze in a stare
+    for (const g of ctx.world.byKind('guard')) {
+      const d = len(e.x - g.x, e.y - g.y);
+      const hunted = g.props.chaseTarget === playerId && (g.props.phase === 'awake' || (g.props.phase === 'waking' && ctx.rng.next() < sk));
+      if (hunted) {
+        // flee away from the guard, leaning toward home when home is not behind it
+        const ax = (e.x - g.x) / (d || 1), ay = (e.y - g.y) / (d || 1);
+        const home = bankSpot(ctx, s, playerId);
+        let fx = ax, fy = ay;
+        if (home) {
+          const hx = home.x - e.x, hy = home.y - e.y, hd = len(hx, hy) || 1;
+          if ((hx * ax + hy * ay) / hd > -0.2) { fx = ax + (hx / hd) * 1.2; fy = ay + (hy / hd) * 1.2; }
+        }
+        // slide along walls instead of pinning yourself in a corner
+        const { width: w, height: h } = ctx.world;
+        if ((e.x < 80 && fx < 0) || (e.x > w - 80 && fx > 0)) fx = 0;
+        if ((e.y < 80 && fy < 0) || (e.y > h - 80 && fy > 0)) fy = 0;
+        if (fx === 0 && fy === 0) fy = e.y < h / 2 ? 1 : -1;
+        return go(e.x + fx * 200, e.y + fy * 200);
+      }
+      const staring = g.props.visionOn === true && g.props.phase !== 'calm';
+      if (staring && d <= (typeof g.props.visionRange === 'number' ? g.props.visionRange : 380) + 60 && ctx.rng.next() < 0.6 + 0.4 * sk) {
+        return { t: 0, axes: { x: 0, y: 0 } };
+      }
+    }
 
     const free: Entity[] = [];
     for (const iid of s.items) {
       const it = ctx.world.get(iid);
       if (it && it.props.carriedBy === '') free.push(it);
     }
+    // loose items next to a hunting guard are bait: avoid them
+    const hot = ctx.world.byKind('guard').filter((g) => g.props.phase === 'awake' || g.props.phase === 'waking');
+    const safe = (it: Entity) => !hot.some((g) => len(it.x - g.x, it.y - g.y) < 150) && onFloor(ctx as BlockCtx<unknown>, it.x, it.y, true);
 
     if (P.carryToGoal) {
       const held = carriedBy(ctx, s, playerId).length;
-      // better bots fill their hands before the trip; everyone banks when full or nothing is left
-      const want = Math.max(1, Math.round(P.carryMax * (0.4 + 0.6 * sk)));
+      const home = useBases(P) ? bankSpot(ctx, s, playerId) : (s.goalId !== undefined ? ctx.world.get(s.goalId) : undefined);
+      const hx = home?.x ?? goalPos(ctx).x, hy = home?.y ?? goalPos(ctx).y;
+      const homeD = len(hx - e.x, hy - e.y);
+      // greedier, better bots fill their hands; everyone runs home when a thief closes in or time runs out
+      const want = clamp(Math.round(1 + (P.carryMax - 1) * (0.25 + 0.5 * m.greed + 0.25 * sk)), 1, P.carryMax);
+      const topSpeed = (typeof e.props.topSpeed === 'number' ? e.props.topSpeed : 260) * (typeof e.props.loadMul === 'number' ? e.props.loadMul : 1);
+      const late = ctx.remaining < homeD / Math.max(60, topSpeed) + 1.5;
+      let threatened = false;
+      if (P.stealOnBump && held >= 2) {
+        for (const p of ctx.players) {
+          if (p.id === playerId) continue;
+          const o = ctx.entityOf(p.id);
+          if (o && len(o.x - e.x, o.y - e.y) < 160 && ((o.props.carry as number | undefined) ?? 0) < held) threatened = sk > 0.5;
+        }
+      }
       if (held === 0 && m.targetId === -1) m.targetId = undefined;
-      if (held > 0 && (held >= want || free.length === 0 || m.targetId === -1)) {
+      if (held > 0 && (held >= want || free.filter(safe).length === 0 || m.targetId === -1 || late || threatened)) {
         m.targetId = -1; // committed to banking until the loot is gone
-        const g = goalPos(ctx);
-        return { t: 0, axes: steer(ctx as BlockCtx<unknown>, m, e, g.x, g.y, sk) };
+        return go(hx, hy);
+      }
+
+      // thieving: intercept a loaded rival nearby (personality + skill)
+      if (P.stealOnBump && held < P.carryMax && (s.stealReadyAt.get(playerId) ?? 0) <= ctx.time) {
+        let prey = m.prey !== undefined && ctx.time < m.huntUntil ? ctx.entityOf(m.prey) : undefined;
+        if (prey && ((prey.props.carry as number) ?? 0) === 0) prey = undefined;
+        if (!prey && ctx.time >= m.until) {
+          let best = 0;
+          for (const p of ctx.players) {
+            if (p.id === playerId || (s.immuneUntil.get(p.id) ?? 0) > ctx.time) continue;
+            const o = ctx.entityOf(p.id);
+            const c = (o?.props.carry as number | undefined) ?? 0;
+            if (!o || c === 0) continue;
+            const d = len(o.x - e.x, o.y - e.y);
+            const v = (c / (d + 80)) * (0.6 + m.aggro);
+            if (d < 380 && v > best) { best = v; prey = o; }
+          }
+          if (prey && ctx.rng.next() < 0.15 + 0.6 * m.aggro * (0.5 + sk / 2)) {
+            m.prey = prey.owner;
+            m.huntUntil = ctx.time + 1.5 + 1.5 * sk;
+          } else {
+            prey = undefined;
+          }
+        }
+        if (prey) {
+          // lead the target: aim where it will be
+          const lead = 0.15 + 0.35 * sk;
+          return go(prey.x + prey.vx * lead, prey.y + prey.vy * lead);
+        }
       }
     }
 
     let target = m.targetId !== undefined && m.targetId >= 0 ? ctx.world.get(m.targetId) : undefined;
-    if (!target || target.props.carriedBy !== '' || ctx.time >= m.until) {
+    if (!target || target.props.carriedBy !== '' || ctx.time >= m.until || !safe(target)) {
       target = undefined;
-      if (free.length > 0) {
+      const pool = free.filter(safe);
+      if (pool.length > 0) {
         if (ctx.rng.next() < (1 - sk) * 0.35) {
-          target = ctx.rng.pick(free); // a plausible misjudgement
+          target = ctx.rng.pick(pool); // a plausible misjudgement
         } else {
           let best = Infinity;
-          for (const it of free) {
-            const c = len(it.x - e.x, it.y - e.y) / (it.props.golden ? P.goldenMultiplier : 1);
+          for (const it of pool) {
+            // skip loot a rival is clearly closer to (good bots only)
+            let rivalCloser = false;
+            if (sk > 0.6) {
+              const mine = len(it.x - e.x, it.y - e.y);
+              for (const p of ctx.players) {
+                const o = p.id === playerId ? undefined : ctx.entityOf(p.id);
+                if (o && len(it.x - o.x, it.y - o.y) < mine * 0.5) { rivalCloser = true; break; }
+              }
+            }
+            const c = (len(it.x - e.x, it.y - e.y) * (rivalCloser ? 2 : 1)) / (it.props.golden ? P.goldenMultiplier * 1.5 : 1);
             if (c < best) { best = c; target = it; }
           }
         }
@@ -345,6 +615,6 @@ export const collect: BlockDef<CollectParams> = {
       m.until = ctx.time + ctx.rng.range(0.4, 0.8) + (1 - sk) * 0.8;
     }
     if (!target) return { t: 0 };
-    return { t: 0, axes: steer(ctx as BlockCtx<unknown>, m, e, target.x, target.y, sk) };
+    return go(target.x, target.y);
   },
 };

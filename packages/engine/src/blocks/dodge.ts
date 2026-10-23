@@ -3,8 +3,8 @@ import type { InputFrame } from '@cadabra/spec';
 import type { BlockCtx, BlockDef } from '../block';
 import type { Entity } from '../world';
 import {
-  type BotMem, type MoveCaps, type Vec, botMem, clamp, ensureAvatars, escapeTime, fallbackMove, inputDir, len,
-  moveCaps, stateOf,
+  type BotMem, type MoveCaps, type Vec, botMem, callout, clamp, ensureAvatars, escapeTime, fallbackMove, inputDir, labelOf,
+  len, moveCaps, onFloor, stateOf,
 } from './util';
 
 const PATTERNS = ['rain', 'sweep', 'chase', 'ring'] as const;
@@ -29,6 +29,10 @@ export const dodgeSchema = z.object({
   safeZones: z.number().int().min(0).max(4).describe("Circles where hazards can't hurt you; they relocate every safeZoneShiftSec."),
   safeZoneRadius: z.number().min(40).max(200).describe('Safe zone size, px.'),
   safeZoneShiftSec: z.number().min(3).max(60).describe('Seconds between safe zone moves.'),
+  hitKnockback: z.number().min(0).max(1200).describe('Hits fling the avatar away from the hazard at this speed, px/s (0 = none). Comedy with slippery movement.'),
+  knockoutPoints: z.number().int().min(0).max(10).describe('Points to whoever shoved (dash-bumped) the victim into a hazard within the last 1.5 s.'),
+  crumbleLastSec: z.number().min(0).max(30).describe("Floor of tiles (kind 'tile') that crumbles from the edges inward in the final N seconds: tiles shake (props.crumbling), then drop; standing over a hole counts as a hit. 0 = no floor."),
+  callout: z.string().max(24).describe("Namespace for the headline events the TV calls out (<callout>.knockout, .crumble); '' = off."),
 });
 export type DodgeParams = z.infer<typeof dodgeSchema>;
 
@@ -59,7 +63,18 @@ interface Wall {
   speed: number;
 }
 
+interface Floor {
+  tiles: number[];
+  /** Outer rings that crumble, in order (ring 0 = the edge). */
+  rings: number;
+  warned: number;
+  dropped: number;
+  tileW: number;
+  tileH: number;
+}
+
 interface State {
+  floor?: Floor;
   hz: Map<number, Hz>;
   walls: Map<number, Wall>;
   nextGroup: number;
@@ -103,6 +118,14 @@ const MAX_GAP_SPACING = 400;
 const MIN_GAP_PLAY = 24;
 const FINALE_BOOST = 1.4;
 const STUN_INVULN_PAD = 0.5;
+/** A shove counts toward a knockout for this long. */
+const KO_WINDOW_SEC = 1.5;
+/** Floor tiles are about this big, px. */
+const TILE_PX = 128;
+/** Minimum warning before a crumbling ring drops, s. */
+const CRUMBLE_WARN_SEC = 1.5;
+/** The crumble schedule finishes this fraction into the crumble window (the rest is the tense end). */
+const CRUMBLE_SPAN = 0.6;
 /**
  * Timeline kinds that trigger a bonus wave: 'surprise' (mid-round) fires an off-pattern
  * wave, 'twist' (final 10 s) fires one of the block's own pattern. Other kinds are ignored.
@@ -329,7 +352,7 @@ function removeHazard(ctx: BlockCtx<DodgeParams>, s: State, id: number, hz: Hz):
       if (hz.hit?.has(pid)) continue;
       const av = ctx.entityOf(pid);
       if (!av) continue;
-      ctx.score(pid, ctx.params.nearMissPoints, 'dodge.nearMiss');
+      ctx.score(pid, ctx.params.nearMissPoints, 'Close call!');
       ctx.emit({ type: 'dodge.nearMiss', player: pid, data: { hazard: id } });
       ctx.fx({ kind: 'particles', preset: 'sparkle', x: av.x, y: av.y });
       ctx.fx({ kind: 'sfx', name: 'whoosh' });
@@ -344,13 +367,40 @@ function removeHazard(ctx: BlockCtx<DodgeParams>, s: State, id: number, hz: Hz):
   }
 }
 
-function hit(ctx: BlockCtx<DodgeParams>, s: State, pid: string, e: Entity, id: number, hz: Hz): boolean {
+/** Knockback direction: along a moving hazard's travel, else straight away from `from`. */
+function knock(e: Entity, from: Vec, vel: Vec, speed: number): void {
+  if (speed <= 0) return;
+  const vl = len(vel.x, vel.y);
+  let dx = e.x - from.x, dy = e.y - from.y;
+  const dl = len(dx, dy);
+  if (vl > 1) {
+    // mostly with the wave, a little away from the blob that hit
+    dx = vel.x / vl + (dl > 0 ? (0.5 * dx) / dl : 0);
+    dy = vel.y / vl + (dl > 0 ? (0.5 * dy) / dl : 0);
+  }
+  const l = len(dx, dy) || 1;
+  e.vx = (dx / l) * speed;
+  e.vy = (dy / l) * speed;
+}
+
+function hit(ctx: BlockCtx<DodgeParams>, s: State, pid: string, e: Entity, id: number, hz: Hz, from?: Vec): boolean {
   const P = ctx.params;
   const t = ctx.time;
   if (typeof e.props.invulnUntil === 'number' && t < e.props.invulnUntil) return false;
   if (inSafeZone(ctx, s, e)) return false;
   (hz.hit ??= new Set()).add(pid);
   s.lastHit.set(pid, t);
+  const src = ctx.world.get(id);
+  const origin = from ?? (src ? { x: src.x, y: src.y } : { x: e.x, y: e.y });
+  // who shoved them in? (a dash bump moments ago)
+  const by = e.props.shovedBy, at = e.props.shovedAt;
+  if (typeof by === 'string' && by !== pid && typeof at === 'number' && t - at <= KO_WINDOW_SEC) {
+    delete e.props.shovedBy;
+    delete e.props.shovedAt;
+    if (P.knockoutPoints > 0) ctx.score(by, P.knockoutPoints, 'Knockout!');
+    ctx.emit({ type: 'dodge.knockout', player: by, data: { victim: pid } });
+    callout(ctx as BlockCtx<unknown>, P.callout, 'knockout', by, { victim: pid });
+  }
   // a stunned avatar can't move, so it must not be hittable until it can again
   e.props.invulnUntil = t + (P.onHit === 'stun' ? Math.max(P.invulnSec, P.stunSec + STUN_INVULN_PAD) : P.invulnSec);
   ctx.emit({ type: 'dodge.hit', player: pid, data: { hazard: id, pattern: hz.pattern, onHit: P.onHit } });
@@ -366,15 +416,90 @@ function hit(ctx: BlockCtx<DodgeParams>, s: State, pid: string, e: Entity, id: n
     case 'losePoints': {
       const score = ctx.players.find((p) => p.id === pid)?.score ?? 0;
       const n = Math.min(P.hitPenalty, score);
-      if (n > 0) ctx.score(pid, -n, 'dodge.hit');
+      if (n > 0) ctx.score(pid, -n, `${labelOf(P.hazardSprite)}!`);
+      knock(e, origin, { x: hz.avx, y: hz.avy }, P.hitKnockback);
       break;
     }
     case 'stun':
       e.props.stunUntil = t + P.stunSec;
       e.vx = e.vy = 0;
+      knock(e, origin, { x: hz.avx, y: hz.avy }, P.hitKnockback);
       break;
   }
   return true;
+}
+
+// ---------- crumbling floor ----------
+
+function syncFloor(ctx: BlockCtx<DodgeParams>, s: State): void {
+  if (s.floor || ctx.params.crumbleLastSec <= 0) return;
+  const { width: w, height: h } = ctx.world;
+  const cols = Math.max(3, Math.round(w / TILE_PX)), rows = Math.max(3, Math.round(h / TILE_PX));
+  const tw = w / cols, th = h / rows;
+  const floor: Floor = { tiles: [], rings: Math.max(1, Math.floor((Math.min(cols, rows) - 1) / 2)), warned: 0, dropped: 0, tileW: tw, tileH: th };
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const ring = Math.min(c, r, cols - 1 - c, rows - 1 - r);
+      const t = ctx.world.spawn('tile', (c + 0.5) * tw, (r + 0.5) * th, {
+        sprite: 'tile', r: Math.min(tw, th) / 2, props: { hw: tw / 2, hh: th / 2, ring, col: c, row: r, crumbling: false },
+      });
+      floor.tiles.push(t.id);
+    }
+  }
+  s.floor = floor;
+}
+
+/** Ring k warns at this many seconds before the end. */
+function ringWarnAt(P: DodgeParams, f: Floor, k: number): number {
+  return P.crumbleLastSec * (1 - (CRUMBLE_SPAN * k) / f.rings);
+}
+
+function stepFloor(ctx: BlockCtx<DodgeParams>, s: State): void {
+  const f = s.floor;
+  const P = ctx.params;
+  if (!f || P.crumbleLastSec <= 0) return;
+  const caps = moveCaps(ctx as BlockCtx<unknown>);
+  const warn = Math.max(CRUMBLE_WARN_SEC, escapeTime(Math.max(f.tileW, f.tileH), caps));
+  const left = ctx.remaining;
+  while (f.warned < f.rings && left <= ringWarnAt(P, f, f.warned)) {
+    const k = f.warned++;
+    for (const id of f.tiles) {
+      const t = ctx.world.get(id);
+      if (t && t.props.ring === k) {
+        t.props.crumbling = true;
+        t.props.fallAt = ctx.time + warn;
+      }
+    }
+    callout(ctx as BlockCtx<unknown>, P.callout, 'crumble', undefined, { ring: k, phase: 'warn', warnSec: warn });
+    ctx.fx({ kind: 'shake', strength: 0.25 });
+    ctx.fx({ kind: 'sfx', name: 'tick' });
+  }
+  if (f.dropped < f.warned) {
+    let fell = false;
+    for (const id of f.tiles.slice()) {
+      const t = ctx.world.get(id);
+      if (!t || t.props.ring !== f.dropped || typeof t.props.fallAt !== 'number' || ctx.time < t.props.fallAt) continue;
+      ctx.world.remove(id);
+      f.tiles.splice(f.tiles.indexOf(id), 1);
+      fell = true;
+    }
+    if (fell) {
+      callout(ctx as BlockCtx<unknown>, P.callout, 'crumble', undefined, { ring: f.dropped, phase: 'fall' });
+      ctx.fx({ kind: 'shake', strength: 0.5 });
+      ctx.fx({ kind: 'sfx', name: 'lose' });
+      f.dropped++;
+    }
+  }
+  if (f.dropped === 0) return;
+  // standing over a hole is a hit; the knock sends you back toward solid ground
+  const { width: w, height: h } = ctx.world;
+  for (const p of ctx.players) {
+    const e = ctx.entityOf(p.id);
+    if (!e || onFloor(ctx as BlockCtx<unknown>, e.x, e.y)) continue;
+    const gap: Hz = { pattern: 'rain', bornAt: ctx.time, armAt: ctx.time, expireAt: ctx.time, avx: 0, avy: 0, speed: 0, group: 0 };
+    const from = { x: e.x + (e.x - w / 2), y: e.y + (e.y - h / 2) };
+    hit(ctx, s, p.id, e, -1, gap, from);
+  }
 }
 
 function stepHazards(ctx: BlockCtx<DodgeParams>, s: State, dt: number): void {
@@ -521,6 +646,10 @@ export const dodge: BlockDef<DodgeParams> = {
     safeZones: 0,
     safeZoneRadius: 90,
     safeZoneShiftSec: 10,
+    hitKnockback: 0,
+    knockoutPoints: 0,
+    crumbleLastSec: 0,
+    callout: 'play',
   },
   controls: ['joystick'],
   arenaKinds: ['topdown'],
@@ -530,6 +659,7 @@ export const dodge: BlockDef<DodgeParams> = {
     const s = S(ctx);
     ensureAvatars(ctx as BlockCtx<unknown>, 'dodge');
     syncZones(ctx, s);
+    syncFloor(ctx, s);
     // a short grace before the first wave
     s.acc = -0.5;
   },
@@ -570,6 +700,8 @@ export const dodge: BlockDef<DodgeParams> = {
 
     stepHazards(ctx, s, dt);
     collide(ctx, s);
+    syncFloor(ctx, s);
+    stepFloor(ctx, s);
 
     if (ctx.time >= s.lastSurvive + P.surviveEverySec) {
       s.lastSurvive = ctx.time;
@@ -578,7 +710,7 @@ export const dodge: BlockDef<DodgeParams> = {
         if (!ctx.entityOf(p.id)) continue;
         if (ctx.time - (s.lastHit.get(p.id) ?? -Infinity) < P.surviveEverySec) continue;
         if (P.survivePoints > 0) {
-          ctx.score(p.id, P.survivePoints, 'dodge.survive');
+          ctx.score(p.id, P.survivePoints, 'Survived!');
           any = true;
         }
       }
@@ -599,6 +731,19 @@ export const dodge: BlockDef<DodgeParams> = {
     if (m.freezeUntil !== undefined && ctx.time < m.freezeUntil) return { t: 0 };
 
     const reaction = 0.15 + (1 - sk) * 0.45;
+    // crumbling floor: get onto stable ground (aim for the middle), skating carefully
+    if (s.floor && s.floor.warned > 0) {
+      const lead = 0.25 + 0.25 * sk;
+      const fx = e.x + e.vx * lead, fy = e.y + e.vy * lead;
+      if (!onFloor(ctx as BlockCtx<unknown>, e.x, e.y, true) || !onFloor(ctx as BlockCtx<unknown>, fx, fy, true)) {
+        const { width: w, height: h } = ctx.world;
+        const dx = w / 2 - fx, dy = h / 2 - fy, l = len(dx, dy) || 1;
+        const dk0 = typeof e.props.dashKey === 'string' && e.props.dashKey !== '' ? e.props.dashKey : undefined;
+        const f: InputFrame = { t: 0, axes: { x: dx / l, y: dy / l } };
+        if (dk0) f.buttons = { [dk0]: false };
+        return f;
+      }
+    }
     const walls = approachingWalls(ctx, s, e, reaction);
     // a wall is coming and we're not in a gap: walk straight across to the nearest one
     let urgent: WallView | undefined;

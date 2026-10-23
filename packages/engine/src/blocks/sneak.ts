@@ -3,7 +3,8 @@ import type { TimelineEvent } from '@cadabra/spec';
 import type { BlockCtx, BlockDef } from '../block';
 import type { Entity } from '../world';
 import {
-  type BotMem, type Vec, boostOf, botMem, clamp, ensureAvatars, fallbackMove, inputDir, isStunned, len, stateOf, steer,
+  type BotMem, type Vec, boostOf, botMem, callout, clamp, ensureAvatars, fallbackMove, inputDir, isStunned, labelOf, len, stateOf,
+  steer,
 } from './util';
 
 export const sneakSchema = z.object({
@@ -21,10 +22,14 @@ export const sneakSchema = z.object({
   visionConeDeg: z.number().min(15).max(180).describe("Full angle of the guard's vision cone, degrees."),
   visionRange: z.number().min(80).max(1000).describe('How far a guard sees, px.'),
   daringPoints: z.number().int().min(0).max(10).describe('Points per few seconds spent creeping close to a calm guard (0 = off).'),
+  onWake: z.enum(['stare', 'chase']).describe("What a woken guard does. stare: stands and catches anyone moving in its vision cone. chase: runs after the loudest player (the culprit) for chaseSec; a catch makes them drop everything they carry and tumble."),
+  chaseSec: z.number().min(1).max(10).describe("onWake 'chase': how long the guard chases before it gives up and plods home to sleep, s."),
+  chaseSpeed: z.number().min(60).max(600).describe("onWake 'chase': guard run speed, px/s (set it between a loaded and an empty player's speed so greed is risky)."),
+  callout: z.string().max(24).describe("Namespace for the headline events the TV calls out (<callout>.chase.start, .caught); '' = off."),
 });
 export type SneakParams = z.infer<typeof sneakSchema>;
 
-type Phase = 'calm' | 'waking' | 'awake';
+type Phase = 'calm' | 'waking' | 'awake' | 'return';
 
 interface Guard {
   id: number;
@@ -42,6 +47,8 @@ interface Guard {
   pathA: number;
   sweepT: number;
   stirring: boolean;
+  /** chase mode: who it is after ('' = nobody). */
+  target: string;
 }
 
 interface State {
@@ -52,7 +59,7 @@ interface State {
   dare: Map<string, number>;
   wakes: Map<string, number>;
   sleepwalkUntil: number;
-  bots: Map<string, BotMem & { careless: boolean }>;
+  bots: Map<string, BotMem & { careless: boolean; nerve: number }>;
 }
 
 const states = new WeakMap<object, State>();
@@ -78,6 +85,13 @@ const WATCH_SWEEP = Math.PI / 3;
 const WATCH_PERIOD = 6;
 const DARE_SEC = 3;
 const DARE_ZONE = 0.6;
+/** chase mode: a caught player tumbles this long, knocked away this fast. */
+const TUMBLE_SEC = 1.2;
+const TUMBLE_KNOCK = 340;
+/** chase mode: the guard plods home at this fraction of chaseSpeed. */
+const RETURN_SPEED = 0.55;
+/** Loudness (props.loud) at which a player counts as fully loud. */
+const LOUD_FULL = 2.5;
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -99,7 +113,7 @@ function sleepwalking(ctx: BlockCtx<SneakParams>, s: State): boolean {
 
 /** Vision is live: awake guards always; calm patrols/watchers while calm. Sleepers see nothing calm. */
 function visionOn(P: SneakParams, g: Guard): boolean {
-  if (g.phase === 'awake') return true;
+  if (g.phase === 'awake') return P.onWake === 'stare';
   return g.phase === 'calm' && P.guardKind !== 'sleeper';
 }
 
@@ -121,7 +135,7 @@ function syncGuards(ctx: BlockCtx<SneakParams>, s: State): void {
     const ent = ctx.world.spawn('guard', home.x, home.y, { sprite: P.guardSprite, r: GUARD_R, props: {} });
     s.guards.push({
       id: ent.id, home, level: 0, contrib: new Map(), phase: 'calm', wokeAt: 0, culprit: '', caught: new Set(),
-      facing: baseFacing, baseFacing, pathA: (i * Math.PI) / 2, sweepT: 0, stirring: false,
+      facing: baseFacing, baseFacing, pathA: (i * Math.PI) / 2, sweepT: 0, stirring: false, target: '',
     });
   }
   s.built = { kind: P.guardKind, count: P.guardCount };
@@ -142,6 +156,21 @@ function publish(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity): void {
   ent.props.visionOn = visionOn(P, g);
   ent.props.hearingRadius = P.hearingRadius;
   ent.props.culprit = g.culprit;
+  ent.props.onWake = P.onWake;
+  ent.props.chaseTarget = P.onWake === 'chase' && (g.phase === 'waking' || g.phase === 'awake') ? g.culprit : '';
+  ent.props.chasing = P.onWake === 'chase' && g.phase === 'awake';
+  ent.props.returning = g.phase === 'return';
+}
+
+/** How much noise the avatar makes right now, as a multiple of a normal full-speed walk. */
+function loudness(s: State, id: string, e: Entity): number {
+  const sp = len(e.vx, e.vy);
+  if (sp < FREEZE_SPEED) return 0;
+  // full effort is noisy: a loaded avatar running at its (slower) top speed counts as full speed
+  const load = typeof e.props.loadMul === 'number' ? e.props.loadMul : 1;
+  const top = (typeof e.props.topSpeed === 'number' ? e.props.topSpeed : sp) * boostOf(e) * load;
+  const mul = typeof e.props.noiseMul === 'number' ? e.props.noiseMul : 1;
+  return clamp(sp / top, 0, 1) * ((s.tiptoe.get(id) ?? false) ? TIPTOE_NOISE : 1) * mul;
 }
 
 function penalize(ctx: BlockCtx<SneakParams>, id: string, reason: string): number {
@@ -182,10 +211,68 @@ function fullyAwake(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity)
   const count = (s.wakes.get(culprit) ?? 0) + 1;
   s.wakes.set(culprit, count);
   s.dare.set(culprit, 0);
-  const penalty = penalize(ctx, culprit, 'sneak.woke');
+  const penalty = penalize(ctx, culprit, `Woke the ${labelOf(ctx.params.guardSprite).toLowerCase()}!`);
   ctx.emit({ type: 'sneak.woke', player: culprit, data: { guard: ent.id, guardKind: ctx.params.guardKind, count, penalty } });
   ctx.fx({ kind: 'flash', color: '#ff3b30' });
   ctx.fx({ kind: 'shake', strength: 0.4 });
+  if (ctx.params.onWake === 'chase' && culprit && ctx.entityOf(culprit)) {
+    g.target = culprit;
+    callout(ctx as BlockCtx<unknown>, ctx.params.callout, 'chase.start', culprit, { guard: ent.id, sec: ctx.params.chaseSec });
+    ctx.fx({ kind: 'sfx', name: 'whoosh' });
+  }
+}
+
+/** chase mode: the guard runs at its target; a touch is a catch. Returns true when the chase is over. */
+function chase(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity, dt: number): boolean {
+  const P = ctx.params;
+  const e = g.target ? ctx.entityOf(g.target) : undefined;
+  if (!e || ctx.time >= g.wokeAt + WINDUP_SEC + P.chaseSec) return true;
+  const dx = e.x - ent.x, dy = e.y - ent.y, d = len(dx, dy) || 1;
+  g.facing = Math.atan2(dy, dx);
+  if (d <= ent.r + e.r) {
+    // caught: drop the loot (any carrying block honours fumbleAt), tumble away
+    e.props.fumbleAt = ctx.time;
+    e.props.stunUntil = ctx.time + TUMBLE_SEC;
+    e.vx = (dx / d) * TUMBLE_KNOCK;
+    e.vy = (dy / d) * TUMBLE_KNOCK;
+    const carry = typeof e.props.carry === 'number' ? e.props.carry : 0;
+    ctx.emit({ type: 'sneak.caught', player: g.target, data: { guard: ent.id, penalty: 0, carry } });
+    callout(ctx as BlockCtx<unknown>, P.callout, 'caught', g.target, { guard: ent.id, dropped: carry });
+    ctx.fx({ kind: 'shake', strength: 0.5 });
+    ctx.fx({ kind: 'sfx', name: 'hit' });
+    ctx.fx({ kind: 'particles', preset: 'burst', x: e.x, y: e.y });
+    return true;
+  }
+  const step = Math.min(d, P.chaseSpeed * dt);
+  ent.x = clamp(ent.x + (dx / d) * step, ent.r, ctx.world.width - ent.r);
+  ent.y = clamp(ent.y + (dy / d) * step, ent.r, ctx.world.height - ent.r);
+  return false;
+}
+
+/** Walk home after a chase; true once there. */
+function walkHome(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity, dt: number): boolean {
+  const dx = g.home.x - ent.x, dy = g.home.y - ent.y, d = len(dx, dy);
+  if (d < 2) {
+    ent.x = g.home.x;
+    ent.y = g.home.y;
+    return true;
+  }
+  const step = Math.min(d, ctx.params.chaseSpeed * RETURN_SPEED * dt);
+  ent.x += (dx / d) * step;
+  ent.y += (dy / d) * step;
+  g.facing = Math.atan2(dy, dx);
+  return false;
+}
+
+function fallAsleep(ctx: BlockCtx<SneakParams>, g: Guard, ent: Entity): void {
+  g.phase = 'calm';
+  g.level = 0;
+  g.contrib.clear();
+  g.stirring = false;
+  g.culprit = '';
+  g.target = '';
+  g.facing = g.baseFacing;
+  ctx.emit({ type: 'sneak.sleep', data: { guard: ent.id } });
 }
 
 function moveGuard(ctx: BlockCtx<SneakParams>, s: State, g: Guard, ent: Entity, dt: number): void {
@@ -230,6 +317,10 @@ export const sneak: BlockDef<SneakParams> = {
     visionConeDeg: 70,
     visionRange: 380,
     daringPoints: 1,
+    onWake: 'stare',
+    chaseSec: 3,
+    chaseSpeed: 220,
+    callout: 'play',
   },
   controls: ['joystick', 'hold', 'button'],
   arenaKinds: ['topdown'],
@@ -281,9 +372,8 @@ export const sneak: BlockDef<SneakParams> = {
           const sp = len(e.vx, e.vy);
           if (sp < FREEZE_SPEED) continue;
           const tip = s.tiptoe.get(p.id) ?? false;
-          const top = (typeof e.props.topSpeed === 'number' ? e.props.topSpeed : sp) * boostOf(e);
           const prox = clamp(1 - len(e.x - ent.x, e.y - ent.y) / P.hearingRadius, 0, 1);
-          let add = ((P.noisePerMove * clamp(sp / top, 0, 1) * (tip ? TIPTOE_NOISE : 1) * prox) / P.noiseLimit) * dt;
+          let add = ((P.noisePerMove * loudness(s, p.id, e) * prox) / P.noiseLimit) * dt;
           if (sight && !tip && inCone(ent, g.facing, P, e)) add += SIGHT_RATE * dt;
           if (add <= 0) continue;
           g.level += add;
@@ -304,23 +394,35 @@ export const sneak: BlockDef<SneakParams> = {
           }
           g.stirring = stir;
         }
+      } else if (P.onWake === 'chase') {
+        if (g.phase === 'waking') {
+          // wind-up: it turns to the culprit (telegraph), then the chase is on
+          const ce = g.culprit ? ctx.entityOf(g.culprit) : undefined;
+          if (ce) g.facing = Math.atan2(ce.y - ent.y, ce.x - ent.x);
+          if (ctx.time >= g.wokeAt + WINDUP_SEC) {
+            fullyAwake(ctx, s, g, ent);
+            if (!g.target) g.phase = 'return';
+          }
+        } else if (g.phase === 'awake') {
+          if (chase(ctx, g, ent, dt)) {
+            g.phase = 'return';
+            g.target = '';
+          }
+        } else if (walkHome(ctx, g, ent, dt)) {
+          fallAsleep(ctx, g, ent);
+        }
       } else {
         // live-safe: the end is derived from current params (a shorter wakeDurationSec ends it now)
         if (g.phase === 'waking' && ctx.time >= g.wokeAt + WINDUP_SEC) fullyAwake(ctx, s, g, ent);
-        if (ctx.time >= g.wokeAt + WINDUP_SEC + P.wakeDurationSec) {
-          g.phase = 'calm';
-          g.level = 0;
-          g.contrib.clear();
-          g.stirring = false;
-          g.culprit = '';
-          ctx.emit({ type: 'sneak.sleep', data: { guard: ent.id } });
+        if (ctx.time >= g.wokeAt + WINDUP_SEC + P.wakeDurationSec || g.phase === 'return') {
+          fallAsleep(ctx, g, ent);
         } else if (g.phase === 'awake') {
           for (const p of ctx.players) {
             const e = ctx.entityOf(p.id);
             if (!e || g.caught.has(p.id) || isStunned(ctx as BlockCtx<unknown>, e)) continue;
             if (len(e.vx, e.vy) < FREEZE_SPEED || !inCone(ent, g.facing, P, e)) continue;
             g.caught.add(p.id);
-            const penalty = penalize(ctx, p.id, 'sneak.caught');
+            const penalty = penalize(ctx, p.id, 'Caught!');
             e.props.stunUntil = ctx.time + CAUGHT_STUN_SEC;
             e.vx = e.vy = 0;
             ctx.emit({ type: 'sneak.caught', player: p.id, data: { guard: ent.id, penalty } });
@@ -331,6 +433,12 @@ export const sneak: BlockDef<SneakParams> = {
         }
       }
       publish(ctx, g, ent);
+    }
+
+    // how loud everyone is, for renderers (noise rings) and bots
+    for (const p of ctx.players) {
+      const e = ctx.entityOf(p.id);
+      if (e) e.props.loud = clamp(loudness(s, p.id, e) / LOUD_FULL, 0, 1);
     }
 
     // daring: creeping close to a calm guard pays
@@ -346,7 +454,7 @@ export const sneak: BlockDef<SneakParams> = {
         const t = (s.dare.get(p.id) ?? 0) + dt;
         if (t >= DARE_SEC) {
           s.dare.set(p.id, t - DARE_SEC);
-          ctx.score(p.id, P.daringPoints, 'sneak.daring');
+          ctx.score(p.id, P.daringPoints, 'Daring!');
           ctx.fx({ kind: 'particles', preset: 'sparkle', x: e.x, y: e.y });
           ctx.fx({ kind: 'sfx', name: 'coin' });
         } else {
@@ -373,7 +481,8 @@ export const sneak: BlockDef<SneakParams> = {
     const sk = clamp(skill, 0, 1);
     let m = s.bots.get(playerId);
     if (!m) {
-      m = { ...botMem(new Map(), playerId), careless: false };
+      // nerve: how much noise this bot lets the guard build before creeping (personality)
+      m = { ...botMem(new Map(), playerId), careless: false, nerve: ctx.rng.range(0.55, 0.95) };
       s.bots.set(playerId, m);
     }
     let nearest: { g: Guard; ent: Entity; d: number } | undefined;
@@ -387,8 +496,18 @@ export const sneak: BlockDef<SneakParams> = {
     const { g, ent, d } = nearest;
     const key = P.tiptoeButton;
 
-    // a woken guard nearby: good bots freeze until it dozes off
-    if (g.phase !== 'calm' && d <= P.visionRange + 80 && !m.careless) return { t: 0, axes: { x: 0, y: 0 }, buttons: { [key]: true } };
+    if (P.onWake === 'chase') {
+      // hunted: run for it (the carrying block steers; just never creep)
+      if (g.phase !== 'calm' && g.culprit === playerId) {
+        const ax = e.x - ent.x, ay = e.y - ent.y, l = len(ax, ay) || 1;
+        return { t: 0, axes: { x: ax / l, y: ay / l }, buttons: { [key]: false } };
+      }
+      // a busy guard hears nothing: move freely
+      if (g.phase !== 'calm') return { t: 0, buttons: { [key]: false } };
+    } else if (g.phase !== 'calm' && d <= P.visionRange + 80 && !m.careless) {
+      // a woken guard nearby: good bots freeze until it dozes off
+      return { t: 0, axes: { x: 0, y: 0 }, buttons: { [key]: true } };
+    }
 
     if (ctx.time >= m.until || len(m.tx - e.x, m.ty - e.y) < 30) {
       // wander inside the daring zone around the guard
@@ -397,11 +516,16 @@ export const sneak: BlockDef<SneakParams> = {
       m.tx = clamp(ent.x + Math.cos(a) * r, 40, ctx.world.width - 40);
       m.ty = clamp(ent.y + Math.sin(a) * r, 40, ctx.world.height - 40);
       m.until = ctx.time + ctx.rng.range(1.5, 3);
-      // sloppier bots sometimes forget to tiptoe for a stretch
-      m.careless = ctx.rng.next() < (1 - sk) * 0.5;
+      // sloppier bots sometimes forget to tiptoe for a stretch; in a chase game everyone
+      // gets greedy now and then (that's what wakes the bear)
+      m.careless = ctx.rng.next() < (1 - sk) * 0.5 + (P.onWake === 'chase' ? 0.2 : 0);
     }
+    // creep when close and the guard is getting restless (loaded bots get nervous sooner);
     // careless bots only notice a stirring guard if they are good enough (weak ones never do)
-    const tip = !m.careless || g.level > 0.5 + 0.7 * (1 - sk);
+    const carry = typeof e.props.carry === 'number' ? e.props.carry : 0;
+    const close = d < P.hearingRadius * 0.85;
+    const edgy = g.level > m.nerve - 0.08 * carry || (P.onWake === 'stare' && !m.careless);
+    const tip = close && (m.careless ? g.level > 0.5 + 0.7 * (1 - sk) + (P.onWake === 'chase' ? 0.45 : 0) : edgy);
     return { t: 0, axes: steer(ctx as BlockCtx<unknown>, m, e, m.tx, m.ty, sk), buttons: { [key]: tip } };
   },
 };
