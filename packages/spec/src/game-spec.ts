@@ -5,12 +5,19 @@ export const SPEC_VERSION = 1;
 
 export type Hex = `#${string}`;
 
+/** The default look: neon arcade (deep navy, cyan, magenta, lime, amber, red). */
+export const NEON_PALETTE = { bg: '#0A0E27', primary: '#00E5FF', accent: '#FF2BD6', glow: '#B6FF3B', text: '#F4F7FF' } as const;
+/** Extra neon tones for warnings and hazards. */
+export const NEON_EXTRA = { amber: '#FFB020', red: '#FF3355' } as const;
+/** Entity art keys the neon renderer draws procedurally. */
+export const NEON_ART_KEYS = ['player', 'gem', 'core', 'core-unstable', 'spike', 'laser', 'boost', 'base', 'tile', 'hole', 'finish'] as const;
+
 export interface Theme {
   palette: { bg: Hex; primary: Hex; accent: Hex; glow: Hex; text: Hex };
   artStyle: string;
   keyArtPrompt: string;
   sprites: Record<string, string>; // spriteKey -> prompt
-  sfxSet: 'arcade' | 'cartoon' | 'spooky' | 'scifi' | 'nature';
+  sfxSet: 'neon' | 'arcade' | 'cartoon' | 'spooky' | 'scifi' | 'nature';
 }
 
 export interface BlockUse { block: string; params: Record<string, unknown> }
@@ -59,7 +66,7 @@ export const ThemeSchema: z.ZodType<Theme> = z.object({
   artStyle: z.string().min(1).max(120),
   keyArtPrompt: z.string().min(1).max(600),
   sprites: z.record(z.string(), z.string().min(1).max(300)),
-  sfxSet: z.enum(['arcade', 'cartoon', 'spooky', 'scifi', 'nature']),
+  sfxSet: z.enum(['neon', 'arcade', 'cartoon', 'spooky', 'scifi', 'nature']),
 });
 
 const params = z.record(z.string(), z.unknown());
@@ -94,7 +101,8 @@ export const GameSpecSchema = z
       height: z.number().int().positive(),
     }),
     teams: z.union([z.literal(0), z.literal(2)]),
-    durationSec: z.number().int().min(60).max(120),
+    // 30..45 s rounds are quick-fire party mode; designed games use 60..120
+    durationSec: z.number().int().min(30).max(120),
     blocks: z.array(BlockUseSchema).min(1).max(4),
     modifiers: z.array(BlockUseSchema).max(4),
     win: z.object({

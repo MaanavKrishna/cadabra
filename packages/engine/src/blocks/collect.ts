@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { InputFrame } from '@cadabra/spec';
 import type { BlockCtx, BlockDef } from '../block';
 import type { Entity } from '../world';
 import {
@@ -30,6 +31,10 @@ export const collectSchema = z.object({
   goldenEventKind: z.string().max(40).describe("Timeline event kind (exact) that drops one golden item next to the guard / arena centre: a mid-round jackpot. '' = off."),
   frenzyEventKind: z.string().max(40).describe("Timeline event kind (exact) that fills the field with items at once (a loot frenzy). '' = off."),
   callout: z.string().max(24).describe("Namespace for the headline events the TV calls out (<callout>.bank, .steal, .golden); '' = off."),
+  teamBases: z.boolean().describe("Carry mode, team games: one base per team (kind 'base', team-tinted, left and right edges); loot banks at your team's base, and bumps never rob a teammate. Overrides homeBases."),
+  stealNeedsDash: z.boolean().describe('Only a dashing avatar (arena-move dash) can steal or knock loot loose; ordinary bumps do nothing.'),
+  knockLoose: z.boolean().describe('Carry mode: a steal knocks one carried item loose onto the floor (anyone can grab it) instead of handing it to the thief.'),
+  bankLabel: z.string().min(1).max(24).describe("Popup reason when loot is banked (e.g. 'BANKED')."),
 });
 export type CollectParams = z.infer<typeof collectSchema>;
 
@@ -86,8 +91,21 @@ function basePos(ctx: BlockCtx<CollectParams>, i: number): Vec {
 }
 
 function useBases(P: CollectParams): boolean {
-  return P.carryToGoal && P.homeBases;
+  return P.carryToGoal && (P.homeBases || P.teamBases);
 }
+
+/** Base key for a player: its team ('team:N') with teamBases in a team game, else its id. */
+function baseKey(ctx: BlockCtx<CollectParams>, id: string): string {
+  if (!ctx.params.teamBases) return id;
+  const t = ctx.players.find((p) => p.id === id)?.team;
+  return t === undefined ? id : `team:${t}`;
+}
+
+const mates = (ctx: BlockCtx<CollectParams>, a: string, b: string): boolean => {
+  if (!ctx.params.teamBases) return false;
+  const ta = ctx.players.find((p) => p.id === a)?.team;
+  return ta !== undefined && ta === ctx.players.find((p) => p.id === b)?.team;
+};
 
 /** Keep one basket per player in step with params (homeBases may be toggled live). */
 function syncBases(ctx: BlockCtx<CollectParams>, s: State): void {
@@ -96,14 +114,20 @@ function syncBases(ctx: BlockCtx<CollectParams>, s: State): void {
     s.bases.clear();
     return;
   }
+  const { width: w, height: h } = ctx.world;
   ctx.players.forEach((p, i) => {
-    let b = s.bases.has(p.id) ? ctx.world.get(s.bases.get(p.id)!) : undefined;
+    const key = baseKey(ctx, p.id);
+    let b = s.bases.has(key) ? ctx.world.get(s.bases.get(key)!) : undefined;
     if (!b) {
-      const at = basePos(ctx, i);
-      const opts: Parameters<typeof ctx.world.spawn>[3] = { owner: p.id, sprite: 'base', r: ctx.params.goalRadius, props: { home: true, slot: i } };
-      if (p.team !== undefined) opts.team = p.team;
+      const team = key.startsWith('team:') ? Number(key.slice(5)) as 0 | 1 : undefined;
+      const m = ctx.params.goalRadius + 10;
+      const at = team !== undefined ? { x: team === 0 ? m : w - m, y: h / 2 } : basePos(ctx, i);
+      const opts: Parameters<typeof ctx.world.spawn>[3] = team !== undefined
+        ? { sprite: 'base', r: ctx.params.goalRadius, team, props: { home: true, slot: team, teamBase: true } }
+        : { owner: p.id, sprite: 'base', r: ctx.params.goalRadius, props: { home: true, slot: i } };
+      if (team === undefined && p.team !== undefined) opts.team = p.team;
       b = ctx.world.spawn('base', at.x, at.y, opts);
-      s.bases.set(p.id, b.id);
+      s.bases.set(key, b.id);
     }
     b.r = ctx.params.goalRadius;
   });
@@ -112,7 +136,7 @@ function syncBases(ctx: BlockCtx<CollectParams>, s: State): void {
 /** Where `id` banks: its own basket, else the shared goal. */
 function bankSpot(ctx: BlockCtx<CollectParams>, s: State, id: string): Entity | undefined {
   if (useBases(ctx.params)) {
-    const b = s.bases.get(id);
+    const b = s.bases.get(baseKey(ctx, id));
     return b !== undefined ? ctx.world.get(b) : undefined;
   }
   return s.goalId !== undefined ? ctx.world.get(s.goalId) : undefined;
@@ -125,7 +149,7 @@ function goalPos(ctx: BlockCtx<CollectParams>): Vec {
 /** Keep the goal entity in step with params (Tweak panel may toggle carryToGoal live). */
 function syncGoal(ctx: BlockCtx<CollectParams>, s: State): Entity | undefined {
   let goal = s.goalId !== undefined ? ctx.world.get(s.goalId) : undefined;
-  if (!ctx.params.carryToGoal || ctx.params.homeBases) {
+  if (!ctx.params.carryToGoal || ctx.params.homeBases || ctx.params.teamBases) {
     if (goal) ctx.world.remove(goal.id);
     s.goalId = undefined;
     return undefined;
@@ -159,7 +183,7 @@ function spawnItem(ctx: BlockCtx<CollectParams>, s: State): void {
       x = ctx.rng.range(m, w - m);
       y = ctx.rng.range(m, h - m);
     }
-    if (P.carryToGoal && !P.homeBases && len(x - g.x, y - g.y) < P.goalRadius + P.itemRadius + 40) continue;
+    if (P.carryToGoal && !useBases(P) && len(x - g.x, y - g.y) < P.goalRadius + P.itemRadius + 40) continue;
     if ([...s.bases.values()].some((id) => { const b = ctx.world.get(id); return b && len(b.x - x, b.y - y) < b.r + P.itemRadius + 30; })) continue;
     let nearGuard = false;
     for (const gd of guards) if (len(gd.x - x, gd.y - y) < gd.r + P.itemRadius + 24) nearGuard = true;
@@ -205,15 +229,23 @@ function steal(ctx: BlockCtx<CollectParams>, s: State, thief: Entity, victim: En
   const t = ctx.time;
   const tid = thief.owner!, vid = victim.owner!;
   if ((s.stealReadyAt.get(tid) ?? 0) > t || (s.immuneUntil.get(vid) ?? 0) > t) return;
+  if (mates(ctx, tid, vid)) return;
+  if (P.stealNeedsDash && thief.props.dashing !== true) return;
   const data: Record<string, unknown> = { from: vid };
   if (P.carryToGoal) {
     const loot = carriedBy(ctx, s, vid).pop();
     if (!loot) return;
-    if (carriedBy(ctx, s, tid).length < P.carryMax) {
+    if (!P.knockLoose && carriedBy(ctx, s, tid).length < P.carryMax) {
       loot.props.carriedBy = tid;
       loot.props.seq = ++s.pickSeq;
     } else {
-      loot.props.carriedBy = ''; // thief's hands are full: knocked loose
+      // knocked loose: it skids off to the side, free for anyone
+      loot.props.carriedBy = '';
+      const { width: w, height: h } = ctx.world;
+      const a = ctx.rng.range(0, Math.PI * 2), r = ctx.rng.range(FUMBLE_MIN, FUMBLE_MAX);
+      loot.x = clamp(victim.x + Math.cos(a) * r, loot.r, w - loot.r);
+      loot.y = clamp(victim.y + Math.sin(a) * r, loot.r, h - loot.r);
+      data.loose = true;
     }
     data.item = loot.id;
     data.golden = loot.props.golden;
@@ -273,7 +305,7 @@ function bank(ctx: BlockCtx<CollectParams>, s: State, id: string, at: Vec, loot:
     if (it.props.golden) golden = true;
     removeItem(ctx, s, it);
   }
-  ctx.score(id, pts, 'Banked!');
+  ctx.score(id, pts, ctx.params.bankLabel);
   ctx.emit({ type: 'collect.banked', player: id, data: { count: n, points: pts } });
   callout(ctx as BlockCtx<unknown>, ctx.params.callout, 'bank', id, { count: n, points: pts, golden });
   if (golden) callout(ctx as BlockCtx<unknown>, ctx.params.callout, 'golden', id, { phase: 'bank' });
@@ -325,6 +357,10 @@ export const collect: BlockDef<CollectParams> = {
     goldenEventKind: '',
     frenzyEventKind: '',
     callout: 'play',
+    teamBases: false,
+    stealNeedsDash: false,
+    knockLoose: false,
+    bankLabel: 'Banked!',
   },
   controls: ['joystick'],
   arenaKinds: ['topdown'],
@@ -555,7 +591,7 @@ export const collect: BlockDef<CollectParams> = {
         for (const p of ctx.players) {
           if (p.id === playerId) continue;
           const o = ctx.entityOf(p.id);
-          if (o && len(o.x - e.x, o.y - e.y) < 160 && ((o.props.carry as number | undefined) ?? 0) < held) threatened = sk > 0.5;
+          if (o && !mates(ctx, playerId, p.id) && len(o.x - e.x, o.y - e.y) < 160 && ((o.props.carry as number | undefined) ?? 0) < held) threatened = sk > 0.5;
         }
       }
       if (held === 0 && m.targetId === -1) m.targetId = undefined;
@@ -571,7 +607,7 @@ export const collect: BlockDef<CollectParams> = {
         if (!prey && ctx.time >= m.until) {
           let best = 0;
           for (const p of ctx.players) {
-            if (p.id === playerId || (s.immuneUntil.get(p.id) ?? 0) > ctx.time) continue;
+            if (p.id === playerId || (s.immuneUntil.get(p.id) ?? 0) > ctx.time || mates(ctx, playerId, p.id)) continue;
             const o = ctx.entityOf(p.id);
             const c = (o?.props.carry as number | undefined) ?? 0;
             if (!o || c === 0) continue;
@@ -589,7 +625,12 @@ export const collect: BlockDef<CollectParams> = {
         if (prey) {
           // lead the target: aim where it will be
           const lead = 0.15 + 0.35 * sk;
-          return go(prey.x + prey.vx * lead, prey.y + prey.vy * lead);
+          const f: InputFrame = go(prey.x + prey.vx * lead, prey.y + prey.vy * lead);
+          const key = typeof e.props.dashKey === 'string' ? e.props.dashKey : '';
+          if (P.stealNeedsDash && key && e.props.dashReady === true && len(prey.x - e.x, prey.y - e.y) < 120 + 40 * sk && ctx.rng.next() < 0.1 + 0.3 * sk) {
+            f.buttons = { [key]: true };
+          }
+          return f;
         }
       }
     }

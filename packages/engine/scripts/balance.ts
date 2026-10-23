@@ -21,7 +21,7 @@ export interface RoundStats {
   events: Record<string, number>;
 }
 
-const HEADLINE = /^(lead\.change|final\.start|[a-z]+\.(bank|steal|golden|chase\.start|caught|knockout|crumble|surge|splash))$/;
+const HEADLINE = /^(lead\.change|final\.start|[a-z]+\.(bank|steal|golden|chase\.start|caught|knockout|crumble|surge|splash|ringout|overload|core\.pass|core\.critical|tally|tally\.final)|race\.(finish|lapLead|stumble)|arena\.(fall|shove))$/;
 
 export function playRound(spec: GameSpec, seed: number, seats = 4): RoundStats {
   const reg = new BlockRegistry();

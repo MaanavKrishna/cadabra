@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "id": "fallback-overload",
+  "title": "OVERLOAD",
+  "hook": "Unstable cores, fuses nobody can see. Tag someone before yours blows.",
+  "theme": {
+    "palette": {
+      "bg": "#0A0E27",
+      "primary": "#00E5FF",
+      "accent": "#FF2BD6",
+      "glow": "#B6FF3B",
+      "text": "#F4F7FF"
+    },
+    "artStyle": "neon arcade vector, glowing outlines on deep navy",
+    "keyArtPrompt": "A pulsing magenta energy core crackling with lightning in the middle of a neon grid arena, four glowing avatars scattering away from it, Geometry Wars style, no text",
+    "sprites": {
+      "player": "glowing neon disc avatar",
+      "core-unstable": "glowing neon magenta energy core crackling with sparks"
+    },
+    "sfxSet": "neon"
+  },
+  "arena": {
+    "kind": "topdown",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 0,
+  "durationSec": 75,
+  "blocks": [
+    {
+      "block": "arena-move",
+      "params": {
+        "speed": 270,
+        "accel": 1800,
+        "friction": 6,
+        "dashButton": "dash",
+        "dashPower": 2.4,
+        "dashCooldownSec": 1.4,
+        "dashMs": 180,
+        "dashShove": 1,
+        "callout": "overload",
+        "overload": true,
+        "overloadFuseMin": 7,
+        "overloadFuseMax": 13,
+        "overloadPenalty": 3,
+        "overloadReward": 1,
+        "overloadPassImmunitySec": 0.8,
+        "overloadHolderSpeed": 1.12,
+        "overloadStunSec": 1,
+        "overloadEventKind": "surge",
+        "overloadCores": 2,
+        "overloadAssistPoints": 1,
+        "overloadClutchPoints": 1,
+        "overloadSafePoints": 1
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "highScore"
+  },
+  "timeline": [
+    {
+      "atSec": 37,
+      "kind": "surge",
+      "params": {},
+      "hostLine": "POWER SURGE! The core is about to blow!"
+    },
+    {
+      "atSec": 65,
+      "kind": "final",
+      "params": {},
+      "hostLine": "FINAL 10! Surviving pays double!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "joystick",
+      "id": "move"
+    },
+    {
+      "kind": "button",
+      "id": "dash",
+      "label": "DASH"
+    }
+  ],
+  "host": {
+    "intro": "Holding the core? Touch someone to pass it before it blows!",
+    "finale": "FINAL 10! Surviving pays double!",
+    "tutorial": "Got a core? Touch a rival to pass it. No core every 5 s: +1. It blows: holder -3, everyone else +1."
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  }
+}

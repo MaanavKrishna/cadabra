@@ -22,6 +22,11 @@ export const raceSchema = z.object({
   stumbleSec: z.number().min(0.2).max(3).describe('Seconds a runner stumbles after hitting an obstacle.'),
   padBoost: z.number().min(1.1).max(3).describe('Speed multiplier from a speed pad.'),
   padBoostSec: z.number().min(0.3).max(5).describe('How long a speed pad boost lasts, s.'),
+  gateCycleSec: z.number().min(0).max(8).describe('0 = obstacles are always there. >0 = obstacles are laser gates that switch on and off on this cycle (each gate out of step with the next): only a live gate trips you, so time your run or jump it.'),
+  gateOnFrac: z.number().min(0.2).max(0.8).describe('Share of each gate cycle the laser is live.'),
+  obstacleSprite: z.string().min(1).max(40).describe("Sprite key for obstacles (e.g. 'laser')."),
+  padSprite: z.string().min(1).max(40).describe("Sprite key for speed pads (e.g. 'boost')."),
+  finishLine: z.boolean().describe("Draw a finish line entity (kind 'finish') at the end of the track."),
 });
 export type RaceParams = z.infer<typeof raceSchema>;
 
@@ -46,6 +51,8 @@ interface Runner {
 interface Feature {
   at: number; // fraction of a lap
   kind: 'obstacle' | 'boost-pad';
+  /** Gate cycle offset 0..1 (laser gates). */
+  phase: number;
 }
 
 interface RaceBot {
@@ -63,6 +70,7 @@ interface Built {
   relay: boolean;
   trackLength: number;
   checkpointCount: number;
+  finishLine: boolean;
 }
 
 interface State {
@@ -105,6 +113,13 @@ function xAt(ctx: BlockCtx<RaceParams>, frac: number): number {
   return START_PAD + clamp(frac, 0, 1) * (ctx.world.width - START_PAD - END_PAD);
 }
 
+/** Is this obstacle live at sim time t? Static obstacles always are. */
+function gateLive(P: RaceParams, f: Feature, t: number): boolean {
+  if (P.gateCycleSec <= 0) return true;
+  const ph = (t / P.gateCycleSec + f.phase) % 1;
+  return ph < P.gateOnFrac;
+}
+
 function handoff(P: RaceParams): number {
   return P.trackLength / 2;
 }
@@ -133,21 +148,28 @@ function buildLayout(ctx: BlockCtx<RaceParams>, s: State): void {
     // keep the relay handoff zone clear
     const hz = 0.5 - HANDOFF_ZONE;
     const safeAt = P.relay && at > hz - 0.03 && at < 0.53 ? hz - 0.04 : at;
-    feats.push({ at: safeAt, kind: kinds[i]! });
+    feats.push({ at: safeAt, kind: kinds[i]!, phase: (i * 0.38) % 1 });
   }
   s.layout = feats.sort((a, b) => a.at - b.at);
   // every lane gets the same features so the track reads as one course
   for (let lane = 0; lane < P.laneCount; lane++) {
     for (const f of s.layout) {
+      const props: Entity['props'] = { lane, at: f.at };
+      if (f.kind === 'obstacle' && P.gateCycleSec > 0) Object.assign(props, { gate: true, armed: gateLive(P, f, ctx.time), phase: f.phase });
       const e = ctx.world.spawn(f.kind, xAt(ctx, f.at), laneY(ctx, lane), {
-        sprite: f.kind, r: f.kind === 'obstacle' ? 18 : 22, props: { lane, at: f.at },
+        sprite: f.kind === 'obstacle' ? P.obstacleSprite : P.padSprite, r: f.kind === 'obstacle' ? 18 : 22, props,
       });
       s.featureIds.push(e.id);
     }
   }
+  if (P.finishLine) {
+    const e = ctx.world.spawn('finish', xAt(ctx, 1), ctx.world.height / 2, { sprite: 'finish', r: 12, props: { hh: ctx.world.height / 2, hw: 6 } });
+    s.featureIds.push(e.id);
+  }
   s.built = {
     laneCount: P.laneCount, obstacleDensity: P.obstacleDensity, boostPads: P.boostPads, relay: P.relay,
     trackLength: s.built?.trackLength ?? P.trackLength, checkpointCount: s.built?.checkpointCount ?? P.checkpointCount,
+    finishLine: P.finishLine,
   };
 }
 
@@ -190,7 +212,7 @@ function syncLive(ctx: BlockCtx<RaceParams>, s: State): void {
     }
     b.checkpointCount = P.checkpointCount;
   }
-  if (P.laneCount !== b.laneCount || P.obstacleDensity !== b.obstacleDensity || P.boostPads !== b.boostPads || P.relay !== b.relay) {
+  if (P.laneCount !== b.laneCount || P.obstacleDensity !== b.obstacleDensity || P.boostPads !== b.boostPads || P.relay !== b.relay || P.finishLine !== b.finishLine) {
     buildLayout(ctx, s);
     syncRelay(ctx, s);
     const rr = runnerR(ctx);
@@ -291,11 +313,11 @@ function advance(ctx: BlockCtx<RaceParams>, s: State, id: string, e: Entity, r: 
       r.padUntil = t + P.padBoostSec;
       ctx.fx({ kind: 'particles', preset: 'sparkle', x: e.x, y: e.y });
       ctx.fx({ kind: 'sfx', name: 'whoosh' });
-    } else if (t >= r.jumpUntil) {
+    } else if (t >= r.jumpUntil && gateLive(P, f, t)) {
       after = at;
       r.speed = 0;
       e.props.stunUntil = t + P.stumbleSec;
-      ctx.emit({ type: 'race.stumble', player: id });
+      ctx.emit({ type: 'race.stumble', player: id, data: { gate: P.gateCycleSec > 0 } });
       ctx.fx({ kind: 'particles', preset: 'smoke', x: e.x, y: e.y });
       ctx.fx({ kind: 'shake', strength: 0.25 });
       ctx.fx({ kind: 'sfx', name: 'hit' });
@@ -374,6 +396,11 @@ export const race: BlockDef<RaceParams> = {
     stumbleSec: 0.6,
     padBoost: 1.5,
     padBoostSec: 1.5,
+    gateCycleSec: 0,
+    gateOnFrac: 0.5,
+    obstacleSprite: 'obstacle',
+    padSprite: 'boost-pad',
+    finishLine: false,
   },
   controls: ['button', 'swipe', 'joystick'],
   arenaKinds: ['lanes'],
@@ -437,6 +464,14 @@ export const race: BlockDef<RaceParams> = {
   update(ctx, dt) {
     const s = S(ctx);
     syncLive(ctx, s);
+    if (ctx.params.gateCycleSec > 0) {
+      for (const id of s.featureIds) {
+        const e = ctx.world.get(id);
+        if (!e || e.kind !== 'obstacle') continue;
+        const f = s.layout.find((q) => q.at === e.props.at && q.kind === 'obstacle');
+        if (f) e.props.armed = gateLive(ctx.params, f, ctx.time);
+      }
+    }
     ctx.players.forEach((p, i) => {
       const r = s.runners.get(p.id);
       const e = ctx.entityOf(p.id);
@@ -478,7 +513,11 @@ export const race: BlockDef<RaceParams> = {
       const key = r.lap * 100 + k;
       let will = m.willJump.get(key);
       if (will === undefined) m.willJump.set(key, (will = ctx.rng.next() >= (1 - sk) * 0.4));
-      if (will && gap < Math.max(40, r.speed * 0.25)) jump = true;
+      if (!will || gap >= Math.max(40, r.speed * 0.25)) return;
+      // laser gates: jump only if it will be live as we cross (sloppy bots read the gate as it is now)
+      const eta = gap / Math.max(1, r.speed);
+      const when = ctx.rng.next() < sk ? ctx.time + eta : ctx.time;
+      if (gateLive(P, f, when) || gateLive(P, f, ctx.time + eta + 0.15 * (1 - sk))) jump = true;
     });
     buttons[P.jumpButton] = jump && r.jumpUntil <= ctx.time;
     if (r.finished) m.willJump.clear();

@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "id": "fallback-ring-out",
+  "title": "RING OUT",
+  "hook": "A neon ring floats in the void and the edge is crumbling. Dash into rivals and knock them off.",
+  "theme": {
+    "palette": {
+      "bg": "#0A0E27",
+      "primary": "#00E5FF",
+      "accent": "#FF2BD6",
+      "glow": "#B6FF3B",
+      "text": "#F4F7FF"
+    },
+    "artStyle": "neon arcade vector, glowing outlines on deep navy",
+    "keyArtPrompt": "A glowing cyan hexagon-grid ring platform floating in a deep navy void, its outer tiles breaking away into sparks, four neon light-trail avatars colliding, Tron style, no text",
+    "sprites": {
+      "player": "glowing neon disc avatar with a light trail",
+      "tile": "glowing neon cyan floor tile",
+      "hole": "dark void with faint magenta edge glow"
+    },
+    "sfxSet": "neon"
+  },
+  "arena": {
+    "kind": "topdown",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 0,
+  "durationSec": 60,
+  "blocks": [
+    {
+      "block": "arena-move",
+      "params": {
+        "speed": 290,
+        "accel": 2400,
+        "friction": 6,
+        "bounceWalls": false,
+        "dashButton": "dash",
+        "dashPower": 2.3,
+        "dashCooldownSec": 1.1,
+        "dashMs": 170,
+        "dashShove": 2.0,
+        "shoveStunSec": 0.3,
+        "avatarScale": 1.2,
+        "callout": "ring",
+        "ringOut": true,
+        "ringRadius": 330,
+        "ringTile": 48,
+        "ringShrinkTo": 150,
+        "ringOutPoints": 3,
+        "ringFallPenalty": 1,
+        "ringCreditSec": 2,
+        "respawnSec": 1.5,
+        "respawnInvulnSec": 1,
+        "ringCrumbleEventKind": "quake",
+        "ringSurvivePoints": 1
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "highScore"
+  },
+  "timeline": [
+    {
+      "atSec": 30,
+      "kind": "quake",
+      "params": {},
+      "hostLine": "QUAKE! The edge drops now!"
+    },
+    {
+      "atSec": 50,
+      "kind": "final",
+      "params": {},
+      "hostLine": "FINAL 10! Ring-outs count double!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "joystick",
+      "id": "move"
+    },
+    {
+      "kind": "button",
+      "id": "dash",
+      "label": "DASH (shove)"
+    }
+  ],
+  "host": {
+    "intro": "Dash into rivals to knock them off the ring. Stay on the platform!",
+    "finale": "FINAL 10! Ring-outs count double!",
+    "tutorial": "Stick to move. DASH to shove. Knock rivals off: +3. Still standing when the edge drops: +1. Fall off: -1."
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "id": "fallback-core-rush",
+  "title": "CORE RUSH",
+  "hook": "Energy cores spawn in the middle. Carry them to your team base, dash to knock them loose.",
+  "theme": {
+    "palette": {
+      "bg": "#0A0E27",
+      "primary": "#00E5FF",
+      "accent": "#FF2BD6",
+      "glow": "#B6FF3B",
+      "text": "#F4F7FF"
+    },
+    "artStyle": "neon arcade vector, glowing outlines on deep navy",
+    "keyArtPrompt": "Glowing lime energy cores floating in the centre of a neon arena with a cyan base on the left and a magenta base on the right, avatars racing with cores in tow, Geometry Wars style, no text",
+    "sprites": {
+      "player": "glowing neon disc avatar",
+      "core": "glowing neon lime energy core orb",
+      "base": "glowing team base ring pad"
+    },
+    "sfxSet": "neon"
+  },
+  "arena": {
+    "kind": "topdown",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 2,
+  "durationSec": 60,
+  "blocks": [
+    {
+      "block": "arena-move",
+      "params": {
+        "speed": 280,
+        "accel": 1800,
+        "friction": 7,
+        "dashButton": "dash",
+        "dashPower": 2.6,
+        "dashCooldownSec": 1.3,
+        "dashMs": 180,
+        "dashShove": 1.8,
+        "shoveStunSec": 0.35,
+        "callout": "rush"
+      }
+    },
+    {
+      "block": "collect",
+      "params": {
+        "itemSprite": "core",
+        "carryToGoal": true,
+        "teamBases": true,
+        "goalRadius": 80,
+        "carryMax": 2,
+        "bankBonus": 0,
+        "carrySlowdown": 0.15,
+        "spawnArea": "centre",
+        "spawnRadius": 260,
+        "maxItems": 6,
+        "spawnEverySec": 1.2,
+        "itemRadius": 18,
+        "pointsPerItem": 1,
+        "goldenChance": 0,
+        "goldenMultiplier": 3,
+        "stealOnBump": true,
+        "stealNeedsDash": true,
+        "knockLoose": true,
+        "stealCooldownSec": 1.2,
+        "goldenEventKind": "mega-core",
+        "frenzyEventKind": "core-storm",
+        "bankLabel": "BANKED",
+        "callout": "rush"
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "teamScore"
+  },
+  "timeline": [
+    {
+      "atSec": 30,
+      "kind": "mega-core",
+      "params": {},
+      "hostLine": "MEGA CORE in the middle! Worth 3!"
+    },
+    {
+      "atSec": 50,
+      "kind": "core-storm",
+      "params": {},
+      "hostLine": "FINAL 10! CORE STORM!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "joystick",
+      "id": "move"
+    },
+    {
+      "kind": "button",
+      "id": "dash",
+      "label": "DASH (knock loose)"
+    }
+  ],
+  "host": {
+    "intro": "Grab cores, carry them to your base. Dash into carriers to knock them loose!",
+    "finale": "FINAL 10! CORE STORM! Every bank counts double!",
+    "tutorial": "Grab cores (max 2, they slow you). Bank at your base: +1. DASH into a carrier to knock one loose."
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  }
+}

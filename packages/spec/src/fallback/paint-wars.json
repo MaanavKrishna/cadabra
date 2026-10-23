@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "id": "fallback-paint-wars",
+  "title": "PAINT WARS",
+  "hook": "Two teams, one grid. Paint the floor your colour, dash to splash, own the most when the buzzer goes.",
+  "theme": {
+    "palette": {
+      "bg": "#0A0E27",
+      "primary": "#00E5FF",
+      "accent": "#FF2BD6",
+      "glow": "#B6FF3B",
+      "text": "#F4F7FF"
+    },
+    "artStyle": "neon arcade vector, glowing outlines on deep navy",
+    "keyArtPrompt": "A neon tile grid floor half glowing cyan and half glowing magenta, two teams of light-trail avatars streaking across it painting tiles, bursts of colour, Tron style, no text",
+    "sprites": {
+      "player": "glowing neon disc avatar with a light trail",
+      "tile": "dark floor tile that glows in a team colour when painted"
+    },
+    "sfxSet": "neon"
+  },
+  "arena": {
+    "kind": "topdown",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 2,
+  "durationSec": 60,
+  "blocks": [
+    {
+      "block": "arena-move",
+      "params": {
+        "speed": 280,
+        "accel": 2000,
+        "friction": 8,
+        "dashButton": "dash",
+        "dashPower": 2.6,
+        "dashCooldownSec": 1.6,
+        "dashMs": 180,
+        "dashShove": 2,
+        "shoveStunSec": 0.6,
+        "callout": "paint",
+        "paint": true,
+        "paintCols": 16,
+        "paintRows": 9,
+        "paintEverySec": 5,
+        "paintPoints": 10,
+        "paintFinalMul": 2,
+        "paintBurst": 1,
+        "paintUnderdog": true
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "teamScore"
+  },
+  "timeline": [
+    {
+      "atSec": 30,
+      "kind": "halftime",
+      "params": {},
+      "hostLine": "HALFTIME! Paint over their colour!"
+    },
+    {
+      "atSec": 50,
+      "kind": "final",
+      "params": {},
+      "hostLine": "FINAL 10! The last tally counts double!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "joystick",
+      "id": "move"
+    },
+    {
+      "kind": "button",
+      "id": "dash",
+      "label": "DASH (splash)"
+    }
+  ],
+  "host": {
+    "intro": "Move to paint tiles your team colour. Own the most floor!",
+    "finale": "FINAL 10! The last tally counts double!",
+    "tutorial": "Move to paint. DASH to splash a 3x3 and stun enemies. Most floor every 5 s scores. Behind? Your splash gets bigger."
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  }
+}

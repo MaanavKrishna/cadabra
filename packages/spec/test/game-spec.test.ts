@@ -13,8 +13,8 @@ describe('parseSpec', () => {
     expect(GameSpecSchema.safeParse(heist).success).toBe(true);
   });
 
-  test('rejects durationSec 30 and 200', () => {
-    for (const d of [30, 200]) {
+  test('rejects durationSec 20 and 200 (30..45 is quick-fire party mode)', () => {
+    for (const d of [20, 200]) {
       const s = clone();
       s.durationSec = d;
       const r = parseSpec(s);
@@ -61,7 +61,7 @@ describe('parseSpec', () => {
 
   test('error format is "path: message"', () => {
     const s = clone();
-    s.durationSec = 30;
+    s.durationSec = 20;
     const r = parseSpec(s);
     if (r.ok) throw new Error('expected failure');
     expect(r.errors[0]).toMatch(/^durationSec: /);

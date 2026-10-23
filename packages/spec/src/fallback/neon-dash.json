@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "id": "fallback-neon-dash",
+  "title": "NEON DASH",
+  "hook": "A four-lane light race. Mash to run, hit boost pads, jump the laser gates when they are live.",
+  "theme": {
+    "palette": {
+      "bg": "#0A0E27",
+      "primary": "#00E5FF",
+      "accent": "#FF2BD6",
+      "glow": "#B6FF3B",
+      "text": "#F4F7FF"
+    },
+    "artStyle": "neon arcade vector, glowing outlines on deep navy",
+    "keyArtPrompt": "Four glowing neon racing lanes stretching to a bright finish line, pulsing magenta laser gates across the lanes, cyan boost chevrons, light-trail runners, Tron style, no text",
+    "sprites": {
+      "player": "glowing neon runner avatar with a light trail",
+      "laser": "glowing neon red laser gate beam",
+      "boost": "glowing neon cyan chevron boost pad",
+      "finish": "glowing neon checkered finish line"
+    },
+    "sfxSet": "neon"
+  },
+  "arena": {
+    "kind": "lanes",
+    "width": 1280,
+    "height": 720
+  },
+  "teams": 0,
+  "durationSec": 60,
+  "blocks": [
+    {
+      "block": "race",
+      "params": {
+        "laneCount": 4,
+        "trackLength": 3200,
+        "laps": 2,
+        "checkpointCount": 3,
+        "checkpointPoints": 1,
+        "relay": false,
+        "obstacleDensity": 0.4,
+        "boostPads": 2,
+        "mashToRun": true,
+        "runButton": "run",
+        "jumpButton": "jump",
+        "runSpeed": 300,
+        "mashPower": 0.22,
+        "stumbleSec": 0.7,
+        "padBoost": 1.5,
+        "padBoostSec": 1.2,
+        "gateCycleSec": 2.4,
+        "gateOnFrac": 0.5,
+        "obstacleSprite": "laser",
+        "padSprite": "boost",
+        "finishLine": true
+      }
+    }
+  ],
+  "modifiers": [],
+  "win": {
+    "type": "highScore"
+  },
+  "timeline": [
+    {
+      "atSec": 30,
+      "kind": "heat",
+      "params": {},
+      "hostLine": "Watch the lasers! Jump only when they're live!"
+    },
+    {
+      "atSec": 50,
+      "kind": "final",
+      "params": {},
+      "hostLine": "FINAL 10! Every point doubles!"
+    }
+  ],
+  "comeback": {
+    "enabled": true,
+    "strength": 0.5
+  },
+  "controller": [
+    {
+      "kind": "button",
+      "id": "run",
+      "label": "RUN (mash!)"
+    },
+    {
+      "kind": "button",
+      "id": "jump",
+      "label": "JUMP"
+    }
+  ],
+  "host": {
+    "intro": "Mash RUN. JUMP live laser gates. First to the finish wins!",
+    "finale": "FINAL 10! Every point doubles!",
+    "tutorial": "Mash RUN to sprint. JUMP when a laser gate is live. Boost pads speed you up."
+  },
+  "origin": {
+    "ingredients": [],
+    "wild": false
+  }
+}
