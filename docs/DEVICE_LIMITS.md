@@ -218,3 +218,61 @@ Same harness, group `8c` (`node apps/tv/bench/tv-bench.mjs run <ip> 8c out.jsonl
 GL mtrack is unchanged at 1280 (73-78 MB before, 75-78 MB after; the bake texture is ~4 MB) and 107 -> 118 MB at 1920. Visual parity checked with `adb exec-out screencap` on heist and dodge (group `shot`): same look, the HUD chips are slightly crisper at the edges because the vignette no longer darkens them.
 
 Budget update: the GameView now holds 60 fps at 1280x720 with 2-8 players and full effects, and at 1920x1080 with 4 players in heist (59.4). The background costs one opaque layer; new full-screen effects must stay edge-only or baked (each full-screen alpha layer is still about 2.5 ms at 1280).
+
+## R3: the four looks, all seven built-in games (2026-10-23)
+
+Re-run: `VITE_ENTRY=bench` install, then `node apps/tv/bench/tv-bench.mjs run <ip> r3 out.jsonl` (28 cells: 7 games x 4 looks, 4 bots, real adaptive fx, real `EventFeed` so score popups fire). The internal resolution comes from `BENCH_QS="?res=720"` (default 1920). `r3own` is the 7 games in their own look only, and `prof` holds 60 s cells to attach a CPU profiler to. The first cell after an app launch always runs slow (JIT and shader warm-up), so each group starts with a throwaway `warmup` cell. Single runs: neighbouring cells differ by +/- 3 fps, and one 0.5-1 s hitch moves a cell's average by 2-4 fps.
+
+**What cost the frame (CPU profiles over CDP, crate crash, toybox, 1080p):**
+- **Pixi instruction rebuilds, about 25% of the frame.** Every `zIndex` write, and every `visible` flip anywhere on the stage, sets `structureDidChange` on the whole stage render group. The renderer then re-collects every renderable on the next draw. The y-sort wrote `zIndex` on every moving body every frame, and the neon scanline sweep flipped `visible` twice a frame, so the stage was rebuilt on every frame.
+- **Fill at native 1080p.** The R2 looks (toybox shadows and zones, cosmos stars and glass, physics props) are fill-bound at 1920x1080. With the same code, crate crash ran at 42 fps at 1920 and 58.7 fps at 1280.
+- **Hitches** of 50-390 ms:
+  - first-time Text rasterise plus `texImage2D` (GOAL! banner, first popups);
+  - shader compiles (the first `ParticleContainer` draw);
+  - an occasional planck TOI solve of about 70 ms.
+- **Steady JS** is now 8-12 ms per frame:
+  - sim about 1.5-3 ms;
+  - `EntityLayer.sync` about 2-3.5 ms, with `avatar` the largest part, spread over many small calls with no single hot spot;
+  - Pixi update and submit about 3-5 ms.
+
+**Fixes:**
+- Depth keys are recorded per view. `zIndex` is written only when the visible bodies are out of order by more than 6 px.
+- `floor`, `glows`, `trails`, `bodies`, `overlay` and `popLayer` are each their own render group, so a visibility flip rebuilds only that layer.
+- The neon sweep's visibility is written once per frame.
+- Play now renders at 1280x720 (`INTERNAL` in `apps/tv/src/screens/Play.tsx`), stretched to 1080p.
+- On the first snapshot of a game (behind the intro card), particle shaders and the GOAL! banners are compiled and uploaded.
+
+**Bench (fps avg, 4 bots; before = shipped R2 at 1920, after = R3 at 1280; (n) = 1% low; ★ = the game's own look):**
+
+| game | neon | toybox | cosmos | retro |
+|---|---|---|---|---|
+| crate crash | 31.5 → 44.2 (3.1) | 48.8 → 58.8 (29.9) ★ | 49.5 → 54.0 (6.4) | 56.4 → 51.5 (7.5) |
+| rocket ball | 51.8 → 56.2 (8.1) ★ | 57.9 → 59.6 (37.4) | 58.6 → 59.7 (42.7) | 59.4 → 58.5 (17.6) |
+| overload | 52.1 → 59.8 (49.7) | 57.1 → 59.8 (49.8) | 55.5 → 59.8 (49.7) ★ | 59.4 → 59.8 (49.8) |
+| paint wars | 48.1 → 59.2 (27.2) | 53.7 → 59.4 (33.2) | 52.1 → 59.3 (29.9) | 55.2 → 59.7 (42.6) ★ |
+| ring out | 44.5 → 54.8 (6.5) | 48.0 → 59.4 (33.3) ★ | 47.5 → 56.0 (8.6) | 55.2 → 57.7 (13.0) |
+| core rush | 54.3 → 56.6 (9.1) | 54.9 → 59.1 (29.9) | 55.8 → 59.7 (42.7) ★ | 57.5 → 58.4 (16.6) |
+| neon dash | 51.7 → 58.6 (23.1) ★ | 54.8 → 59.2 (27.2) | 55.3 → 59.6 (37.4) | 54.2 → 59.2 (27.2) |
+
+Notes on the table:
+- The final run lost the stick (Wi-Fi) at core rush. The core rush and neon dash "after" cells come from the run before it, which had the same code minus the hitch prewarm and the sweep fix.
+- The crate crash neon cell is the first real cell after launch in every run (31.5 before). The crate crash retro run had a single 1 s hitch (worst second 41). In the earlier run, retro scored 57.4 and neon 48.5.
+
+**Real app on the stick (Play screen, 4 bots, 8 s of rAF timing plus `dumpsys gfxinfo` over 10 s, own look):**
+
+| game | before (R2, 1080p) | after (R3) |
+|---|---|---|
+| crate crash (toybox) | rAF 45 fps; gfxinfo p50 25 ms, p90 32 ms, 93% janky | rAF 59.3 fps (p99 33 ms); gfxinfo p50 9 ms, p90 20 ms, 14% janky |
+| ring out (toybox) | (not measured) | 58.6 fps; gfxinfo p50 9 ms, 4% janky |
+| overload (cosmos) | | 59.0 fps; p50 9 ms, 33% janky (p90 26 ms) |
+| paint wars (retro) | | 59.3 fps; p50 9 ms, 20% janky |
+| core rush (cosmos) | | 59.6 fps; p50 9 ms, 11% janky |
+| neon dash (neon) | | 59.8 fps; p50 10 ms, 27% janky |
+| rocket ball (neon) | | 60.0 fps; p50 9 ms, 0.7% janky |
+
+gfxinfo "janky" counts Android frames whose draw (including the WebView GL functor) ran past the deadline. It does not match dropped page frames one to one: rAF timing shows 59-60 fps where gfxinfo reports 11-33%.
+
+**Budget update:**
+- Game play renders at 1280x720.
+- Never write `zIndex`, `visible`, `renderable` or `blendMode` per frame on a large render group. Write them only on change, or move the changing objects into their own `isRenderGroup` container.
+- First-use Text and shaders cost 50-150 ms each on this device. Warm them during a loading or intro screen.
