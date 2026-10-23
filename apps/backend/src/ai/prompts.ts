@@ -346,7 +346,7 @@ Rules:
 - Make them FUN: a clear goal, a risk/reward choice, a comeback, and physical comedy (things bounce, spin, get launched).
 - Every ingredient should appear in at least one pitch.
 - title ≤ 40 chars, punchy arcade name. hook ≤ 120 chars: one line saying what you do to win.
-- keyArtPrompt: one vivid scene in the pitch's look for an image model, bold readable composition, ends with "no text".
+- keyArtPrompt: one vivid scene in the pitch's look for an image model, ≤ 200 chars, bold readable composition, ends with "no text".
 - look: "neon" | "toybox" | "cosmos" | "retro".
 - palette: five "#rrggbb" colours {bg, primary, accent, glow, text} in the look's style, text contrasting bg. Defaults: ${THEME_LOOKS.map((l) => `${l} ${JSON.stringify(THEME_PALETTES[l])}`).join('; ')}.
 - blocksSketch: 1–3 block ids from the list.

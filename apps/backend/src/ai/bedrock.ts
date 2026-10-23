@@ -32,7 +32,9 @@ export const CHAINS = {
 // Errors that mean "this model id is unusable here" (not throttling/timeouts): try the next one.
 const MODEL_UNAVAILABLE = new Set(['ValidationException', 'AccessDeniedException', 'ResourceNotFoundException']);
 
-let client = new BedrockRuntimeClient({ region: REGION });
+// No SDK retries: a throttle hops to the next model / the Anthropic API at once (SDK backoff cost ~1.5 s
+// per throttled probe, which the pitch and tweak budgets can't afford). The guardrail retries once itself.
+let client = new BedrockRuntimeClient({ region: REGION, maxAttempts: 1 });
 const log = (...a: unknown[]) => console.warn('[bedrock]', ...a);
 
 export interface ConverseRequest {
