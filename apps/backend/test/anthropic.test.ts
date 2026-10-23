@@ -153,12 +153,15 @@ describe('provider selection', () => {
     await expect(converse(req)).rejects.toMatchObject({ name: 'AnthropicApiError' });
   });
 
-  test('thinking is disabled for both roles', async () => {
+  test('thinking is off for both roles (Sonnet 5.5 uses between_tools)', async () => {
     br.on(ConverseCommand).rejects(err('AccessDeniedException'));
     create.mockResolvedValue(msg());
     await converse(req);
     await converse({ ...req, model: 'fast' });
-    for (const c of create.mock.calls) expect(c[0].thinking).toEqual({ type: 'disabled' });
+    const [designer, fast] = create.mock.calls.map((c) => c[0]);
+    expect(designer.model).toBe('claude-sonnet-5-5');
+    expect(designer.thinking).toEqual({ type: 'between_tools' });
+    expect(fast.thinking).toEqual({ type: 'disabled' });
   });
 
   test('multi-turn tool_use/tool_result adjacency over 3 turns', () => {

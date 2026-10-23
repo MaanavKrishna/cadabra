@@ -151,8 +151,10 @@ export async function anthropicConverse(
       system: [{ type: 'text', text: req.system }],
       messages: toAnthropicMessages(req.messages) as Anthropic.MessageParam[],
       ...(tools ? { tools: tools as unknown as Anthropic.Tool[] } : {}),
-      // Callers resend history as plain text/toolUse blocks (no thinking blocks), so keep thinking off.
-      thinking: { type: 'disabled' },
+      // Keep thinking off: Sonnet 5.5 rejects 'disabled' and takes 'between_tools' (only valid at effort high or below,
+      // which is its default); Haiku 5.5 still accepts 'disabled' at its default effort.
+      thinking: (modelId.startsWith('claude-sonnet-5-5')
+        ? { type: 'between_tools' } : { type: 'disabled' }) as unknown as Anthropic.ThinkingConfigParam,
     }, { signal }) as unknown as Obj;
     return { ...toConverseResponse(res), modelId };
   } catch (e) {
