@@ -492,11 +492,12 @@ export class EntityLayer {
         s.alpha = 0.95;
         s.position.set(t.x + Math.sin(c.vt * 41 + t.id) * 2, t.y + Math.cos(c.vt * 37 + t.id) * 1.5);
       } else if (paint !== undefined) {
+        // painted floor stays a step below the players so same-colour bodies still pop
         s.tint = paint;
-        s.alpha = 0.95;
+        s.alpha = 0.6;
       } else {
         s.tint = dim;
-        s.alpha = 0.55;
+        s.alpha = 0.45;
       }
     }
     for (const [id, s] of this.tileS) {
@@ -1818,7 +1819,7 @@ export class EntityLayer {
     const bob = carried ? Math.sin(c.vt * 9 + e.id) * 2 : Math.sin(c.vt * 3.2 + e.id * 1.7) * 5;
     const held = e.kind === 'core' && carried;
     const size = e.r * 2.6 * ITEM_SCALE * (held ? 1.25 : carried ? 0.75 : 1) * (golden ? 1.3 : 1) * (e.props.critical === true ? 1.15 : 1);
-    if (held) y -= e.r * 3.2;
+    if (held) y -= e.r * 1.6;
     const pop = this.popScale(v, c);
     const k = this.place(v, x, y - 8 + bob, size * pop, tex);
     // slow coin-like spin + wobble
@@ -2014,6 +2015,8 @@ export class EntityLayer {
         s.visible = i < n;
         s.texture = tex;
         s.position.set(fx - 7, i * 128);
+        // the last piece is cut to the arena's bottom edge (texture frame unchanged: just squash)
+        s.scale.set(1, Math.max(0, Math.min(128, H - i * 128)) / 128);
         s.alpha = 0.85 + 0.15 * Math.sin(c.vt * 4 + i * 0.7);
       }
     }

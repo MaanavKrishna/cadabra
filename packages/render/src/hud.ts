@@ -97,8 +97,9 @@ export class Hud {
       this.timer.style.fill = col;
       const w = 160;
       this.timerBg.clear()
-        .roundRect(-w / 2, -32, w, 64, 32).fill({ color: finale ? darken(col, 0.55) : 0x0b0b18, alpha: 0.82 })
-        .roundRect(-w / 2, -32, w, 64, 32).stroke({ width: finale ? 5 : 3, color: finale ? col : hexToNum(this.palette.glow), alpha: 0.95 });
+        .roundRect(-w / 2, -32, w, 64, 32).fill({ color: finale ? darken(col, 0.6) : 0x070a1c, alpha: 0.85 })
+        .roundRect(-w / 2 - 3, -35, w + 6, 70, 35).stroke({ width: 8, color: finale ? col : hexToNum(this.palette.primary), alpha: 0.18 })
+        .roundRect(-w / 2, -32, w, 64, 32).stroke({ width: finale ? 4 : 2.5, color: finale ? col : hexToNum(this.palette.primary), alpha: 1 });
       if (this.mult > 1) {
         this.timerBg.roundRect(-74, 30, 148, 30, 15).fill({ color: hexToNum(this.palette.glow) });
       }
@@ -162,10 +163,11 @@ export class Hud {
       if (c.lead !== lead || c.w !== w) {
         c.lead = lead;
         c.w = w;
+        // neon chip: dark glass, a glow line in the player's colour (the leader's is brighter)
         c.bg.clear()
-          .roundRect(0, 0, w, CHIP_H, 18).fill({ color: lead ? darken(hexToNum(this.palette.glow), 0.55) : 0x0b0b18, alpha: 0.72 })
-          .roundRect(0, 0, 6, CHIP_H, 3).fill({ color })
-          .roundRect(0, 0, w, CHIP_H, 18).stroke({ width: lead ? 3 : 1.5, color: lead ? hexToNum(this.palette.glow) : lighten(color, 0.2), alpha: lead ? 1 : 0.5 });
+          .roundRect(0, 0, w, CHIP_H, 18).fill({ color: lead ? darken(color, 0.7) : 0x070a1c, alpha: 0.82 })
+          .roundRect(-2, -2, w + 4, CHIP_H + 4, 20).stroke({ width: 8, color, alpha: lead ? 0.3 : 0.12 })
+          .roundRect(0, 0, w, CHIP_H, 18).stroke({ width: lead ? 3 : 2, color: lead ? lighten(color, 0.3) : color, alpha: lead ? 1 : 0.7 });
       }
       if (p.score !== c.shown) {
         c.shown = p.score;
@@ -180,7 +182,7 @@ export class Hud {
       }
       const tex = avatarTex(p);
       if (c.avatar.texture !== tex) c.avatar.texture = tex;
-      const ak = 46 / Math.max(1, tex.width, tex.height);
+      const ak = 54 / Math.max(1, tex.width, tex.height);
       c.avatar.scale.set(ak);
       c.avatar.position.set(32, CHIP_H / 2);
       c.name.position.set(60, CHIP_H / 2);
@@ -202,7 +204,7 @@ export class Hud {
       const hot = b < 0.5;
       if (c.hot !== hot) {
         c.hot = hot;
-        c.score.style.fill = hot ? hexToNum(this.palette.glow) : 0xffffff;
+        c.score.style.fill = hot ? lighten(color, 0.4) : 0xffffff;
       }
       c.root.alpha = p.connected ? 1 : 0.5;
     });

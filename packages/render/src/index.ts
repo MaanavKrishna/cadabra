@@ -14,3 +14,4 @@ export { popupText, popupTone, itemNoun } from './popups';
 export { sceneFor, arenaRect, ARENA_FILL, type SceneKind } from './scenery';
 export { startMusic, stopMusic, setMusicIntensity, duckMusic, setMusicVolume, musicVolume, prewarmMusic, musicPlaying, renderLoop, MUSIC_STYLES } from './music';
 export { setSfxVolume } from './sfx';
+export { NEON, NEON_PALETTE, NEON_THEME, NEON_KEYS, NEON_PLAYERS, NEON_TEAMS, neonKey, type NeonKey, type RenderStyle } from './neon';
