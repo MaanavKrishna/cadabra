@@ -228,6 +228,13 @@ export function ForgeBuild({ state, status }: ForgeProps) {
           {rows.map((r) => <span key={r.label} class={`fstep is-${r.state}`}>{r.label}</span>)}
         </div>
       </div>
+      {!art && p && (
+        <div class={`forge-blocks ${rows[0]?.state === 'done' ? 'is-on' : ''}`} aria-hidden="true">
+          {(sketchIcons(p).length ? sketchIcons(p) : ['star']).map((n, i) => (
+            <span key={n} class={`fblock fb-${i}`} style={{ animationDelay: `${i * 0.18}s` }}><NeonIcon name={n} /></span>
+          ))}
+        </div>
+      )}
       <div class="forge-ings">{state.ingredients.slice(-6).map((g, i) => <span key={i} class="chip chip-sm">{g.text}</span>)}</div>
     </section>
   );

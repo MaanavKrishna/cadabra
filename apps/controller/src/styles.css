@@ -334,3 +334,76 @@ img { -webkit-user-drag: none; user-select: none; }
 .build-bar { position: relative; height: 14px; border-radius: 7px; background: rgba(10, 14, 39, .8); box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--c-primary) 45%, transparent); overflow: hidden; }
 .build-bar i { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, var(--n-cyan), var(--n-magenta)); box-shadow: 0 0 16px var(--n-cyan); transition: transform .5s var(--ease-out); }
 .build-pct { margin-top: 10px; text-align: center; font: 800 28px/1 var(--font-display); color: var(--n-cyan); text-shadow: 0 0 14px color-mix(in oklab, var(--n-cyan) 60%, transparent); }
+
+
+/* ---------- N4: PS5 pass (calm dark, white type, white pill buttons, glass cards) ---------- */
+:root { --font-display: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif; --line: rgba(255, 255, 255, .12); --ink-dark: #0b0d16; }
+html, body { font-weight: 400; }
+.backdrop { background:
+  radial-gradient(120% 70% at 100% 0%, color-mix(in oklab, var(--c-primary) 16%, transparent), transparent 65%),
+  radial-gradient(100% 60% at 0% 100%, color-mix(in oklab, var(--c-accent) 12%, transparent), transparent 70%),
+  linear-gradient(180deg, #0b0d18, #05060c); }
+.backdrop::before, .backdrop::after, .blob, .beam { display: none; }
+.display { font-weight: 300; text-transform: none; letter-spacing: -.035em; text-shadow: none; line-height: .98; }
+.display em { background: none; color: inherit; -webkit-background-clip: border-box; background-clip: border-box; }
+.lede { color: rgba(255, 255, 255, .7); }
+.eyebrow { color: rgba(255, 255, 255, .62); font: 600 13px/1 var(--font-ui); letter-spacing: .04em; text-transform: none; }
+.eyebrow::before { display: none; }
+.wordmark, .tb-brand { font-weight: 500; letter-spacing: .01em; }
+.tb-brand { padding: 8px 14px; font-size: 15px; letter-spacing: .02em; }
+.mark { filter: none; }
+
+.gbtn { border-radius: 999px; text-transform: none; letter-spacing: 0; font: 600 19px/1 var(--font-ui); text-shadow: none; }
+.gbtn-primary { color: var(--ink-dark); background: #fff; box-shadow: 0 14px 30px -16px rgba(0, 0, 0, .9); }
+.gbtn-accent { color: #fff; background: rgba(255, 255, 255, .14); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
+.gbtn-glass { color: #fff; background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px var(--line); font-weight: 500; }
+.gbtn-primary:active:not(:disabled), .gbtn-accent:active:not(:disabled), .gbtn-glass:active:not(:disabled) {
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .22); filter: none; }
+.spark-grid .gbtn { border-radius: 999px; font-size: 15px; }
+
+.field-label { color: rgba(255, 255, 255, .55); font: 600 13px/1 var(--font-ui); letter-spacing: .04em; text-transform: none; }
+.text-field { border-radius: 20px; background: rgba(255, 255, 255, .07); border-color: var(--line); font-weight: 500; }
+.text-field:focus { border-color: #fff; background: rgba(255, 255, 255, .1); box-shadow: 0 0 0 4px rgba(255, 255, 255, .14); }
+.code-slot { border-radius: 18px; border-color: var(--line); background: rgba(255, 255, 255, .07); box-shadow: none; font: 400 44px/1 var(--font-ui); }
+.code-slot.has { border-color: rgba(255, 255, 255, .3); }
+.code:focus-within .code-slot.is-next { border-color: #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, .14); }
+.code.is-full .code-slot { border-color: rgba(255, 255, 255, .5); box-shadow: none; }
+
+.banner { background: rgba(22, 25, 40, .96); box-shadow: 0 0 0 1px var(--line), 0 20px 50px -14px rgba(0, 0, 0, .9); -webkit-backdrop-filter: none; backdrop-filter: none; font-weight: 600; }
+.toast { background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px var(--line); }
+.spinner { border-color: rgba(255, 255, 255, .2); border-top-color: #fff; }
+
+.avatar-tile { border-radius: 26px; background: rgba(255, 255, 255, .06); }
+.avatar-tile.is-on { background: rgba(255, 255, 255, .16); box-shadow: inset 0 0 0 3px #fff, 0 14px 30px -12px rgba(0, 0, 0, .8); }
+.tb-av { background: rgba(255, 255, 255, .12); box-shadow: 0 0 0 2px #fff; }
+.orb { background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .1), transparent 70%); }
+.orb-ring { border-color: rgba(255, 255, 255, .35); }
+.badge-icon { color: #fff; background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px var(--line); }
+
+.idea { border: 0; border-radius: 999px; background: rgba(255, 255, 255, .09); box-shadow: inset 0 0 0 1px var(--line); font-weight: 500; }
+.idea::before { content: '• '; color: rgba(255, 255, 255, .5); }
+.cd-fill { stroke: #fff; }
+
+.pitch { border-radius: 24px !important; background: rgba(255, 255, 255, .06); }
+.pitch-art { opacity: .45; }
+.pitch-badge { border-radius: 50%; font: 600 20px/1 var(--font-ui); }
+.pitch-title { font: 500 22px/1.1 var(--font-ui); letter-spacing: -.01em; }
+.pitch.is-on { box-shadow: inset 0 0 0 3px #fff, 0 18px 40px -18px rgba(0, 0, 0, .9) !important; }
+.pitch.is-on .pitch-badge { background: #fff; color: var(--ink-dark); box-shadow: none; }
+.pitch.is-on .pitch-check { box-shadow: inset 0 0 0 6px var(--ink-dark); }
+
+.play-title { font: 500 21px/1.1 var(--font-ui); }
+.live-dot { font: 600 11px/1 var(--font-ui); letter-spacing: .08em; }
+.hint-chip b { font: 600 15px/1.05 var(--font-ui); letter-spacing: 0; }
+.hint-ic { background: rgba(255, 255, 255, .14); }
+.hint-quiet .hint-ic, .hint-dash .hint-ic, .hint-pull .hint-ic { background: rgba(255, 255, 255, .14); }
+
+.rank { font-weight: 300; letter-spacing: -.05em; filter: none; background-image: linear-gradient(180deg, #fff, rgba(255, 255, 255, .7)); }
+.rank-1 { background-image: linear-gradient(180deg, #fff3cf, #f0cd78); }
+.standing { border-radius: 18px; }
+.standing.is-you { background: rgba(255, 255, 255, .12); box-shadow: inset 0 0 0 2px #fff; }
+.st-pos, .st-score { font-family: var(--font-ui); font-weight: 600; }
+
+.build-bar { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .16); box-shadow: none; }
+.build-bar i { background: #fff; box-shadow: none; }
+.build-pct { font: 300 30px/1 var(--font-ui); color: #fff; text-shadow: none; }

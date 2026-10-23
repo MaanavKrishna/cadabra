@@ -6,20 +6,8 @@ import type { ControlWidget, InputFrame } from '@cadabra/spec';
 /** Original Cadabra mark: a beam of light falling from a four-point spark. */
 export function Mark({ size = 36 }: { size?: number }) {
   return (
-    <svg class="mark" width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <defs>
-        <linearGradient id="mk-beam" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#fff" stop-opacity=".95" />
-          <stop offset=".55" stop-color="var(--c-primary)" stop-opacity=".9" />
-          <stop offset="1" stop-color="var(--c-primary)" stop-opacity="0" />
-        </linearGradient>
-        <radialGradient id="mk-spark">
-          <stop offset="0" stop-color="#fff" />
-          <stop offset="1" stop-color="var(--c-accent)" />
-        </radialGradient>
-      </defs>
-      <path d="M17 13 L44 40 L36 46 L11 19 Z" fill="url(#mk-beam)" />
-      <path d="M14 2 C15 10 16 11 24 12 C16 13 15 14 14 22 C13 14 12 13 4 12 C12 11 13 10 14 2 Z" fill="url(#mk-spark)" />
+    <svg class="mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M32 4 L37 27 L60 32 L37 37 L32 60 L27 37 L4 32 L27 27 Z" fill="#fff" />
     </svg>
   );
 }

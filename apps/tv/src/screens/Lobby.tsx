@@ -135,8 +135,11 @@ export function Lobby({ state, status, onPlay, onCreate, onParty, onArcade, onFi
   const full = state.players.length >= MAX_PLAYERS;
   const copy = copyFor(item, state, online);
 
-  const focusTile = (i: number) => { lastIndex = i; setFi(i); setInfo(false); };
+  // lastIndex is only written on select: while the screen unmounts, the focus manager hops through
+  // the tiles being removed and their focus handlers fire
+  const focusTile = (i: number) => { setFi(i); setInfo(false); };
   const act = (it: Item) => {
+    lastIndex = Math.max(0, ITEMS.indexOf(it));
     if (it.kind === 'create') onCreate();
     else if (it.kind === 'party') onParty();
     else if (it.kind === 'arcade') onArcade();

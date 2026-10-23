@@ -1,9 +1,9 @@
 // Shared 10-foot UI pieces: wordmark, top bar, backdrop, avatars, focusable tiles, captions.
 import type { ComponentChildren, JSX } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { AVATAR_ART, DEFAULT_ART_URLS, avatarArtFor, playerColor } from '@cadabra/render';
 import type { Player } from '@cadabra/engine';
-import { FocusManager, type FocusHandlers } from './focus';
+import { FOCUS_CLASS, FocusManager, type FocusHandlers } from './focus';
 import type { KeyArt } from '../fallback';
 import { HERO } from './hero';
 import { uiSound } from './sound';
@@ -41,6 +41,10 @@ export function useFocusable(row: number, col: number, h: FocusHandlers & { auto
     if (h.autofocus) focus.focus(el);
     return off;
   }, [row, col]);
+  // a re-render that changes the element's class prop wipes the imperatively added focus class
+  useLayoutEffect(() => {
+    if (ref.current && focus.current === ref.current) ref.current.classList.add(FOCUS_CLASS);
+  });
   return ref;
 }
 
