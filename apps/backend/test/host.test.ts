@@ -156,27 +156,44 @@ describe('resolveJudgement', () => {
 });
 
 describe('speak', () => {
-  test('speak caches by hash', async () => {
+  const ok = { AudioStream: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) } } as any;
+  test('speak caches by engine+voice+region+text and uses the personality voice', async () => {
     s3.on(HeadObjectCommand).rejectsOnce(Object.assign(new Error('nf'), { name: 'NotFound' })).resolves({});
     s3.on(PutObjectCommand).resolves({});
-    polly.on(SynthesizeSpeechCommand).resolves({ AudioStream: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) } } as any);
-    const a = await speak('Hello Dad');
-    const b = await speak('Hello Dad');
+    polly.on(SynthesizeSpeechCommand).resolves(ok);
+    const a = await speak('Hello Dad.', 'hype');
+    const b = await speak('Hello Dad.', 'hype');
     expect(a).toBe(b);
-    expect(a).toBe(`https://cdn.example.net/${voiceKey('Kajal', 'Hello Dad')}`);
-    expect(voiceKey('Kajal', 'Hello Dad')).toMatch(/^voice\/[0-9a-f]{64}\.mp3$/);
+    expect(a).toBe(`https://cdn.example.net/${voiceKey('generative', 'Matthew', 'us-east-1', 'Hello Dad!')}`);
+    expect(voiceKey('generative', 'Matthew', 'us-east-1', 'x')).toMatch(/^voice\/[0-9a-f]{64}\.mp3$/);
     expect(polly.commandCalls(SynthesizeSpeechCommand)).toHaveLength(1);
-    const input = polly.commandCalls(SynthesizeSpeechCommand)[0]!.args[0].input;
-    expect(input).toMatchObject({ Engine: 'neural', VoiceId: 'Kajal', OutputFormat: 'mp3', LanguageCode: 'en-IN' });
+    expect(polly.commandCalls(SynthesizeSpeechCommand)[0]!.args[0].input).toMatchObject({ Engine: 'generative', VoiceId: 'Matthew', OutputFormat: 'mp3', Text: 'Hello Dad!' });
     expect(s3.commandCalls(PutObjectCommand)[0]!.args[0].input).toMatchObject({ Bucket: 'assets-bkt', ContentType: 'audio/mpeg' });
   });
-  test('falls back to Joanna when the voice is unavailable', async () => {
+  test('cache key differs by engine, voice, region and text', () => {
+    const k = voiceKey('generative', 'Ruth', 'us-east-1', 'hi');
+    expect(voiceKey('neural', 'Ruth', 'us-east-1', 'hi')).not.toBe(k);
+    expect(voiceKey('generative', 'Amy', 'us-east-1', 'hi')).not.toBe(k);
+    expect(voiceKey('generative', 'Ruth', 'us-west-2', 'hi')).not.toBe(k);
+    expect(voiceKey('generative', 'Ruth', 'us-east-1', 'ho')).not.toBe(k);
+  });
+  test.each([['hype', 'Matthew'], ['cheeky', 'Ruth'], ['calm', 'Amy']] as const)('%s uses generative %s', async (p, v) => {
     s3.on(HeadObjectCommand).rejects(Object.assign(new Error('nf'), { name: 'NotFound' }));
     s3.on(PutObjectCommand).resolves({});
-    polly.on(SynthesizeSpeechCommand, { VoiceId: 'Kajal' }).rejects(Object.assign(new Error('v'), { name: 'ValidationException' }));
-    polly.on(SynthesizeSpeechCommand, { VoiceId: 'Joanna' }).resolves({ AudioStream: { transformToByteArray: async () => new Uint8Array([9]) } } as any);
-    const url = await speak('Different line');
-    expect(url).toBe(`https://cdn.example.net/${voiceKey('Joanna', 'Different line')}`);
+    polly.on(SynthesizeSpeechCommand).resolves(ok);
+    await speak('Legendary stuff', p);
+    expect(polly.commandCalls(SynthesizeSpeechCommand)[0]!.args[0].input).toMatchObject({ Engine: 'generative', VoiceId: v });
+  });
+  test('fallback chain: generative -> long-form -> neural Joanna -> standard Joanna', async () => {
+    s3.on(HeadObjectCommand).rejects(Object.assign(new Error('nf'), { name: 'NotFound' }));
+    s3.on(PutObjectCommand).resolves({});
+    polly.on(SynthesizeSpeechCommand, { Engine: 'standard' }).resolves(ok);
+    polly.on(SynthesizeSpeechCommand, { Engine: 'generative' }).rejects(Object.assign(new Error('v'), { name: 'ValidationException' }));
+    polly.on(SynthesizeSpeechCommand, { Engine: 'long-form' }).rejects(new Error('v'));
+    polly.on(SynthesizeSpeechCommand, { Engine: 'neural' }).rejects(new Error('v'));
+    const url = await speak('Different line.', 'cheeky');
+    expect(url).toBe(`https://cdn.example.net/${voiceKey('standard', 'Joanna', 'us-east-1', 'Different line.')}`);
+    expect(polly.commandCalls(SynthesizeSpeechCommand).map((c) => c.args[0].input.Engine)).toEqual(['generative', 'long-form', 'neural', 'standard']);
   });
 });
 
@@ -189,11 +206,10 @@ describe('speak hardening', () => {
   test('a failed voice is remembered per container', async () => {
     s3.on(HeadObjectCommand).rejects(Object.assign(new Error('nf'), { name: 'NotFound' }));
     s3.on(PutObjectCommand).resolves({});
-    polly.on(SynthesizeSpeechCommand, { VoiceId: 'Kajal' }).rejects(new Error('v'));
-    polly.on(SynthesizeSpeechCommand, { VoiceId: 'Joanna' }).resolves({ AudioStream: { transformToByteArray: async () => new Uint8Array([9]) } } as any);
-    await speak('one'); await speak('two');
-    const kajal = polly.commandCalls(SynthesizeSpeechCommand).filter((c) => c.args[0].input.VoiceId === 'Kajal');
-    expect(kajal).toHaveLength(1);
+    polly.on(SynthesizeSpeechCommand, { Engine: 'generative' }).rejects(new Error('v'));
+    polly.on(SynthesizeSpeechCommand, { Engine: 'long-form' }).resolves({ AudioStream: { transformToByteArray: async () => new Uint8Array([9]) } } as any);
+    await speak('one', 'calm'); await speak('two', 'calm');
+    expect(polly.commandCalls(SynthesizeSpeechCommand).filter((c) => c.args[0].input.Engine === 'generative')).toHaveLength(1);
   });
 });
 

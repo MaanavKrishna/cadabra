@@ -18,12 +18,13 @@ export const HOST_LIMITS = { 'host.roast': 30, 'judge.request': 60, 'host.say': 
 const COUNTER = { 'host.roast': 'rlRoast', 'judge.request': 'rlJudge', 'host.say': 'rlSay' } as const;
 
 const log = (...a: unknown[]) => console.warn('[host-room]', ...a);
+type Personality = NonNullable<RoomSettings['hostPersonality']>;
 const personalityOf = (m: { personality?: RoomSettings['hostPersonality'] }) => m.personality ?? 'cheeky';
 
 /** Speak a caption; voice failure just means no url (the TV shows the caption anyway). */
-async function audioFor(text: string, voice: boolean | undefined): Promise<string | undefined> {
+async function audioFor(text: string, voice: boolean | undefined, personality: Personality): Promise<string | undefined> {
   if (voice === false) return undefined;
-  try { return await speak(text); } catch (e) { log('speak failed:', (e as Error)?.name); return undefined; }
+  try { return await speak(text, personality); } catch (e) { log('speak failed:', (e as Error)?.name); return undefined; }
 }
 
 /** Runs one host/judge request and returns the single reply for the requesting TV. Never throws. */
@@ -37,13 +38,13 @@ export async function runHostMsg(m: HostMsg): Promise<BackendToClient | undefine
         if (!ok.allowed) text = '';
       }
       if (!text) text = await hostLine(m.kind ?? 'fallback', m.ctx ?? {}, personalityOf(m), { familySafe });
-      const url = await audioFor(text, m.voice);
+      const url = await audioFor(text, m.voice, personalityOf(m));
       return { t: 'host.audio', id: m.id, text, ...(url ? { url } : {}) };
     }
     if (m.t === 'host.roast') {
       const players = m.players.map((p) => ({ ...p, avatar: '', isBot: false, connected: true, score: 0 }));
       const lines = await roast(m.events, players, { title: m.title, hook: m.hook }, { familySafe, personality: personalityOf(m) });
-      const urls = await Promise.all(lines.map((l) => audioFor(l, m.voice).then((u) => u ?? null)));
+      const urls = await Promise.all(lines.map((l) => audioFor(l, m.voice, personalityOf(m)).then((u) => u ?? null)));
       return { t: 'host.roasted', id: m.id, lines, urls };
     }
     return { t: 'judge.result', id: m.id, result: await resolveJudgement(m.kind, m.payload) };

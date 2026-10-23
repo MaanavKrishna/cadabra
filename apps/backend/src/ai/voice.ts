@@ -1,24 +1,51 @@
 import { createHash } from 'node:crypto';
 import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { PollyClient, SynthesizeSpeechCommand, type LanguageCode, type VoiceId } from '@aws-sdk/client-polly';
+import { PollyClient, SynthesizeSpeechCommand, type VoiceId } from '@aws-sdk/client-polly';
 
 /**
- * Polly neural TTS with an S3 cache (AssetsBucket, `voice/<sha256(voice+text)>.mp3`). The bucket is private;
+ * Polly TTS with an S3 cache (AssetsBucket, `voice/<sha256(engine|voice|region|text)>.mp3`). The bucket is private;
  * audio is served through the CloudFront distribution in front of it (ASSETS_URL, CORS GET from any origin).
+ *
+ * Voices are chosen per host personality from the GENERATIVE engine (most natural), which is not offered in
+ * ap-south-1, so Polly runs in POLLY_REGION (default us-east-1) while the S3 cache stays in ap-south-1.
+ * Choices (picked from `aws polly describe-voices --engine generative --region us-east-1`; not listen-tested):
+ *   hype   -> Matthew (en-US male, upbeat/energetic), then long-form Patrick
+ *   cheeky -> Ruth    (en-US female, conversational/playful), then long-form Ruth
+ *   calm   -> Amy     (en-GB female, warm/measured), then long-form Danielle
+ * Every chain ends in neural Joanna then standard Joanna. Generative supports only limited SSML, so plain text is sent.
  */
-const REGION = 'ap-south-1';
-const polly = new PollyClient({ region: REGION });
-const s3 = new S3Client({ region: REGION });
+const S3_REGION = 'ap-south-1';
+export const pollyRegion = (): string => process.env.POLLY_REGION || 'us-east-1';
+const POLLY_REGION = pollyRegion();
+const polly = new PollyClient({ region: POLLY_REGION });
+const s3 = new S3Client({ region: S3_REGION });
 const log = (...a: unknown[]) => console.warn('[voice]', ...a);
 
-const DEFAULT_VOICE = 'Kajal'; // en-IN neural (verified with `aws polly describe-voices --language-code en-IN`)
-const FALLBACK_VOICE = 'Joanna'; // en-US neural
-const LANG: Record<string, LanguageCode> = { Kajal: 'en-IN', Joanna: 'en-US' };
+export type PollyEngine = 'generative' | 'long-form' | 'neural' | 'standard';
+export type VoiceChoice = { engine: PollyEngine; voice: string };
+export type Personality = 'hype' | 'cheeky' | 'calm';
+
+const TAIL: VoiceChoice[] = [{ engine: 'neural', voice: 'Joanna' }, { engine: 'standard', voice: 'Joanna' }];
+export const VOICE_CHAINS: Record<Personality, VoiceChoice[]> = {
+  hype: [{ engine: 'generative', voice: 'Matthew' }, { engine: 'long-form', voice: 'Patrick' }, ...TAIL],
+  cheeky: [{ engine: 'generative', voice: 'Ruth' }, { engine: 'long-form', voice: 'Ruth' }, ...TAIL],
+  calm: [{ engine: 'generative', voice: 'Amy' }, { engine: 'long-form', voice: 'Danielle' }, ...TAIL],
+};
 const MAX_CHARS = 600;
 const SYNTH_TIMEOUT_MS = 6000;
 
-export const voiceKey = (voice: string, text: string): string =>
-  `voice/${createHash('sha256').update(voice + text).digest('hex')}.mp3`;
+/** Cache key covers engine, voice, region and the exact text sent to Polly. */
+export const voiceKey = (engine: string, voice: string, region: string, text: string): string =>
+  `voice/${createHash('sha256').update([engine, voice, region, text].join('|')).digest('hex')}.mp3`;
+
+/** Short punchy delivery: collapse whitespace, always end on punctuation (hype gets a full stop upgraded to a shout). */
+export function prepText(text: string, personality: Personality): string {
+  let t = text.replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
+  if (!t) return t;
+  if (!/[.!?…]["')\]]?$/.test(t)) t += personality === 'hype' ? '!' : '.';
+  else if (personality === 'hype' && t.endsWith('.') && !t.endsWith('..')) t = t.slice(0, -1) + '!';
+  return t;
+}
 
 const urlFor = (key: string): string => {
   const base = (process.env.ASSETS_URL ?? '').replace(/\/+$/, '');
@@ -26,8 +53,9 @@ const urlFor = (key: string): string => {
   return `${base}/${key}`;
 };
 
-/** Voices that failed in this container: skip them until the container recycles. */
+/** Engine+voice combos that failed in this container: skip them until the container recycles. */
 const badVoices = new Set<string>();
+const id = (c: VoiceChoice): string => `${c.engine}:${c.voice}`;
 /** Test hook. */
 export const _resetVoice = (): void => badVoices.clear();
 
@@ -43,10 +71,9 @@ async function exists(bucket: string, key: string): Promise<boolean> {
   }
 }
 
-async function synth(voice: string, text: string): Promise<Uint8Array> {
+async function synth(c: VoiceChoice, text: string): Promise<Uint8Array> {
   const res = await polly.send(new SynthesizeSpeechCommand({
-    Engine: 'neural', VoiceId: voice as VoiceId, OutputFormat: 'mp3', Text: text,
-    LanguageCode: LANG[voice], TextType: 'text',
+    Engine: c.engine, VoiceId: c.voice as VoiceId, OutputFormat: 'mp3', Text: text, TextType: 'text',
   }), { abortSignal: AbortSignal.timeout(SYNTH_TIMEOUT_MS) });
   const bytes = await res.AudioStream?.transformToByteArray();
   if (!bytes?.length) throw new Error('polly: empty audio');
@@ -54,26 +81,27 @@ async function synth(voice: string, text: string): Promise<Uint8Array> {
 }
 
 /** Synthesize (or fetch from cache) one line of host speech; resolves to a playable mp3 URL. Throws on failure. */
-export async function speak(text: string): Promise<string> {
+export async function speak(text: string, personality: Personality = 'cheeky'): Promise<string> {
   const bucket = process.env.ASSETS_BUCKET;
   if (!bucket) throw new Error('ASSETS_BUCKET not set');
-  const clean = text.replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
+  const p: Personality = VOICE_CHAINS[personality] ? personality : 'cheeky';
+  const clean = prepText(text, p);
   if (!clean) throw new Error('speak: empty text');
-  const preferred = process.env.HOST_VOICE || DEFAULT_VOICE;
-  const all = preferred === FALLBACK_VOICE ? [preferred] : [preferred, FALLBACK_VOICE];
-  const voices = all.filter((v) => !badVoices.has(v));
-  if (!voices.length) voices.push(FALLBACK_VOICE); // everything marked bad: still try once
+  const chain = VOICE_CHAINS[p];
+  const last = chain[chain.length - 1]!;
+  const choices = chain.filter((c) => !badVoices.has(id(c)));
+  if (!choices.length) choices.push(last); // everything marked bad: still try once
   let lastErr: unknown;
-  for (const voice of voices) {
-    const key = voiceKey(voice, clean);
+  for (const c of choices) {
+    const key = voiceKey(c.engine, c.voice, POLLY_REGION, clean);
     if (await exists(bucket, key)) return urlFor(key);
     let bytes: Uint8Array;
     try {
-      bytes = await synth(voice, clean);
+      bytes = await synth(c, clean);
     } catch (e) {
       lastErr = e;
-      if (voice !== FALLBACK_VOICE) badVoices.add(voice); // synth failure only (not an S3 problem)
-      log(`voice ${voice} failed:`, (e as Error)?.name);
+      if (c !== last) badVoices.add(id(c)); // synth failure only (not an S3 problem)
+      log(`voice ${id(c)} failed:`, (e as Error)?.name);
       continue;
     }
     try {
