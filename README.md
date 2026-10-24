@@ -176,7 +176,7 @@ packages/
   render/       PixiJS game view, 4 looks, physics views, juice, procedural music and sfx
   couchpad/     Phone-as-controller transport + widgets (also its own repo)
 scripts/        tv-install.sh, tv-record.sh
-docs/           ARCHITECTURE, SUBMISSION, FRICTION_LOG, FEEDBACK, DEVICE_LIMITS, media
+docs/           ARCHITECTURE, FRICTION_LOG, FEEDBACK, DEVICE_LIMITS, media
 ```
 
 ## Device performance (Fire TV Stick HD, Fire OS 7.7, 922 MB RAM)
